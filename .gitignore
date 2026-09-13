@@ -1,0 +1,17 @@
+node_modules
+.next
+out
+build
+.DS_Store
+*.pem
+npm-debug.log*
+.env
+.env*.local
+next-env.d.ts
+tsconfig.tsbuildinfo
+
+# Données de crash-reporter d'outils tiers, hors projet
+.sentry-native/
+
+# Client Prisma généré — recréé par `npx prisma generate`
+/src/generated/

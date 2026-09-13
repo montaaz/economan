@@ -1,0 +1,393 @@
+import 'server-only'
+import { createSchema } from 'graphql-yoga'
+import { GraphQLError } from 'graphql'
+import { prisma } from '@/server/db'
+import { businessDay, addDays } from '@/lib/utils'
+import type { SessionUser } from '@/server/auth/session'
+import {
+  createOrder, acceptOrder, setServedLines, deliverOrder, receiveOrder, WorkflowError,
+} from '@/server/services/orders'
+
+export type Ctx = { user: SessionUser | null }
+
+const typeDefs = /* GraphQL */ `
+  scalar DateTime
+  scalar Date
+
+  enum Role { EMPLOYEE ECONOMAN ADMIN }
+  enum OrderStatus { PENDING ACCEPTED DELIVERED RECEIVED CANCELLED }
+  enum LineStatus { PENDING VALIDATED ADJUSTED REJECTED }
+
+  type Department {
+    id: ID!
+    name: String!
+    code: String!
+    color: String!
+    icon: String
+    isActive: Boolean!
+    userCount: Int!
+    productCount: Int!
+  }
+
+  type Unit { id: ID! name: String! symbol: String! allowsDecimals: Boolean! }
+
+  type Category { id: ID! name: String! icon: String sortOrder: Int! }
+
+  type Product {
+    id: ID!
+    reference: String!
+    name: String!
+    imageUrl: String
+    category: Category!
+    baseUnit: Unit!
+  }
+
+  type User {
+    id: ID!
+    username: String!
+    fullName: String!
+    role: Role!
+    avatarColor: String!
+    department: Department
+    hasPasskey: Boolean!
+  }
+
+  type OrderLine {
+    id: ID!
+    productId: ID!
+    productName: String!
+    productRef: String!
+    categoryName: String!
+    unitSymbol: String!
+    quantityAsked: Float!
+    quantityServed: Float
+    status: LineStatus!
+    rejectReason: String
+  }
+
+  type Order {
+    id: ID!
+    reference: String!
+    ticketNumber: Int!
+    businessDay: Date!
+    status: OrderStatus!
+    note: String
+    createdAt: DateTime!
+    acceptedAt: DateTime
+    deliveredAt: DateTime
+    receivedAt: DateTime
+    department: Department!
+    createdBy: User!
+    processedBy: User
+    lines: [OrderLine!]!
+    lineCount: Int!
+    totalAsked: Float!
+    totalServed: Float!
+  }
+
+  "Un département et ses commandes pour une journée donnée."
+  type DepartmentDay {
+    department: Department!
+    orders: [Order!]!
+    orderCount: Int!
+    lineCount: Int!
+    totalAsked: Float!
+    totalServed: Float!
+  }
+
+  type DayBoard {
+    day: Date!
+    departments: [DepartmentDay!]!
+    orderCount: Int!
+    lineCount: Int!
+    totalAsked: Float!
+    totalServed: Float!
+    pendingCount: Int!
+  }
+
+  input OrderLineInput { productId: ID!, quantity: Float! }
+  input ServedLineInput {
+    lineId: ID!
+    status: LineStatus!
+    quantityServed: Float
+    rejectReason: String
+  }
+
+  type Query {
+    me: User
+    "Départements actifs — alimente les cartes de la page d'accueil."
+    departments: [Department!]!
+    "Employés d'un département, pour l'écran de connexion."
+    departmentUsers(departmentId: ID!): [User!]!
+    "Catalogue visible par le département de l'employé connecté."
+    myCatalog: [Product!]!
+    "Mes commandes des N derniers jours (3 par défaut)."
+    myOrders(days: Int = 3): [Order!]!
+    order(id: ID!): Order
+    "Tableau d'une journée, groupé par département."
+    dayBoard(day: Date): DayBoard!
+    "Journées ayant au moins une commande, la plus récente d'abord."
+    activeDays(limit: Int = 30): [Date!]!
+  }
+
+  type Mutation {
+    submitOrder(lines: [OrderLineInput!]!, note: String): Order!
+    acceptOrder(id: ID!): Order!
+    setServedLines(id: ID!, lines: [ServedLineInput!]!): Order!
+    deliverOrder(id: ID!): Order!
+    receiveOrder(id: ID!): Order!
+  }
+`
+
+/* ------------------------------------------------------------------ gardes */
+
+function requireUser(ctx: Ctx): SessionUser {
+  if (!ctx.user) throw new GraphQLError('Vous n’êtes pas connecté.', { extensions: { code: 'UNAUTHENTICATED' } })
+  return ctx.user
+}
+
+function requireEmployee(ctx: Ctx) {
+  const u = requireUser(ctx)
+  if (u.role !== 'EMPLOYEE' || !u.departmentId) {
+    throw new GraphQLError('Aucun département ne vous est attribué.', { extensions: { code: 'FORBIDDEN' } })
+  }
+  return u as SessionUser & { departmentId: number }
+}
+
+function requireStaff(ctx: Ctx) {
+  const u = requireUser(ctx)
+  if (u.role !== 'ECONOMAN' && u.role !== 'ADMIN') {
+    throw new GraphQLError('Accès réservé à l’économat.', { extensions: { code: 'FORBIDDEN' } })
+  }
+  return u
+}
+
+async function run<T>(fn: () => Promise<T>): Promise<T> {
+  try {
+    return await fn()
+  } catch (e) {
+    if (e instanceof WorkflowError) {
+      throw new GraphQLError(e.message, { extensions: { code: 'BUSINESS_RULE' } })
+    }
+    throw e
+  }
+}
+
+const ORDER_INCLUDE = {
+  department: true,
+  createdBy: { include: { department: true } },
+  processedBy: { include: { department: true } },
+  lines: { orderBy: { sortOrder: 'asc' as const }, include: { unit: true } },
+}
+
+function toDate(v: unknown): Date {
+  if (v instanceof Date) return v
+  if (typeof v === 'string') return new Date(`${v}T00:00:00.000Z`)
+  return businessDay()
+}
+
+/* --------------------------------------------------------------- resolvers */
+
+const resolvers = {
+  Date: {
+    serialize: (v: Date | string) =>
+      typeof v === 'string' ? v.slice(0, 10) : v.toISOString().slice(0, 10),
+    parseValue: (v: string) => toDate(v),
+  },
+  DateTime: {
+    serialize: (v: Date | string) => (typeof v === 'string' ? v : v.toISOString()),
+    parseValue: (v: string) => new Date(v),
+  },
+
+  Department: {
+    userCount: (d: { id: number }) => prisma.user.count({ where: { departmentId: d.id, isActive: true } }),
+    productCount: (d: { id: number }) =>
+      prisma.product.count({
+        where: { isActive: true, category: { departments: { some: { departmentId: d.id } } } },
+      }),
+  },
+
+  User: {
+    hasPasskey: async (u: { id: number }) =>
+      (await prisma.credential.count({ where: { userId: u.id } })) > 0,
+  },
+
+  OrderLine: {
+    unitSymbol: (l: { unit?: { symbol: string } }) => l.unit?.symbol ?? '',
+    quantityAsked: (l: { quantityAsked: unknown }) => Number(l.quantityAsked),
+    quantityServed: (l: { quantityServed: unknown }) =>
+      l.quantityServed === null || l.quantityServed === undefined ? null : Number(l.quantityServed),
+  },
+
+  Order: {
+    lineCount: (o: { lines?: unknown[] }) => o.lines?.length ?? 0,
+    totalAsked: (o: { lines?: { quantityAsked: unknown }[] }) =>
+      (o.lines ?? []).reduce((s, l) => s + Number(l.quantityAsked), 0),
+    totalServed: (o: { lines?: { quantityServed: unknown }[] }) =>
+      (o.lines ?? []).reduce((s, l) => s + Number(l.quantityServed ?? 0), 0),
+  },
+
+  Query: {
+    me: (_p: unknown, _a: unknown, ctx: Ctx) =>
+      ctx.user ? prisma.user.findUnique({ where: { id: ctx.user.id }, include: { department: true } }) : null,
+
+    departments: () =>
+      prisma.department.findMany({ where: { isActive: true }, orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }] }),
+
+    departmentUsers: (_p: unknown, a: { departmentId: string }) =>
+      prisma.user.findMany({
+        where: { departmentId: Number(a.departmentId), isActive: true, role: 'EMPLOYEE' },
+        orderBy: { fullName: 'asc' },
+        include: { department: true },
+      }),
+
+    myCatalog: (_p: unknown, _a: unknown, ctx: Ctx) => {
+      const u = requireEmployee(ctx)
+      return prisma.product.findMany({
+        where: { isActive: true, category: { departments: { some: { departmentId: u.departmentId } } } },
+        include: { category: true, baseUnit: true },
+        orderBy: [{ category: { sortOrder: 'asc' } }, { name: 'asc' }],
+      })
+    },
+
+    myOrders: (_p: unknown, a: { days?: number }, ctx: Ctx) => {
+      const u = requireEmployee(ctx)
+      // « les 3 derniers jours » = aujourd'hui plus les deux précédents.
+      const since = addDays(businessDay(), -((a.days ?? 3) - 1))
+      return prisma.order.findMany({
+        where: { createdById: u.id, businessDay: { gte: since } },
+        include: ORDER_INCLUDE,
+        orderBy: [{ businessDay: 'desc' }, { ticketNumber: 'desc' }],
+      })
+    },
+
+    order: async (_p: unknown, a: { id: string }, ctx: Ctx) => {
+      const u = requireUser(ctx)
+      const order = await prisma.order.findUnique({ where: { id: Number(a.id) }, include: ORDER_INCLUDE })
+      if (!order) return null
+      if (u.role === 'EMPLOYEE' && order.departmentId !== u.departmentId) {
+        throw new GraphQLError('Accès refusé à cette commande.', { extensions: { code: 'FORBIDDEN' } })
+      }
+      return order
+    },
+
+    activeDays: async (_p: unknown, a: { limit?: number }, ctx: Ctx) => {
+      requireStaff(ctx)
+      const rows = await prisma.order.findMany({
+        distinct: ['businessDay'],
+        select: { businessDay: true },
+        orderBy: { businessDay: 'desc' },
+        take: a.limit ?? 30,
+      })
+      return rows.map((r) => r.businessDay)
+    },
+
+    dayBoard: async (_p: unknown, a: { day?: string }, ctx: Ctx) => {
+      requireStaff(ctx)
+      const day = a.day ? toDate(a.day) : businessDay()
+
+      const [departments, orders] = await Promise.all([
+        prisma.department.findMany({ where: { isActive: true }, orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }] }),
+        prisma.order.findMany({
+          where: { businessDay: day },
+          include: ORDER_INCLUDE,
+          orderBy: [{ departmentId: 'asc' }, { ticketNumber: 'asc' }],
+        }),
+      ])
+
+      const byDept = new Map<number, typeof orders>()
+      for (const o of orders) {
+        const list = byDept.get(o.departmentId)
+        if (list) list.push(o)
+        else byDept.set(o.departmentId, [o])
+      }
+
+      const sum = (list: typeof orders, pick: (l: (typeof orders)[0]['lines'][0]) => number) =>
+        list.reduce((s, o) => s + o.lines.reduce((t, l) => t + pick(l), 0), 0)
+
+      const groups = departments
+        .map((d) => {
+          const list = byDept.get(d.id) ?? []
+          return {
+            department: d,
+            orders: list,
+            orderCount: list.length,
+            lineCount: list.reduce((s, o) => s + o.lines.length, 0),
+            totalAsked: sum(list, (l) => Number(l.quantityAsked)),
+            totalServed: sum(list, (l) => Number(l.quantityServed ?? 0)),
+          }
+        })
+        // Un département sans commande du jour n'a pas à occuper l'écran.
+        .filter((g) => g.orderCount > 0)
+
+      return {
+        day,
+        departments: groups,
+        orderCount: orders.length,
+        lineCount: groups.reduce((s, g) => s + g.lineCount, 0),
+        totalAsked: groups.reduce((s, g) => s + g.totalAsked, 0),
+        totalServed: groups.reduce((s, g) => s + g.totalServed, 0),
+        pendingCount: orders.filter((o) => o.status === 'PENDING').length,
+      }
+    },
+  },
+
+  Mutation: {
+    submitOrder: async (
+      _p: unknown,
+      a: { lines: { productId: string; quantity: number }[]; note?: string },
+      ctx: Ctx,
+    ) => {
+      const u = requireEmployee(ctx)
+      const created = await run(() =>
+        createOrder({
+          actor: u,
+          lines: a.lines.map((l) => ({ productId: Number(l.productId), quantity: l.quantity })),
+          note: a.note,
+        }),
+      )
+      return prisma.order.findUniqueOrThrow({ where: { id: created.id }, include: ORDER_INCLUDE })
+    },
+
+    acceptOrder: async (_p: unknown, a: { id: string }, ctx: Ctx) => {
+      const u = requireStaff(ctx)
+      await run(() => acceptOrder(Number(a.id), u.id))
+      return prisma.order.findUniqueOrThrow({ where: { id: Number(a.id) }, include: ORDER_INCLUDE })
+    },
+
+    setServedLines: async (
+      _p: unknown,
+      a: { id: string; lines: { lineId: string; status: 'VALIDATED' | 'ADJUSTED' | 'REJECTED'; quantityServed?: number; rejectReason?: string }[] },
+      ctx: Ctx,
+    ) => {
+      const u = requireStaff(ctx)
+      await run(() =>
+        setServedLines(
+          Number(a.id),
+          u.id,
+          a.lines.map((l) => ({
+            lineId: Number(l.lineId),
+            status: l.status,
+            quantityServed: l.quantityServed,
+            rejectReason: l.rejectReason,
+          })),
+        ),
+      )
+      return prisma.order.findUniqueOrThrow({ where: { id: Number(a.id) }, include: ORDER_INCLUDE })
+    },
+
+    deliverOrder: async (_p: unknown, a: { id: string }, ctx: Ctx) => {
+      const u = requireStaff(ctx)
+      await run(() => deliverOrder(Number(a.id), u.id))
+      return prisma.order.findUniqueOrThrow({ where: { id: Number(a.id) }, include: ORDER_INCLUDE })
+    },
+
+    receiveOrder: async (_p: unknown, a: { id: string }, ctx: Ctx) => {
+      const u = requireEmployee(ctx)
+      await run(() => receiveOrder(Number(a.id), u))
+      return prisma.order.findUniqueOrThrow({ where: { id: Number(a.id) }, include: ORDER_INCLUDE })
+    },
+  },
+}
+
+export const schema = createSchema<Ctx>({ typeDefs, resolvers })

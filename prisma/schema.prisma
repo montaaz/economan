@@ -1,0 +1,255 @@
+// Economan 2 — Commandes par département
+// Toutes les clés primaires sont des entiers auto-incrémentés (serial).
+// Les index sont posés sur tous les chemins de lecture chauds.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ─────────────────────────────────────────────────────────────
+// Catalogue
+// ─────────────────────────────────────────────────────────────
+
+model Department {
+  id        Int      @id @default(autoincrement())
+  name      String   @unique
+  code      String   @unique
+  color     String   @default("#38bdf8")
+  icon      String?
+  sortOrder Int      @default(0)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  categories DepartmentCategory[]
+  users      User[]
+  orders     Order[]
+
+  @@index([isActive, sortOrder])
+  @@map("departments")
+}
+
+model Category {
+  id          Int      @id @default(autoincrement())
+  name        String   @unique
+  description String?
+  icon        String?
+  sortOrder   Int      @default(0)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  products    Product[]
+  departments DepartmentCategory[]
+
+  @@index([isActive, sortOrder])
+  @@map("categories")
+}
+
+/// Affectation : quelles catégories (donc quels articles) un département peut commander.
+model DepartmentCategory {
+  departmentId Int
+  categoryId   Int
+  sortOrder    Int @default(0)
+
+  department Department @relation(fields: [departmentId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  category   Category   @relation(fields: [categoryId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@id([departmentId, categoryId])
+  @@index([categoryId])
+  @@index([departmentId, sortOrder])
+  @@map("department_categories")
+}
+
+model Unit {
+  id             Int      @id @default(autoincrement())
+  name           String   @unique
+  symbol         String   @unique
+  allowsDecimals Boolean  @default(true)
+  createdAt      DateTime @default(now())
+
+  products   Product[]
+  orderLines OrderLine[]
+
+  @@map("units")
+}
+
+model Product {
+  id          Int      @id @default(autoincrement())
+  reference   String   @unique
+  name        String
+  description String?
+  imageUrl    String?
+  categoryId  Int
+  baseUnitId  Int
+  sortOrder   Int      @default(0)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  category Category    @relation(fields: [categoryId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  baseUnit Unit        @relation(fields: [baseUnitId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  lines    OrderLine[]
+
+  // Chemin chaud : « tous les articles actifs d'une catégorie, triés ».
+  @@index([categoryId, isActive, sortOrder])
+  @@index([isActive])
+  @@index([name])
+  @@map("products")
+}
+
+// ─────────────────────────────────────────────────────────────
+// Utilisateurs
+// ─────────────────────────────────────────────────────────────
+
+enum Role {
+  EMPLOYEE
+  ECONOMAN
+  ADMIN
+}
+
+model User {
+  id           Int      @id @default(autoincrement())
+  username     String   @unique
+  fullName     String
+  passwordHash String
+  role         Role     @default(EMPLOYEE)
+  departmentId Int?
+  avatarColor  String   @default("#38bdf8")
+  isActive     Boolean  @default(true)
+  lastLoginAt  DateTime?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  department  Department?  @relation(fields: [departmentId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  credentials Credential[]
+
+  ordersCreated   Order[] @relation("OrderCreatedBy")
+  ordersProcessed Order[] @relation("OrderProcessedBy")
+
+  @@index([departmentId, isActive])
+  @@index([role, isActive])
+  @@map("users")
+}
+
+/// Empreinte digitale / passkey (WebAuthn). Un utilisateur peut enrôler plusieurs appareils.
+model Credential {
+  id             Int      @id @default(autoincrement())
+  userId         Int
+  credentialId   String   @unique
+  publicKey      Bytes
+  counter        BigInt   @default(0)
+  transports     String?
+  deviceLabel    String?
+  createdAt      DateTime @default(now())
+  lastUsedAt     DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@index([userId])
+  @@map("credentials")
+}
+
+/// Challenge WebAuthn éphémère (inscription et authentification).
+model WebAuthnChallenge {
+  id        Int      @id @default(autoincrement())
+  key       String   @unique
+  challenge String
+  userId    Int?
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([expiresAt])
+  @@map("webauthn_challenges")
+}
+
+// ─────────────────────────────────────────────────────────────
+// Commandes
+// ─────────────────────────────────────────────────────────────
+
+enum OrderStatus {
+  PENDING    // envoyée par l'employé, en attente chez l'économat
+  ACCEPTED   // ouverte / en cours de traitement par l'économat
+  DELIVERED  // bon de livraison émis, en route
+  RECEIVED   // l'employé a confirmé la réception — dossier clos
+  CANCELLED
+}
+
+enum LineStatus {
+  PENDING
+  VALIDATED  // servi tel que demandé
+  ADJUSTED   // servi en quantité différente
+  REJECTED   // rupture
+}
+
+model Order {
+  id           Int         @id @default(autoincrement())
+  reference    String      @unique
+  ticketNumber Int
+  businessDay  DateTime    @db.Date
+  departmentId Int
+  createdById  Int
+  processedById Int?
+  status       OrderStatus @default(PENDING)
+  note         String?
+  createdAt    DateTime    @default(now())
+  acceptedAt   DateTime?
+  deliveredAt  DateTime?
+  receivedAt   DateTime?
+  updatedAt    DateTime    @updatedAt
+
+  department  Department @relation(fields: [departmentId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  createdBy   User       @relation("OrderCreatedBy", fields: [createdById], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  processedBy User?      @relation("OrderProcessedBy", fields: [processedById], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  lines       OrderLine[]
+
+  // Un seul numéro de ticket par jour et par département.
+  @@unique([businessDay, departmentId, ticketNumber])
+  // Dashboard admin/économat : « toutes les commandes du jour, groupées par département ».
+  @@index([businessDay, departmentId, ticketNumber])
+  @@index([status, businessDay])
+  // « Mes commandes des 3 derniers jours ».
+  @@index([createdById, createdAt])
+  @@index([departmentId, createdAt])
+  @@map("orders")
+}
+
+model OrderLine {
+  id              Int        @id @default(autoincrement())
+  orderId         Int
+  productId       Int
+  unitId          Int
+  productName     String     // figé à la commande, pour que le bon reste lisible
+  productRef      String
+  categoryName    String
+  quantityAsked   Decimal    @db.Decimal(14, 3)
+  quantityServed  Decimal?   @db.Decimal(14, 3)
+  status          LineStatus @default(PENDING)
+  rejectReason    String?
+  sortOrder       Int        @default(0)
+
+  order   Order   @relation(fields: [orderId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  product Product @relation(fields: [productId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  unit    Unit    @relation(fields: [unitId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  // Une ligne par article et par commande.
+  @@unique([orderId, productId])
+  @@index([orderId, sortOrder])
+  @@index([productId])
+  @@map("order_lines")
+}
+
+/// Compteur de tickets, un par jour et par département. Incrémenté atomiquement.
+model TicketCounter {
+  businessDay  DateTime @db.Date
+  departmentId Int
+  lastNumber   Int      @default(0)
+
+  @@id([businessDay, departmentId])
+  @@map("ticket_counters")
+}

@@ -1,0 +1,320 @@
+@import "tailwindcss";
+
+/* =========================================================================
+   ECONOMAN 2 — design system « verre optique »
+   Cristal froid sur fond clair : arêtes spéculaires, réfraction bleutée,
+   ombres ambiantes douces. Thème clair uniquement.
+   ========================================================================= */
+
+:root {
+  --bg: #eef3fb;
+  --bg-2: #e2ebf8;
+  --bg-3: #f7fafe;
+
+  --fg: #0f1e33;
+  --fg-muted: #4a5f7d;
+  --fg-subtle: #7089a8;
+
+  --glass: 255 255 255;
+  --glass-op: 0.62;
+  --glass-border: 255 255 255;
+  --glass-border-op: 0.85;
+  --glass-edge: 148 178 218;
+
+  --accent: #2f7fe0;
+  --accent-soft: #6aa8f2;
+  --accent-deep: #1c4f96;
+
+  --ok: #0f9b6c;
+  --warn: #e07f16;
+  --danger: #d63f5a;
+  --info: #3b82f6;
+
+  --shadow-ambient: 20 46 88;
+  --radius: 18px;
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-bg-2: var(--bg-2);
+  --color-bg-3: var(--bg-3);
+  --color-fg: var(--fg);
+  --color-fg-muted: var(--fg-muted);
+  --color-fg-subtle: var(--fg-subtle);
+  --color-accent: var(--accent);
+  --color-accent-soft: var(--accent-soft);
+  --color-accent-deep: var(--accent-deep);
+  --color-ok: var(--ok);
+  --color-warn: var(--warn);
+  --color-danger: var(--danger);
+  --color-info: var(--info);
+  --radius-glass: var(--radius);
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+}
+
+* {
+  border-color: rgb(var(--glass-edge) / 0.18);
+}
+
+html {
+  color-scheme: light;
+  -webkit-text-size-adjust: 100%;
+}
+
+/* Champ lumineux ambiant — le « studio » dans lequel le verre repose. */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(58rem 42rem at 12% -8%, rgb(120 170 245 / 0.3), transparent 60%),
+    radial-gradient(48rem 38rem at 92% 4%, rgb(160 205 255 / 0.34), transparent 62%),
+    radial-gradient(52rem 46rem at 68% 104%, rgb(96 150 235 / 0.22), transparent 64%),
+    linear-gradient(168deg, var(--bg-3) 0%, var(--bg) 46%, var(--bg-2) 100%);
+}
+
+/* ------------------------------------------------------------------ verre */
+
+@utility glass {
+  position: relative;
+  background: rgb(var(--glass) / var(--glass-op));
+  border: 1px solid rgb(var(--glass-border) / var(--glass-border-op));
+  border-radius: var(--radius);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  box-shadow:
+    0 1px 0 0 rgb(255 255 255 / 0.7) inset,
+    0 -1px 0 0 rgb(var(--glass-edge) / 0.12) inset,
+    0 10px 30px -12px rgb(var(--shadow-ambient) / 0.28),
+    0 2px 8px -3px rgb(var(--shadow-ambient) / 0.14);
+}
+
+@utility glass-deep {
+  position: relative;
+  background: linear-gradient(
+    150deg,
+    rgb(var(--glass) / calc(var(--glass-op) + 0.16)),
+    rgb(var(--glass) / calc(var(--glass-op) - 0.06))
+  );
+  border: 1px solid rgb(var(--glass-border) / var(--glass-border-op));
+  border-radius: calc(var(--radius) + 4px);
+  backdrop-filter: blur(30px) saturate(190%);
+  -webkit-backdrop-filter: blur(30px) saturate(190%);
+  box-shadow:
+    0 1px 0 0 rgb(255 255 255 / 0.85) inset,
+    0 -1px 0 0 rgb(var(--glass-edge) / 0.16) inset,
+    0 24px 60px -22px rgb(var(--shadow-ambient) / 0.36),
+    0 6px 18px -8px rgb(var(--shadow-ambient) / 0.18);
+}
+
+@utility glass-specular {
+  &::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    pointer-events: none;
+    background: linear-gradient(
+      100deg,
+      transparent 0%,
+      rgb(255 255 255 / 0.5) 42%,
+      rgb(255 255 255 / 0.14) 52%,
+      transparent 62%
+    );
+    opacity: 0.65;
+    mix-blend-mode: screen;
+  }
+}
+
+@utility glass-hover {
+  transition:
+    transform 0.28s cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 0.28s cubic-bezier(0.22, 1, 0.36, 1),
+    border-color 0.28s ease;
+
+  &:hover {
+    transform: translateY(-2px);
+    border-color: rgb(var(--glass-border) / 1);
+    box-shadow:
+      0 1px 0 0 rgb(255 255 255 / 0.9) inset,
+      0 -1px 0 0 rgb(var(--glass-edge) / 0.18) inset,
+      0 22px 48px -18px rgb(var(--shadow-ambient) / 0.34),
+      0 4px 14px -6px rgb(var(--shadow-ambient) / 0.2);
+  }
+}
+
+@utility glass-rim {
+  &::before {
+    content: "";
+    position: absolute;
+    inset: -1px;
+    border-radius: inherit;
+    padding: 1px;
+    pointer-events: none;
+    background: conic-gradient(
+      from 140deg,
+      rgb(255 255 255 / 0.95),
+      rgb(174 214 255 / 0.75),
+      rgb(255 255 255 / 0.3),
+      rgb(198 226 255 / 0.8),
+      rgb(255 255 255 / 0.95)
+    );
+    -webkit-mask:
+      linear-gradient(#000 0 0) content-box,
+      linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask:
+      linear-gradient(#000 0 0) content-box,
+      linear-gradient(#000 0 0);
+    mask-composite: exclude;
+    opacity: 0.9;
+  }
+}
+
+/* --------------------------------------------------------------- champs */
+
+@utility field {
+  width: 100%;
+  background: rgb(255 255 255 / 0.72);
+  border: 1px solid rgb(var(--glass-edge) / 0.32);
+  border-radius: 12px;
+  padding: 0.62rem 0.85rem;
+  color: var(--fg);
+  font-size: 0.925rem;
+  line-height: 1.4;
+  transition:
+    border-color 0.18s ease,
+    box-shadow 0.18s ease,
+    background 0.18s ease;
+
+  &::placeholder { color: var(--fg-subtle); }
+
+  &:hover:not(:disabled):not(:focus) {
+    border-color: rgb(var(--glass-edge) / 0.5);
+  }
+
+  &:focus {
+    outline: none;
+    background: rgb(255 255 255 / 0.92);
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3.5px rgb(47 127 224 / 0.16);
+  }
+
+  &:disabled { opacity: 0.55; cursor: not-allowed; }
+
+  &[aria-invalid="true"] {
+    border-color: var(--danger);
+    box-shadow: 0 0 0 3.5px rgb(214 63 90 / 0.14);
+  }
+}
+
+/* iOS zoome le viewport quand un champ focalisé fait moins de 16px. */
+@media (max-width: 640px) {
+  .field, input, select, textarea { font-size: 16px; }
+}
+
+/* --------------------------------------------------------------- motion */
+
+@keyframes rise {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes sheen {
+  0% { background-position: -140% 0; }
+  100% { background-position: 240% 0; }
+}
+
+@utility animate-rise {
+  animation: rise 0.42s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@utility skeleton {
+  background: linear-gradient(
+    90deg,
+    rgb(var(--glass-edge) / 0.1) 0%,
+    rgb(var(--glass-edge) / 0.2) 50%,
+    rgb(var(--glass-edge) / 0.1) 100%
+  );
+  background-size: 220% 100%;
+  animation: sheen 1.5s ease-in-out infinite;
+  border-radius: 10px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+  .glass-hover:hover { transform: none; }
+}
+
+/* ------------------------------------------------------------ scrollbar */
+
+@media (min-width: 768px) {
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: rgb(var(--glass-edge) / 0.4) transparent;
+  }
+  *::-webkit-scrollbar { width: 10px; height: 10px; }
+  *::-webkit-scrollbar-track { background: transparent; }
+  *::-webkit-scrollbar-thumb {
+    background: rgb(var(--glass-edge) / 0.34);
+    border-radius: 8px;
+    border: 2px solid transparent;
+    background-clip: content-box;
+  }
+  *::-webkit-scrollbar-thumb:hover {
+    background: rgb(var(--glass-edge) / 0.5);
+    background-clip: content-box;
+  }
+}
+
+/* Le contenu large défile dans son conteneur, jamais dans le body. */
+@utility scroll-x {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* ------------------------------------------------------------------ a11y */
+
+:where(a, button, input, select, textarea, [tabindex]):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 8px;
+}
+
+/* ----------------------------------------------------------- impression */
+
+@media print {
+  @page { margin: 12mm; size: A4; }
+
+  body::before { display: none; }
+  body { background: #fff; }
+
+  .glass, .glass-deep {
+    background: #fff !important;
+    backdrop-filter: none !important;
+    box-shadow: none !important;
+    border: 1px solid #ccc !important;
+  }
+
+  .no-print { display: none !important; }
+
+  /* Un ticket par page quand on imprime une pile de bons. */
+  .print-page { break-after: page; }
+  .print-page:last-child { break-after: auto; }
+
+  .print-only { display: block !important; }
+
+  table { break-inside: auto; }
+  tr { break-inside: avoid; break-after: auto; }
+  thead { display: table-header-group; }
+}
+
+.print-only { display: none; }

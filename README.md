@@ -128,6 +128,48 @@ Mesures sur le jeu de données réel (544 articles) :
 
 ---
 
+## Déploiement (Vercel)
+
+Le client Prisma n'est pas versionné : il est régénéré par le `postinstall`
+(`prisma generate`), et de nouveau au build. Aucune configuration
+supplémentaire n'est nécessaire côté commande de build.
+
+### Variables d'environnement à renseigner
+
+| Variable            | Obligatoire | Valeur                                                     |
+| ------------------- | ----------- | ---------------------------------------------------------- |
+| `DATABASE_URL`      | oui         | URL Postgres accessible depuis l'extérieur (voir plus bas)  |
+| `AUTH_SECRET`       | oui         | `openssl rand -base64 32` — une valeur unique, jamais celle d'un exemple |
+| `AUTH_TRUST_HOST`   | oui         | `true`                                                      |
+| `WEBAUTHN_RP_ID`    | pour l'empreinte | le domaine seul, ex. `economan.vercel.app` (ni protocole, ni port) |
+| `WEBAUTHN_ORIGIN`   | pour l'empreinte | l'URL complète, ex. `https://economan.vercel.app`      |
+| `WEBAUTHN_RP_NAME`  | non         | nom affiché lors de l'enrôlement                            |
+| `DATABASE_POOL_MAX` | non         | taille du pool par instance (défaut : 3 en serverless)      |
+
+**`localhost` ne fonctionne pas en ligne.** La base doit être joignable depuis
+Internet — Neon, Supabase, Railway ou un Postgres managé. Derrière un pooler
+(PgBouncer, Supabase), utiliser l'URL de *pooling* fournie par l'hébergeur.
+
+### Après le premier déploiement
+
+```bash
+DATABASE_URL="<url de production>" npx prisma migrate deploy
+DATABASE_URL="<url de production>" npm run db:import          # catalogue
+DATABASE_URL="<url de production>" npx tsx prisma/assign-categories.ts
+```
+
+L'import lit la base source `economan` ; sans elle, créez départements,
+catégories et articles depuis l'interface d'administration.
+
+### Empreinte digitale en production
+
+WebAuthn exige HTTPS — ce que Vercel fournit. Il faut simplement que
+`WEBAUTHN_RP_ID` corresponde exactement au domaine servi : une empreinte
+enrôlée sur `economan.vercel.app` ne fonctionnera pas sur un domaine
+personnalisé ajouté plus tard, elle devra être ré-enrôlée.
+
+---
+
 ## Scripts
 
 | Commande                              | Rôle                                        |

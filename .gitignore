@@ -6,7 +6,8 @@ build
 *.pem
 npm-debug.log*
 .env
-.env*.local
+.env.*
+!.env.example
 next-env.d.ts
 tsconfig.tsbuildinfo
 

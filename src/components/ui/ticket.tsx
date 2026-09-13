@@ -6,6 +6,8 @@ export type TicketLine = {
   productRef: string
   categoryName: string
   unitSymbol: string
+  stockFixe: number
+  quantityOnHand: number
   quantityAsked: number
   quantityServed: number | null
   status: 'PENDING' | 'VALIDATED' | 'ADJUSTED' | 'REJECTED'
@@ -79,6 +81,8 @@ export function Ticket({
             <th className="w-8 px-2 py-1.5 text-right font-semibold">#</th>
             <th className="px-2 py-1.5 text-left font-semibold">Article</th>
             <th className="w-16 px-2 py-1.5 text-left font-semibold">Unité</th>
+            <th className="w-16 px-2 py-1.5 text-right font-semibold">Fixe</th>
+            <th className="w-16 px-2 py-1.5 text-right font-semibold">En rayon</th>
             <th className="w-20 px-2 py-1.5 text-right font-semibold">Demandé</th>
             {isBon ? <th className="w-20 px-2 py-1.5 text-right font-semibold">Servi</th> : null}
           </tr>
@@ -92,6 +96,12 @@ export function Ticket({
                 <span className="ml-1.5 font-mono text-[0.7rem] text-[#4a5f7d]">{l.productRef}</span>
               </td>
               <td className="px-2 py-1">{l.unitSymbol}</td>
+              <td className="px-2 py-1 text-right tabular-nums text-[#4a5f7d]">
+                {formatQty(l.stockFixe)}
+              </td>
+              <td className="px-2 py-1 text-right tabular-nums text-[#4a5f7d]">
+                {formatQty(l.quantityOnHand)}
+              </td>
               <td className="px-2 py-1 text-right tabular-nums">{formatQty(l.quantityAsked)}</td>
               {isBon ? (
                 <td className="px-2 py-1 text-right font-semibold tabular-nums">
@@ -104,7 +114,7 @@ export function Ticket({
         </tbody>
         <tfoot>
           <tr className="border-t-2 border-[#0f1e33] font-bold">
-            <td colSpan={3} className="px-2 py-1.5 text-right">
+            <td colSpan={5} className="px-2 py-1.5 text-right">
               Total ({lines.length} lignes)
             </td>
             <td className="px-2 py-1.5 text-right tabular-nums">

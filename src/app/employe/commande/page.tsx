@@ -14,6 +14,7 @@ const QUERY = /* GraphQL */ `
       id
       name
       reference
+      stockFixe
       category { id name icon }
       baseUnit { id symbol allowsDecimals }
     }
@@ -28,7 +29,7 @@ export default async function NewOrderPage() {
     <>
       <PageHeader
         title="Nouvelle commande"
-        description="Renseignez chaque ligne de la feuille. Saisissez 0 pour un article dont vous n’avez pas besoin — seules les quantités supérieures à 0 partent à l’économat."
+        description="Relevez votre stock article par article. La quantité commandée se calcule seule : stock fixe moins ce que vous avez en rayon."
       />
       <NewOrderForm
         products={data.myCatalog}

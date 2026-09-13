@@ -57,6 +57,8 @@ export const ORDER_QUERY = /* GraphQL */ `
         productRef
         categoryName
         unitSymbol
+        stockFixe
+        quantityOnHand
         quantityAsked
         quantityServed
         status

@@ -70,42 +70,72 @@ async function main() {
   })
 
   console.log('\n1. Catalogue du département')
-  const cat = await gql<{ myCatalog: { id: string; name: string; baseUnit: { symbol: string } }[] }>(
+  const cat = await gql<{
+    myCatalog: { id: string; name: string; stockFixe: number; baseUnit: { symbol: string } }[]
+  }>(
     barCookie,
-    `query { myCatalog { id name reference baseUnit { symbol } category { name } } }`,
+    `query { myCatalog { id name reference stockFixe baseUnit { symbol } category { name } } }`,
   )
   check('catalogue chargé', cat.myCatalog.length > 0, `${cat.myCatalog.length} articles`)
+  const withPar = cat.myCatalog.filter((p) => p.stockFixe > 0)
+  check('stock fixe exposé au catalogue', withPar.length > 0,
+    `${withPar.length} article(s) avec une cible`)
 
-  console.log('\n2. Envoi de la commande (les 0 ne sont pas enregistrés)')
-  const picked = cat.myCatalog.slice(0, 4)
-  const order = await gql<{ submitOrder: { id: string; reference: string; ticketNumber: number; lineCount: number } }>(
+  console.log('\n2. Envoi : la quantité est calculée (stock fixe − stock compté)')
+  const picked = withPar.slice(0, 4)
+  // Stocks déclarés : sous la cible, sous la cible, pile la cible, à zéro.
+  const declared = [
+    { p: picked[0], onHand: Math.max(picked[0].stockFixe - 3, 0) },
+    { p: picked[1], onHand: Math.max(picked[1].stockFixe - 1, 0) },
+    { p: picked[2], onHand: picked[2].stockFixe },        // couvert → ignoré
+    { p: picked[3], onHand: 0 },                          // vide → cible entière
+  ]
+  const expected = declared.map((d) => Math.max(d.p.stockFixe - d.onHand, 0))
+
+  const order = await gql<{
+    submitOrder: {
+      id: string; reference: string; ticketNumber: number; lineCount: number
+      totalAsked: number
+      lines: { productName: string; stockFixe: number; quantityOnHand: number; quantityAsked: number }[]
+    }
+  }>(
     barCookie,
     `mutation ($lines: [OrderLineInput!]!, $note: String) {
-       submitOrder(lines: $lines, note: $note) { id reference ticketNumber lineCount status }
+       submitOrder(lines: $lines, note: $note) {
+         id reference ticketNumber lineCount status totalAsked
+         lines { productName stockFixe quantityOnHand quantityAsked }
+       }
      }`,
     {
-      lines: [
-        { productId: picked[0].id, quantity: 5 },
-        { productId: picked[1].id, quantity: 2.5 },
-        { productId: picked[2].id, quantity: 0 }, // doit être ignoré
-        { productId: picked[3].id, quantity: 12 },
-      ],
+      lines: declared.map((d) => ({ productId: d.p.id, quantityOnHand: d.onHand })),
       note: 'Test automatisé',
     },
   )
   const o = order.submitOrder
   check('commande créée', !!o.id, o.reference)
-  check('les lignes à 0 ne sont pas enregistrées', o.lineCount === 3, `${o.lineCount} lignes sur 4 saisies`)
+
+  // Seules les lignes dont l'écart est positif doivent exister.
+  const positives = expected.filter((q) => q > 0).length
+  check('les lignes déjà couvertes ne partent pas', o.lineCount === positives,
+    `${o.lineCount} ligne(s) pour ${positives} écart(s) positif(s) sur 4 saisies`)
+
+  const arithmetic = o.lines.every(
+    (l) => l.quantityAsked === Math.max(l.stockFixe - l.quantityOnHand, 0),
+  )
+  check('quantité = stock fixe − stock compté', arithmetic,
+    o.lines.map((l) => `${l.stockFixe}−${l.quantityOnHand}=${l.quantityAsked}`).join('  '))
+
   check('numéro de ticket attribué', o.ticketNumber >= 1, `n°${o.ticketNumber}`)
 
-  console.log('\n3. Refus d’une commande entièrement à zéro')
+  console.log('\n3. Refus quand les stocks couvrent déjà la cible')
   try {
     await gql(barCookie, `mutation ($l: [OrderLineInput!]!) { submitOrder(lines: $l) { id } }`, {
-      l: [{ productId: picked[0].id, quantity: 0 }],
+      // Stock supérieur à la cible : écart négatif, ramené à 0.
+      l: [{ productId: picked[0].id, quantityOnHand: picked[0].stockFixe + 5 }],
     })
-    check('commande vide rejetée', false, 'elle a été acceptée')
+    check('commande sans écart rejetée', false, 'elle a été acceptée')
   } catch (e) {
-    check('commande vide rejetée', true, (e as Error).message)
+    check('commande sans écart rejetée', true, (e as Error).message)
   }
 
   console.log('\n4. Cloisonnement entre départements')
@@ -120,7 +150,7 @@ async function main() {
       console.log('  · (toutes les catégories sont affectées au Bar — test non applicable)')
     } else {
       await gql(barCookie, `mutation ($l: [OrderLineInput!]!) { submitOrder(lines: $l) { id } }`, {
-        l: [{ productId: String(other.rows[0].id), quantity: 1 }],
+        l: [{ productId: String(other.rows[0].id), quantityOnHand: 0 }],
       })
       check('article hors département refusé', false, 'il a été accepté')
     }
@@ -209,12 +239,24 @@ async function main() {
   const second = await gql<{ submitOrder: { ticketNumber: number } }>(
     barCookie,
     `mutation ($l: [OrderLineInput!]!) { submitOrder(lines: $l) { id ticketNumber } }`,
-    { l: [{ productId: picked[0].id, quantity: 3 }] },
+    { l: [{ productId: picked[0].id, quantityOnHand: 0 }] },
   )
   check('ticket suivant incrémenté', second.submitOrder.ticketNumber === o.ticketNumber + 1,
     `n°${o.ticketNumber} puis n°${second.submitOrder.ticketNumber}`)
 
-  console.log('\n12. Vue administrateur')
+  console.log('\n12. Le stock fixe vient de la base, pas du client')
+  const tampered = await gql<{ submitOrder: { lines: { stockFixe: number; quantityAsked: number }[] } }>(
+    barCookie,
+    `mutation ($l: [OrderLineInput!]!) {
+       submitOrder(lines: $l) { id lines { stockFixe quantityAsked } }
+     }`,
+    // Le client n'a aucun moyen d'annoncer une cible : seul le stock est transmis.
+    { l: [{ productId: picked[3].id, quantityOnHand: 0 }] },
+  )
+  check('cible relue côté serveur', tampered.submitOrder.lines[0].stockFixe === picked[3].stockFixe,
+    `cible ${tampered.submitOrder.lines[0].stockFixe} attendue ${picked[3].stockFixe}`)
+
+  console.log('\n13. Vue administrateur')
   const adminBoard = await gql<{ dayBoard: { orderCount: number; totalAsked: number; totalServed: number } }>(
     adminCookie,
     `query { dayBoard { day orderCount lineCount totalAsked totalServed departments { department { name } orderCount totalAsked } } }`,

@@ -40,6 +40,14 @@ const typeDefs = /* GraphQL */ `
     imageUrl: String
     category: Category!
     baseUnit: Unit!
+    "Quantité cible pour le département de l'appelant. 0 si non réglée."
+    stockFixe: Float!
+  }
+
+  "Ligne de la matrice de réglage du stock fixe, côté administration."
+  type StockFixeLine {
+    product: Product!
+    quantity: Float!
   }
 
   type User {
@@ -55,6 +63,10 @@ const typeDefs = /* GraphQL */ `
   type OrderLine {
     id: ID!
     productId: ID!
+    "Cible au moment de l'envoi."
+    stockFixe: Float!
+    "Stock compté par l'employé au moment de l'envoi."
+    quantityOnHand: Float!
     productName: String!
     productRef: String!
     categoryName: String!
@@ -105,7 +117,9 @@ const typeDefs = /* GraphQL */ `
     pendingCount: Int!
   }
 
-  input OrderLineInput { productId: ID!, quantity: Float! }
+  "L'employé déclare le stock qu'il a en rayon ; le serveur en déduit la quantité."
+  input OrderLineInput { productId: ID!, quantityOnHand: Float! }
+  input StockFixeInput { productId: ID!, quantity: Float! }
   input ServedLineInput {
     lineId: ID!
     status: LineStatus!
@@ -128,6 +142,8 @@ const typeDefs = /* GraphQL */ `
     dayBoard(day: Date): DayBoard!
     "Journées ayant au moins une commande, la plus récente d'abord."
     activeDays(limit: Int = 30): [Date!]!
+    "Stock fixe d'un département, tous ses articles — écran d'administration."
+    stockFixeMatrix(departmentId: ID!): [StockFixeLine!]!
   }
 
   type Mutation {
@@ -136,6 +152,8 @@ const typeDefs = /* GraphQL */ `
     setServedLines(id: ID!, lines: [ServedLineInput!]!): Order!
     deliverOrder(id: ID!): Order!
     receiveOrder(id: ID!): Order!
+    "Administration : règle le stock fixe d'un département."
+    setStockFixe(departmentId: ID!, lines: [StockFixeInput!]!): Int!
   }
 `
 
@@ -214,6 +232,8 @@ const resolvers = {
 
   OrderLine: {
     unitSymbol: (l: { unit?: { symbol: string } }) => l.unit?.symbol ?? '',
+    stockFixe: (l: { stockFixe: unknown }) => Number(l.stockFixe ?? 0),
+    quantityOnHand: (l: { quantityOnHand: unknown }) => Number(l.quantityOnHand ?? 0),
     quantityAsked: (l: { quantityAsked: unknown }) => Number(l.quantityAsked),
     quantityServed: (l: { quantityServed: unknown }) =>
       l.quantityServed === null || l.quantityServed === undefined ? null : Number(l.quantityServed),
@@ -241,13 +261,22 @@ const resolvers = {
         include: { department: true },
       }),
 
-    myCatalog: (_p: unknown, _a: unknown, ctx: Ctx) => {
+    myCatalog: async (_p: unknown, _a: unknown, ctx: Ctx) => {
       const u = requireEmployee(ctx)
-      return prisma.product.findMany({
-        where: { isActive: true, category: { departments: { some: { departmentId: u.departmentId } } } },
-        include: { category: true, baseUnit: true },
-        orderBy: [{ category: { sortOrder: 'asc' } }, { name: 'asc' }],
-      })
+      const [products, pars] = await Promise.all([
+        prisma.product.findMany({
+          where: { isActive: true, category: { departments: { some: { departmentId: u.departmentId } } } },
+          include: { category: true, baseUnit: true },
+          orderBy: [{ category: { sortOrder: 'asc' } }, { name: 'asc' }],
+        }),
+        prisma.stockFixe.findMany({
+          where: { departmentId: u.departmentId },
+          select: { productId: true, quantity: true },
+        }),
+      ])
+      const parBy = new Map(pars.map((p) => [p.productId, Number(p.quantity)]))
+      // Un article sans réglage vaut 0 : il s'affiche, mais ne sera pas commandé.
+      return products.map((p) => ({ ...p, stockFixe: parBy.get(p.id) ?? 0 }))
     },
 
     myOrders: (_p: unknown, a: { days?: number }, ctx: Ctx) => {
@@ -280,6 +309,33 @@ const resolvers = {
         take: a.limit ?? 30,
       })
       return rows.map((r) => r.businessDay)
+    },
+
+    stockFixeMatrix: async (_p: unknown, a: { departmentId: string }, ctx: Ctx) => {
+      requireUser(ctx)
+      const u = ctx.user!
+      if (u.role !== 'ADMIN') {
+        throw new GraphQLError('Réglage réservé à l’administration.', {
+          extensions: { code: 'FORBIDDEN' },
+        })
+      }
+      const departmentId = Number(a.departmentId)
+      const [products, pars] = await Promise.all([
+        prisma.product.findMany({
+          where: { isActive: true, category: { departments: { some: { departmentId } } } },
+          include: { category: true, baseUnit: true },
+          orderBy: [{ category: { sortOrder: 'asc' } }, { name: 'asc' }],
+        }),
+        prisma.stockFixe.findMany({
+          where: { departmentId },
+          select: { productId: true, quantity: true },
+        }),
+      ])
+      const parBy = new Map(pars.map((p) => [p.productId, Number(p.quantity)]))
+      return products.map((p) => ({
+        product: { ...p, stockFixe: parBy.get(p.id) ?? 0 },
+        quantity: parBy.get(p.id) ?? 0,
+      }))
     },
 
     dayBoard: async (_p: unknown, a: { day?: string }, ctx: Ctx) => {
@@ -335,14 +391,17 @@ const resolvers = {
   Mutation: {
     submitOrder: async (
       _p: unknown,
-      a: { lines: { productId: string; quantity: number }[]; note?: string },
+      a: { lines: { productId: string; quantityOnHand: number }[]; note?: string },
       ctx: Ctx,
     ) => {
       const u = requireEmployee(ctx)
       const created = await run(() =>
         createOrder({
           actor: u,
-          lines: a.lines.map((l) => ({ productId: Number(l.productId), quantity: l.quantity })),
+          lines: a.lines.map((l) => ({
+            productId: Number(l.productId),
+            quantityOnHand: l.quantityOnHand,
+          })),
           note: a.note,
         }),
       )
@@ -380,6 +439,50 @@ const resolvers = {
       const u = requireStaff(ctx)
       await run(() => deliverOrder(Number(a.id), u.id))
       return prisma.order.findUniqueOrThrow({ where: { id: Number(a.id) }, include: ORDER_INCLUDE })
+    },
+
+    setStockFixe: async (
+      _p: unknown,
+      a: { departmentId: string; lines: { productId: string; quantity: number }[] },
+      ctx: Ctx,
+    ) => {
+      const u = requireUser(ctx)
+      if (u.role !== 'ADMIN') {
+        throw new GraphQLError('Réglage réservé à l’administration.', {
+          extensions: { code: 'FORBIDDEN' },
+        })
+      }
+      const departmentId = Number(a.departmentId)
+
+      for (const l of a.lines) {
+        if (!Number.isFinite(l.quantity) || l.quantity < 0) {
+          throw new GraphQLError('Quantité de stock fixe invalide.', {
+            extensions: { code: 'BUSINESS_RULE' },
+          })
+        }
+      }
+
+      // Un stock fixe à 0 n'a rien à stocker : on supprime la ligne plutôt que
+      // de garder des zéros qui alourdissent la table sans rien signifier.
+      const toZero = a.lines.filter((l) => l.quantity === 0).map((l) => Number(l.productId))
+      const toSet = a.lines.filter((l) => l.quantity > 0)
+
+      await prisma.$transaction([
+        prisma.stockFixe.deleteMany({
+          where: { departmentId, productId: { in: toZero } },
+        }),
+        ...toSet.map((l) =>
+          prisma.stockFixe.upsert({
+            where: {
+              departmentId_productId: { departmentId, productId: Number(l.productId) },
+            },
+            update: { quantity: l.quantity },
+            create: { departmentId, productId: Number(l.productId), quantity: l.quantity },
+          }),
+        ),
+      ])
+
+      return toSet.length
     },
 
     receiveOrder: async (_p: unknown, a: { id: string }, ctx: Ctx) => {

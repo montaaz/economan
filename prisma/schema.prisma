@@ -29,6 +29,7 @@ model Department {
   categories DepartmentCategory[]
   users      User[]
   orders     Order[]
+  stockFixe  StockFixe[]
 
   @@index([isActive, sortOrder])
   @@map("departments")
@@ -92,9 +93,10 @@ model Product {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  category Category    @relation(fields: [categoryId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  baseUnit Unit        @relation(fields: [baseUnitId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  lines    OrderLine[]
+  category  Category    @relation(fields: [categoryId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  baseUnit  Unit        @relation(fields: [baseUnitId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  lines     OrderLine[]
+  stockFixe StockFixe[]
 
   // Chemin chaud : « tous les articles actifs d'une catégorie, triés ».
   @@index([categoryId, isActive, sortOrder])
@@ -227,6 +229,11 @@ model OrderLine {
   productName     String     // figé à la commande, pour que le bon reste lisible
   productRef      String
   categoryName    String
+  // Figés au moment de l'envoi : le stock fixe et le stock compté qui ont
+  // produit la quantité. Un réglage ultérieur du stock fixe ne doit pas
+  // réécrire l'histoire d'une commande déjà passée.
+  stockFixe       Decimal    @default(0) @db.Decimal(14, 3)
+  quantityOnHand  Decimal    @default(0) @db.Decimal(14, 3)
   quantityAsked   Decimal    @db.Decimal(14, 3)
   quantityServed  Decimal?   @db.Decimal(14, 3)
   status          LineStatus @default(PENDING)
@@ -242,6 +249,23 @@ model OrderLine {
   @@index([orderId, sortOrder])
   @@index([productId])
   @@map("order_lines")
+}
+
+/// Stock fixe : la quantité qu'un département doit détenir pour un article.
+/// Réglée par l'administration ; c'est la cible dont on soustrait le stock
+/// compté par l'employé pour obtenir la quantité à commander.
+model StockFixe {
+  departmentId Int
+  productId    Int
+  quantity     Decimal  @db.Decimal(14, 3)
+  updatedAt    DateTime @updatedAt
+
+  department Department @relation(fields: [departmentId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  product    Product    @relation(fields: [productId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@id([departmentId, productId])
+  @@index([productId])
+  @@map("stock_fixe")
 }
 
 /// Compteur de tickets, un par jour et par département. Incrémenté atomiquement.

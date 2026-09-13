@@ -38,6 +38,8 @@ const QUERY = /* GraphQL */ `
         productRef
         categoryName
         unitSymbol
+        stockFixe
+        quantityOnHand
         quantityAsked
         quantityServed
         status

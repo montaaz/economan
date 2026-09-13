@@ -5,7 +5,8 @@ import type { SessionUser } from '@/server/auth/session'
 
 export class WorkflowError extends Error {}
 
-export type OrderLineInput = { productId: number; quantity: number }
+/// Ce que l'employé saisit : le stock qu'il a réellement en rayon.
+export type OrderLineInput = { productId: number; quantityOnHand: number }
 
 /**
  * Enregistre une commande pour le département de l'employé.
@@ -19,24 +20,21 @@ export async function createOrder(params: {
   lines: OrderLineInput[]
   note?: string | null
 }) {
-  const lines = params.lines.filter((l) => l.quantity > 0)
-  if (lines.length === 0) {
-    throw new WorkflowError('Toutes les quantités sont à zéro — il n’y a rien à commander.')
-  }
+  const departmentId = params.actor.departmentId
 
   const seen = new Set<number>()
-  for (const l of lines) {
+  for (const l of params.lines) {
     if (seen.has(l.productId)) {
       throw new WorkflowError('Un même article figure deux fois dans la commande.')
     }
-    if (!Number.isFinite(l.quantity) || l.quantity < 0) {
-      throw new WorkflowError('Quantité invalide.')
+    if (!Number.isFinite(l.quantityOnHand) || l.quantityOnHand < 0) {
+      throw new WorkflowError('Stock saisi invalide.')
     }
     seen.add(l.productId)
   }
+  if (seen.size === 0) throw new WorkflowError('Aucune ligne saisie.')
 
   const day = businessDay()
-  const departmentId = params.actor.departmentId
 
   return prisma.$transaction(async (tx) => {
     // Garde-fou : on revérifie côté serveur que chaque article appartient bien
@@ -52,10 +50,34 @@ export async function createOrder(params: {
         category: { select: { name: true } },
       },
     })
-    if (allowed.length !== lines.length) {
+    if (allowed.length !== seen.size) {
       throw new WorkflowError('Un des articles n’est pas disponible pour votre département.')
     }
     const byId = new Map(allowed.map((p) => [p.id, p]))
+
+    // Le stock fixe est relu en base, jamais pris du client : c'est lui qui
+    // fixe la quantité commandée, et seule l'administration le règle.
+    const pars = await tx.stockFixe.findMany({
+      where: { departmentId, productId: { in: [...seen] } },
+      select: { productId: true, quantity: true },
+    })
+    const parBy = new Map(pars.map((p) => [p.productId, Number(p.quantity)]))
+
+    // Quantité = stock fixe − stock compté, jamais négative. Un article sans
+    // stock fixe vaut 0 : rien n'est commandé tant que l'admin ne l'a pas réglé.
+    const computed = params.lines
+      .map((l) => {
+        const target = parBy.get(l.productId) ?? 0
+        const asked = Math.max(target - l.quantityOnHand, 0)
+        return { ...l, target, asked }
+      })
+      .filter((l) => l.asked > 0)
+
+    if (computed.length === 0) {
+      throw new WorkflowError(
+        'Vos stocks couvrent déjà le stock fixe — il n’y a rien à commander.',
+      )
+    }
 
     // Numéro de ticket : un upsert atomique sur le compteur du jour évite que
     // deux commandes simultanées réclament le même numéro.
@@ -86,7 +108,7 @@ export async function createOrder(params: {
         status: 'PENDING',
         note: params.note?.trim() || null,
         lines: {
-          create: lines.map((l) => {
+          create: computed.map((l) => {
             const p = byId.get(l.productId)!
             return {
               productId: p.id,
@@ -94,7 +116,9 @@ export async function createOrder(params: {
               productName: p.name,
               productRef: p.reference,
               categoryName: p.category.name,
-              quantityAsked: l.quantity,
+              stockFixe: l.target,
+              quantityOnHand: l.quantityOnHand,
+              quantityAsked: l.asked,
               sortOrder: p.sortOrder,
             }
           }),

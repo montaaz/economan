@@ -12,6 +12,7 @@ npm install
 npx prisma migrate deploy        # crée le schéma
 npm run db:import                # reprend le catalogue depuis la base `economan`
 npx tsx prisma/assign-categories.ts   # donne à chaque département sa feuille
+npx tsx prisma/seed-stock-fixe.ts     # amorce les cibles (sinon rien n'est commandable)
 npm run dev
 ```
 
@@ -46,9 +47,23 @@ Administration → Utilisateurs.
 `/` → carte du département → choix de l'agent → mot de passe **ou empreinte**.
 
 - **Nouvelle commande** — toute la feuille du département s'affiche, un article
-  par ligne. **Chaque ligne doit être renseignée** avant l'envoi ; `0` est une
-  réponse valide, mais une ligne à 0 n'est pas enregistrée. Le bouton
-  « Mettre 0 aux lignes vides » traite le cas courant d'un coup.
+  par ligne. L'employé ne saisit **que son stock en rayon** ; la quantité
+  commandée est calculée :
+
+  ```
+  à commander = stock fixe − stock en rayon      (jamais négatif)
+  ```
+
+  Trois colonnes : le **stock fixe** réglé par l'administration (lecture
+  seule), **mon stock** (la seule case à remplir), et **à commander** qui se
+  met à jour à la frappe. **Chaque ligne doit être renseignée** avant l'envoi ;
+  `0` est une réponse valide (« rien en rayon »). Une ligne dont l'écart est
+  nul — stock déjà suffisant, ou article sans stock fixe — n'est pas
+  enregistrée. Le bouton « Rien en rayon : mettre 0 » traite le cas courant
+  d'un coup.
+
+  Le calcul est refait côté serveur à partir du stock fixe lu en base : le
+  navigateur transmet un stock compté, jamais une quantité ni une cible.
 - **Mes commandes** — les 3 derniers jours, groupés par journée.
 - Quand une commande est livrée, un bouton **« J'ai reçu ma commande »**
   la clôt.
@@ -70,6 +85,10 @@ Administration → Utilisateurs.
 - **Départements** — créer, renommer, recolorier, masquer ou supprimer.
 - **Affectations** — cocher les catégories que chaque département peut
   commander. C'est ce qui définit sa feuille d'articles.
+- **Stock fixe** — la quantité cible par article et par département. C'est
+  elle qui produit les commandes : un article laissé à `0` s'affiche chez
+  l'employé mais ne sera jamais commandé. Seules les lignes modifiées sont
+  envoyées à l'enregistrement.
 - **Utilisateurs** — comptes, rôles, rattachement, mots de passe.
 
 ---
@@ -95,9 +114,15 @@ WEBAUTHN_ORIGIN=https://commandes.mon-domaine.tn
 
 ```
 Department ──< DepartmentCategory >── Category ──< Product
-     │                                              │
-     └──< User ──< Order ──< OrderLine >────────────┘
+     │  │                                           │  │
+     │  └──< StockFixe >─────────────────────────────┘  │
+     │         (cible par département et par article)   │
+     └──< User ──< Order ──< OrderLine >────────────────┘
 ```
+
+`OrderLine` fige `stockFixe` et `quantityOnHand` au moment de l'envoi : un
+réglage ultérieur du stock fixe ne doit pas réécrire l'histoire d'une commande
+déjà passée.
 
 Un département voit un article si la **catégorie** de cet article lui est
 affectée. Ce contrôle est appliqué deux fois : au chargement du catalogue, et à
@@ -179,6 +204,7 @@ personnalisé ajouté plus tard, elle devra être ré-enrôlée.
 | `npm run typecheck`                    | Vérification TypeScript                     |
 | `npm run db:import`                    | Reprend le catalogue depuis `economan`      |
 | `npx tsx prisma/assign-categories.ts`  | Affecte les catégories par département      |
+| `npx tsx prisma/seed-stock-fixe.ts`    | Amorce le stock fixe (cibles par unité)     |
 | `npx tsx scripts/test-flow.ts`         | Test du parcours complet (19 contrôles)     |
 | `npx tsx scripts/shots.ts`             | Captures mobile / tablette / bureau         |
 

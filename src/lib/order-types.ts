@@ -12,6 +12,9 @@ export type ProcessLine = {
   productRef: string
   categoryName: string
   unitSymbol: string
+  /** Cible et stock compté figés à l'envoi — d'où vient la quantité. */
+  stockFixe: number
+  quantityOnHand: number
   quantityAsked: number
   quantityServed: number | null
   status: LineStatus

@@ -53,7 +53,8 @@ const ADMIN: NavGroup[] = [
     title: 'Configuration',
     items: [
       { href: '/admin/departements', label: 'Départements', shortLabel: 'Départ.', icon: 'Building2', primary: true },
-      { href: '/admin/affectations', label: 'Affectations', shortLabel: 'Affect.', icon: 'Grid3x3', primary: true },
+      { href: '/admin/affectations', label: 'Affectations', shortLabel: 'Affect.', icon: 'Grid3x3' },
+      { href: '/admin/stock-fixe', label: 'Stock fixe', shortLabel: 'Stock', icon: 'Target', primary: true },
       { href: '/admin/utilisateurs', label: 'Utilisateurs', shortLabel: 'Agents', icon: 'Users', primary: true },
     ],
   },

@@ -38,24 +38,53 @@ export default async function StockFixePage({
 
   const selected = departments.find((d) => String(d.id) === dep) ?? departments[0]
 
-  const [products, pars] = await Promise.all([
-    prisma.product.findMany({
-      where: {
-        isActive: true,
-        category: { departments: { some: { departmentId: selected.id } } },
-      },
-      orderBy: [{ category: { sortOrder: 'asc' } }, { name: 'asc' }],
+  // Même règle que la feuille de l'employé : une liste explicite prime sur les
+  // catégories. Sans cela l'écran réglait des articles que le département ne
+  // voit pas — 128 lignes ici contre 107 sur la feuille.
+  const [sheet, pars, categories] = await Promise.all([
+    prisma.departmentProduct.findMany({
+      where: { departmentId: selected.id, product: { isActive: true } },
+      orderBy: { sortOrder: 'asc' },
       select: {
-        id: true, name: true, reference: true,
-        category: { select: { id: true, name: true, icon: true } },
-        baseUnit: { select: { symbol: true } },
+        product: {
+          select: {
+            id: true, name: true, reference: true,
+            category: { select: { id: true, name: true, icon: true } },
+            baseUnit: { select: { symbol: true } },
+          },
+        },
       },
     }),
     prisma.stockFixe.findMany({
       where: { departmentId: selected.id },
       select: { productId: true, quantity: true },
     }),
+    prisma.category.findMany({
+      where: { isActive: true },
+      orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
+      select: { id: true, name: true },
+    }),
   ])
+
+  const products = sheet.length > 0
+    ? sheet.map((row) => row.product)
+    : await prisma.product.findMany({
+        where: {
+          isActive: true,
+          category: { departments: { some: { departmentId: selected.id } } },
+        },
+        orderBy: [{ category: { sortOrder: 'asc' } }, { name: 'asc' }],
+        select: {
+          id: true, name: true, reference: true,
+          category: { select: { id: true, name: true, icon: true } },
+          baseUnit: { select: { symbol: true } },
+        },
+      })
+
+  const units = await prisma.unit.findMany({
+    orderBy: { name: 'asc' },
+    select: { id: true, name: true, symbol: true },
+  })
 
   const parBy = new Map(pars.map((p) => [p.productId, Number(p.quantity)]))
 
@@ -68,6 +97,8 @@ export default async function StockFixePage({
       <StockFixeEditor
         departments={departments}
         selectedId={selected.id}
+        categories={categories.map((c) => ({ id: String(c.id), name: c.name }))}
+        units={units.map((u) => ({ id: String(u.id), name: u.name, symbol: u.symbol }))}
         products={products.map((p) => ({
           id: String(p.id),
           name: p.name,

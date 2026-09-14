@@ -1,13 +1,18 @@
 'use client'
 
 import * as React from 'react'
+import { useActionState } from 'react'
+import { useFormStatus } from 'react-dom'
 import { useRouter } from 'next/navigation'
-import { Save, Search, PackageSearch, Target, RotateCcw } from 'lucide-react'
+import { Save, Search, PackageSearch, Target, RotateCcw, Plus, AlertCircle } from 'lucide-react'
 import { GlassCard, Button, Badge, EmptyState, TableWrap, Th, Td } from '@/components/ui/glass'
 import { Icon } from '@/components/ui/icon'
 import { useToast } from '@/components/ui/toast'
 import { usePagedRows, ShowMore } from '@/components/ui/paged-list'
+import { Modal } from '@/components/ui/modal'
+import { Field } from '@/components/ui/glass'
 import { gql, errorMessage } from '@/lib/graphql-client'
+import { createProductForDepartment, type ActionResult } from '@/server/services/admin'
 import { cn, formatQty, toNumber } from '@/lib/utils'
 
 type Dept = { id: number; name: string; code: string; color: string; icon: string | null }
@@ -27,13 +32,19 @@ const SET_PAR = /* GraphQL */ `
   }
 `
 
+type Ref = { id: string; name: string }
+
 export function StockFixeEditor({
-  departments, selectedId, products,
+  departments, selectedId, products, categories: allCategories, units,
 }: {
   departments: Dept[]
   selectedId: number
   products: ParLine[]
+  categories: Ref[]
+  units: (Ref & { symbol: string })[]
 }) {
+  // Famille visée par le formulaire d'ajout ; null quand il est fermé.
+  const [addingTo, setAddingTo] = React.useState<{ id: string; name: string } | null>(null)
   const router = useRouter()
   const { push } = useToast()
 
@@ -238,8 +249,28 @@ export function StockFixeEditor({
                 {paged.shown.map((p, i) => {
                   const v = toNumber(values[p.id])
                   const changed = v !== p.quantity
+                  const previous = i > 0 ? paged.shown[i - 1] : null
+                  const next = paged.shown[i + 1] ?? null
+                  const opensFamily = previous?.category.id !== p.category.id
+                  const closesFamily = next?.category.id !== p.category.id
                   return (
-                    <tr key={p.id} className={cn(changed && 'bg-warn/[0.07]')}>
+                    <React.Fragment key={p.id}>
+                      {opensFamily ? (
+                        <tr>
+                          <td
+                            colSpan={4}
+                            className="bg-ok/12 px-2 py-1.5 text-[0.72rem] font-bold uppercase tracking-[0.06em] text-ok sm:px-3 sm:text-[0.76rem]"
+                          >
+                            <span className="flex items-center gap-1.5">
+                              {p.category.icon ? (
+                                <Icon name={p.category.icon} className="size-3.5 shrink-0" />
+                              ) : null}
+                              {p.category.name}
+                            </span>
+                          </td>
+                        </tr>
+                      ) : null}
+                    <tr className={cn(changed && 'bg-warn/[0.07]')}>
                       <Td className="px-1 text-right text-[0.72rem] tabular-nums text-fg-subtle sm:px-3 sm:text-[0.78rem]">
                         {i + 1}
                       </Td>
@@ -247,10 +278,8 @@ export function StockFixeEditor({
                         <p className="truncate text-[0.78rem] font-medium leading-snug text-fg sm:text-[0.85rem]">
                           {p.name}
                         </p>
-                        <p className="truncate text-[0.68rem] text-fg-subtle sm:text-[0.7rem]">
-                          <span className="font-mono">{p.reference}</span>
-                          <span className="mx-1.5">·</span>
-                          {p.category.name}
+                        <p className="truncate font-mono text-[0.68rem] text-fg-subtle sm:text-[0.7rem]">
+                          {p.reference}
                         </p>
                       </Td>
                       <Td className="whitespace-nowrap px-1 text-right text-[0.75rem] text-fg-muted sm:px-3 sm:text-[0.86rem]">
@@ -269,6 +298,22 @@ export function StockFixeEditor({
                         </div>
                       </Td>
                     </tr>
+                    {/* Sous la dernière ligne de la famille : l'ajout d'article. */}
+                    {closesFamily ? (
+                      <tr>
+                        <td colSpan={4} className="px-2 py-1.5 sm:px-3">
+                          <button
+                            type="button"
+                            onClick={() => setAddingTo(p.category)}
+                            className="inline-flex items-center gap-1.5 rounded-lg border border-dashed border-ok/40 px-2.5 py-1.5 text-[0.75rem] font-medium text-ok transition-colors hover:bg-ok/10"
+                          >
+                            <Plus className="size-3.5" />
+                            Ajouter un article dans « {p.category.name} »
+                          </button>
+                        </td>
+                      </tr>
+                    ) : null}
+                    </React.Fragment>
                   )
                 })}
               </tbody>
@@ -289,6 +334,108 @@ export function StockFixeEditor({
           l’employé le verra, mais l’écart restera nul tant que vous n’aurez pas fixé de cible.
         </p>
       </GlassCard>
+      {addingTo ? (
+        <AddProductForm
+          departmentId={selectedId}
+          departmentName={current?.name ?? ''}
+          family={addingTo}
+          categories={allCategories}
+          units={units}
+          onClose={() => setAddingTo(null)}
+          onSaved={() => {
+            setAddingTo(null)
+            push('success', 'Article créé et ajouté à la feuille.')
+            router.refresh()
+          }}
+        />
+      ) : null}
     </div>
+  )
+}
+
+function AddProductForm({
+  departmentId, departmentName, family, categories, units, onClose, onSaved,
+}: {
+  departmentId: number
+  departmentName: string
+  family: { id: string; name: string }
+  categories: Ref[]
+  units: (Ref & { symbol: string })[]
+  onClose: () => void
+  onSaved: () => void
+}) {
+  const [state, formAction] = useActionState<ActionResult, FormData>(
+    createProductForDepartment,
+    { ok: false },
+  )
+
+  React.useEffect(() => {
+    if (state.ok) onSaved()
+  }, [state.ok, onSaved])
+
+  return (
+    <Modal title="Nouvel article" onClose={onClose}>
+      <form action={formAction} className="space-y-4">
+        <input type="hidden" name="departmentId" value={departmentId} />
+
+        <p className="rounded-xl border border-ok/30 bg-ok/[0.07] px-3 py-2.5 text-[0.8rem] leading-snug text-fg-muted">
+          L’article sera créé au catalogue et ajouté à la feuille de{' '}
+          <strong className="text-fg">{departmentName}</strong>, en fin de la famille{' '}
+          <strong className="text-ok">{family.name}</strong>.
+        </p>
+
+        {state.error ? (
+          <div
+            role="alert"
+            className="flex items-start gap-2 rounded-xl border border-danger/30 bg-danger/10 px-3 py-2.5 text-[0.83rem] font-medium text-danger"
+          >
+            <AlertCircle className="mt-px size-4 shrink-0" />
+            <span>{state.error}</span>
+          </div>
+        ) : null}
+
+        <Field label="Nom de l’article" htmlFor="p-name" required>
+          <input id="p-name" name="name" className="field" autoFocus required placeholder="SIROP MELON" />
+        </Field>
+
+        <Field label="Famille" htmlFor="p-cat" required>
+          <select id="p-cat" name="categoryId" defaultValue={family.id} className="field" required>
+            {categories.map((c) => (
+              <option key={c.id} value={c.id}>{c.name}</option>
+            ))}
+          </select>
+        </Field>
+
+        <Field label="Unité" htmlFor="p-unit" required>
+          <select id="p-unit" name="unitId" className="field" required>
+            {units.map((u) => (
+              <option key={u.id} value={u.id}>{u.name} ({u.symbol})</option>
+            ))}
+          </select>
+        </Field>
+
+        <Field
+          label="Stock fixe"
+          htmlFor="p-qty"
+          hint="La quantité cible pour ce département. 0 : l’article s’affiche mais ne sera pas commandé."
+        >
+          <input id="p-qty" name="quantity" inputMode="decimal" defaultValue="0" className="field" />
+        </Field>
+
+        <div className="flex items-center justify-end gap-2 pt-1">
+          <Button type="button" variant="ghost" onClick={onClose}>Annuler</Button>
+          <SubmitButton />
+        </div>
+      </form>
+    </Modal>
+  )
+}
+
+function SubmitButton() {
+  const { pending } = useFormStatus()
+  return (
+    <Button type="submit" variant="primary" loading={pending}>
+      Créer l’article
+    </Button>
   )
 }

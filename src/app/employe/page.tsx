@@ -101,19 +101,28 @@ export default async function MyOrdersPage() {
                   <Link key={o.id} href={`/employe/commandes/${o.id}`}>
                     <GlassCard hover className="h-full">
                       <div className="space-y-3 p-4">
+                        {/* L'auteur et l'horodatage ouvrent la carte : c'est ce
+                            qu'on cherche d'abord en la parcourant. */}
                         <div className="flex items-start justify-between gap-2">
                           <div className="min-w-0">
-                            <p className="flex items-center gap-2 text-[0.95rem] font-bold leading-tight text-fg">
-                              <span className="grid size-7 shrink-0 place-items-center rounded-lg bg-accent/12 text-[0.78rem] font-bold tabular-nums text-accent">
-                                {o.ticketNumber}
-                              </span>
-                              <span className="truncate font-mono text-[0.8rem] font-semibold text-fg-muted">
-                                {o.reference}
-                              </span>
+                            <p className="truncate text-[0.95rem] font-bold leading-tight text-fg">
+                              {o.createdBy.fullName}
+                            </p>
+                            <p className="mt-0.5 text-[0.82rem] tabular-nums text-fg-muted">
+                              {formatInstantDate(o.createdAt)} à {formatTime(o.createdAt)}
                             </p>
                           </div>
                           <StatusBadge status={o.status} />
                         </div>
+
+                        <p className="flex items-center gap-2">
+                          <span className="grid size-7 shrink-0 place-items-center rounded-lg bg-accent/12 text-[0.78rem] font-bold tabular-nums text-accent">
+                            {o.ticketNumber}
+                          </span>
+                          <span className="truncate font-mono text-[0.8rem] font-semibold text-fg-muted">
+                            {o.reference}
+                          </span>
+                        </p>
 
                         <div className="flex flex-wrap items-center gap-1.5">
                           <Badge tone="neutral">{o.lineCount} article{o.lineCount > 1 ? 's' : ''}</Badge>
@@ -122,16 +131,6 @@ export default async function MyOrdersPage() {
                             <Badge tone="ok">{formatQty(o.totalServed)} servi</Badge>
                           ) : null}
                         </div>
-
-                        <p className="text-[0.76rem] leading-snug text-fg-subtle">
-                          <span className="font-medium text-fg-muted">
-                            {o.createdBy.fullName}
-                          </span>
-                          {/* La date reste utile : la carte peut être lue un
-                              autre jour que celui de l'envoi. */}
-                          <span className="mx-1.5">·</span>
-                          {formatInstantDate(o.createdAt)} à {formatTime(o.createdAt)}
-                        </p>
 
                         {o.status === 'DELIVERED' ? (
                           <p className="flex items-center gap-1.5 rounded-lg bg-info/10 px-2.5 py-1.5 text-[0.78rem] font-medium text-info">

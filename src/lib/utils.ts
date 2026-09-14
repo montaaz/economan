@@ -5,6 +5,9 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
 
+/** Fuseau de l'établissement : c'est lui qui définit la journée de service. */
+export const BUSINESS_TZ = process.env.BUSINESS_TIMEZONE || 'Africa/Tunis'
+
 /** Prisma Decimal, number et string arrivent tous ici comme « une quantité ». */
 export type DecimalLike = { toString(): string } | number | string | null | undefined
 
@@ -77,9 +80,6 @@ export function initials(fullName: string): string {
   return fullName.split(/\s+/).filter(Boolean).slice(0, 2)
     .map((p) => p[0]?.toUpperCase() ?? '').join('')
 }
-
-/** Fuseau de l'établissement : c'est lui qui définit la journée de service. */
-export const BUSINESS_TZ = process.env.BUSINESS_TIMEZONE || 'Africa/Tunis'
 
 /**
  * Jour ouvré courant, à minuit UTC — la clé de regroupement des tickets.

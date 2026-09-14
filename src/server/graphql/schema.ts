@@ -197,6 +197,29 @@ async function run<T>(fn: () => Promise<T>): Promise<T> {
   }
 }
 
+/**
+ * Les articles qu'un département peut commander.
+ *
+ * Une feuille définie article par article (`department_products`) prime sur
+ * les catégories : certains services commandent le sucre glace mais pas les
+ * spaghettis, alors que les deux partagent une catégorie. Sans feuille
+ * explicite, on retombe sur les catégories affectées.
+ */
+async function departmentCatalog(departmentId: number) {
+  const explicit = await prisma.departmentProduct.findMany({
+    where: { departmentId, product: { isActive: true } },
+    orderBy: { sortOrder: 'asc' },
+    include: { product: { include: { category: true, baseUnit: true } } },
+  })
+  if (explicit.length > 0) return explicit.map((e) => e.product)
+
+  return prisma.product.findMany({
+    where: { isActive: true, category: { departments: { some: { departmentId } } } },
+    include: { category: true, baseUnit: true },
+    orderBy: [{ category: { sortOrder: 'asc' } }, { name: 'asc' }],
+  })
+}
+
 const ORDER_INCLUDE = {
   department: true,
   createdBy: { include: { department: true } },
@@ -279,11 +302,7 @@ const resolvers = {
     myCatalog: async (_p: unknown, _a: unknown, ctx: Ctx) => {
       const u = requireEmployee(ctx)
       const [products, pars] = await Promise.all([
-        prisma.product.findMany({
-          where: { isActive: true, category: { departments: { some: { departmentId: u.departmentId } } } },
-          include: { category: true, baseUnit: true },
-          orderBy: [{ category: { sortOrder: 'asc' } }, { name: 'asc' }],
-        }),
+        departmentCatalog(u.departmentId),
         prisma.stockFixe.findMany({
           where: { departmentId: u.departmentId },
           select: { productId: true, quantity: true },
@@ -336,11 +355,7 @@ const resolvers = {
       }
       const departmentId = Number(a.departmentId)
       const [products, pars] = await Promise.all([
-        prisma.product.findMany({
-          where: { isActive: true, category: { departments: { some: { departmentId } } } },
-          include: { category: true, baseUnit: true },
-          orderBy: [{ category: { sortOrder: 'asc' } }, { name: 'asc' }],
-        }),
+        departmentCatalog(departmentId),
         prisma.stockFixe.findMany({
           where: { departmentId },
           select: { productId: true, quantity: true },

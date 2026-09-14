@@ -27,6 +27,7 @@ model Department {
   updatedAt DateTime @updatedAt
 
   categories DepartmentCategory[]
+  products   DepartmentProduct[]
   users      User[]
   orders     Order[]
   stockFixe  StockFixe[]
@@ -95,8 +96,9 @@ model Product {
 
   category  Category    @relation(fields: [categoryId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   baseUnit  Unit        @relation(fields: [baseUnitId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  lines     OrderLine[]
-  stockFixe StockFixe[]
+  lines       OrderLine[]
+  stockFixe   StockFixe[]
+  departments DepartmentProduct[]
 
   // Chemin chaud : « tous les articles actifs d'une catégorie, triés ».
   @@index([categoryId, isActive, sortOrder])
@@ -252,6 +254,28 @@ model OrderLine {
   @@index([orderId, sortOrder])
   @@index([productId])
   @@map("order_lines")
+}
+
+/// Affectation article par article.
+///
+/// Certaines feuilles de service ne suivent pas les catégories : la pâtisserie
+/// commande le sucre glace mais pas les spaghettis, alors que les deux vivent
+/// dans la même catégorie. Dès qu'un département possède au moins une ligne
+/// ici, cette liste **remplace** ses catégories : sa feuille vaut exactement
+/// ces articles, ni plus ni moins.
+model DepartmentProduct {
+  departmentId Int
+  productId    Int
+  sortOrder    Int      @default(0)
+  createdAt    DateTime @default(now())
+
+  department Department @relation(fields: [departmentId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  product    Product    @relation(fields: [productId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@id([departmentId, productId])
+  @@index([productId])
+  @@index([departmentId, sortOrder])
+  @@map("department_products")
 }
 
 /// Stock fixe : la quantité qu'un département doit détenir pour un article.

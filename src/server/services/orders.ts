@@ -39,11 +39,18 @@ export async function createOrder(params: {
   return prisma.$transaction(async (tx) => {
     // Garde-fou : on revérifie côté serveur que chaque article appartient bien
     // à une catégorie affectée au département — le client peut mentir.
+    // Même règle que l'affichage : une feuille explicite prime sur les
+    // catégories, sinon un article retiré de la feuille resterait commandable.
+    const hasSheet =
+      (await tx.departmentProduct.count({ where: { departmentId } })) > 0
+
     const allowed = await tx.product.findMany({
       where: {
         id: { in: [...seen] },
         isActive: true,
-        category: { departments: { some: { departmentId } } },
+        ...(hasSheet
+          ? { departments: { some: { departmentId } } }
+          : { category: { departments: { some: { departmentId } } } }),
       },
       select: {
         id: true, name: true, reference: true, baseUnitId: true, sortOrder: true,

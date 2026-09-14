@@ -196,6 +196,8 @@ export function AssignmentMatrix({
         <ManageProducts
           category={managing}
           units={units}
+          departments={departments}
+          links={links}
           onClose={() => setManaging(null)}
           onChanged={() => router.refresh()}
         />
@@ -214,10 +216,12 @@ type Row = {
 
 /** Ajout, modification et retrait des articles d'une famille. */
 function ManageProducts({
-  category, units, onClose, onChanged,
+  category, units, departments, links, onClose, onChanged,
 }: {
   category: Cat
   units: UnitRef[]
+  departments: Dept[]
+  links: { departmentId: number; categoryId: number }[]
   onClose: () => void
   onChanged: () => void
 }) {
@@ -323,6 +327,8 @@ function ManageProducts({
           product={editing}
           category={category}
           units={units}
+          departments={departments}
+          links={links}
           onClose={() => setEditing(undefined)}
           onSaved={async () => {
             setEditing(undefined)
@@ -337,17 +343,29 @@ function ManageProducts({
 }
 
 function ProductForm({
-  product, category, units, onClose, onSaved,
+  product, category, units, departments, links, onClose, onSaved,
 }: {
   product: Row | null
   category: Cat
   units: UnitRef[]
+  departments: Dept[]
+  links: { departmentId: number; categoryId: number }[]
   onClose: () => void
   onSaved: () => void
 }) {
   const [state, formAction] = useActionState<ActionResult, FormData>(
     product ? updateProduct : createProduct,
     { ok: false },
+  )
+
+  // Une famille sert souvent plusieurs départements : chacun a sa propre
+  // cible, et seuls ceux qu'on renseigne reçoivent l'article sur leur feuille.
+  const concerned = React.useMemo(
+    () =>
+      departments.filter((d) =>
+        links.some((l) => l.departmentId === d.id && l.categoryId === category.id),
+      ),
+    [departments, links, category.id],
   )
 
   React.useEffect(() => {
@@ -399,6 +417,51 @@ function ProductForm({
             ))}
           </select>
         </Field>
+
+        {/* Les cibles ne s'affichent qu'à la création : modifier celles d'un
+            article existant se fait sur l'écran Stock fixe, département par
+            département. */}
+        {!product ? (
+          concerned.length > 0 ? (
+            <div className="space-y-2">
+              <p className="text-[0.8rem] font-medium text-fg-muted">
+                Stock fixe par département
+              </p>
+              <p className="text-[0.75rem] leading-snug text-fg-subtle">
+                Un département dont la cible est renseignée reçoit l’article sur sa feuille.
+                Laissez à 0 ceux qui ne le commandent pas.
+              </p>
+              <ul className="space-y-1.5">
+                {concerned.map((d) => (
+                  <li key={d.id} className="flex items-center gap-2">
+                    <span
+                      className="grid size-6 shrink-0 place-items-center rounded-lg text-white"
+                      style={{ background: d.color }}
+                    >
+                      <Icon name={d.icon ?? 'Building2'} className="size-3.5" />
+                    </span>
+                    <label htmlFor={`stock-${d.id}`} className="min-w-0 flex-1 truncate text-[0.82rem] text-fg">
+                      {d.name}
+                    </label>
+                    <input
+                      id={`stock-${d.id}`}
+                      name={`stock-${d.id}`}
+                      inputMode="decimal"
+                      defaultValue="0"
+                      aria-label={`Stock fixe pour ${d.name}`}
+                      className="field h-9 w-20 px-2 py-0 text-right text-[0.85rem] tabular-nums"
+                    />
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : (
+            <p className="rounded-xl border border-warn/30 bg-warn/[0.07] px-3 py-2.5 text-[0.8rem] leading-snug text-fg-muted">
+              Aucun département n’a cette famille affectée : l’article sera créé au catalogue
+              sans figurer sur une feuille.
+            </p>
+          )
+        ) : null}
 
         <div className="flex items-center justify-end gap-2 pt-1">
           <Button type="button" variant="ghost" onClick={onClose}>Annuler</Button>

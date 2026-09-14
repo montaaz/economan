@@ -5,6 +5,7 @@ import { revalidatePath } from 'next/cache'
 import { prisma } from '@/server/db'
 import { requireRole } from '@/server/auth/guards'
 import type { Role } from '@/generated/prisma/enums'
+import type { Prisma } from '@/generated/prisma/client'
 
 export type ActionResult = { ok: boolean; error?: string }
 
@@ -249,45 +250,7 @@ export async function createProductForDepartment(
       select: { id: true },
     })
 
-    // La feuille suit l'ordre du papier, où une même famille peut s'ouvrir
-    // plusieurs fois. On vise donc la fin du *premier* bloc de cette famille :
-    // le dernier article consécutif de la catégorie, en repartant du début.
-    const sheet = await tx.departmentProduct.findMany({
-      where: { departmentId },
-      orderBy: { sortOrder: 'asc' },
-      select: { productId: true, sortOrder: true, product: { select: { categoryId: true } } },
-    })
-
-    const first = sheet.findIndex((r) => r.product.categoryId === categoryId)
-    let after: number | null = null
-    if (first !== -1) {
-      let i = first
-      while (i + 1 < sheet.length && sheet[i + 1].product.categoryId === categoryId) i += 1
-      after = sheet[i].sortOrder
-    }
-
-    // Sans famille sur la feuille, l'article se range à la fin.
-    const sortOrder = after ?? (sheet.at(-1)?.sortOrder ?? 0) + 10
-
-    if (after !== null) {
-      // Les rangs sont espacés de 10 à la création des feuilles, mais rien ne
-      // le garantit après plusieurs ajouts : on décale les suivants pour
-      // libérer la place, plutôt que de parier sur un intervalle libre.
-      for (const row of sheet.filter((r) => r.sortOrder > after)) {
-        await tx.departmentProduct.update({
-          where: { departmentId_productId: { departmentId, productId: row.productId } },
-          data: { sortOrder: row.sortOrder + 10 },
-        })
-      }
-    }
-
-    await tx.departmentProduct.create({
-      data: {
-        departmentId,
-        productId: product.id,
-        sortOrder: after !== null ? after + 5 : sortOrder,
-      },
-    })
+    await attachToSheet(tx, departmentId, product.id, categoryId)
 
     if (quantity > 0) {
       await tx.stockFixe.create({
@@ -317,7 +280,60 @@ export async function listCategoryProducts(categoryId: number) {
   })
 }
 
-/** Crée un article dans une famille, sans l'attacher à un département. */
+/**
+ * Place un article en fin de son bloc de famille sur la feuille d'un
+ * département, en décalant les suivants.
+ *
+ * La feuille suit l'ordre du papier, où une même famille peut s'ouvrir
+ * plusieurs fois : on vise la fin du *premier* bloc, sans quoi l'article
+ * atterrirait en fin de feuille.
+ */
+async function attachToSheet(
+  tx: Prisma.TransactionClient,
+  departmentId: number,
+  productId: number,
+  categoryId: number,
+) {
+  const sheet = await tx.departmentProduct.findMany({
+    where: { departmentId },
+    orderBy: { sortOrder: 'asc' },
+    select: { productId: true, sortOrder: true, product: { select: { categoryId: true } } },
+  })
+
+  const first = sheet.findIndex((r) => r.product.categoryId === categoryId)
+  let after: number | null = null
+  if (first !== -1) {
+    let i = first
+    while (i + 1 < sheet.length && sheet[i + 1].product.categoryId === categoryId) i += 1
+    after = sheet[i].sortOrder
+  }
+
+  if (after !== null) {
+    for (const row of sheet.filter((r) => r.sortOrder > after)) {
+      await tx.departmentProduct.update({
+        where: { departmentId_productId: { departmentId, productId: row.productId } },
+        data: { sortOrder: row.sortOrder + 10 },
+      })
+    }
+  }
+
+  await tx.departmentProduct.create({
+    data: {
+      departmentId,
+      productId,
+      sortOrder: after !== null ? after + 5 : (sheet.at(-1)?.sortOrder ?? 0) + 10,
+    },
+  })
+}
+
+/**
+ * Crée un article dans une famille.
+ *
+ * Une famille est souvent partagée — EMBALAGES sert cinq départements — donc
+ * une seule cible n'aurait pas de sens : le formulaire en propose une par
+ * département concerné. Un département dont la cible est renseignée reçoit
+ * l'article sur sa feuille ; les autres ne sont pas touchés.
+ */
 export async function createProduct(_prev: ActionResult, form: FormData): Promise<ActionResult> {
   await requireRole(['ADMIN'], '/admin/login')
 
@@ -328,22 +344,47 @@ export async function createProduct(_prev: ActionResult, form: FormData): Promis
   if (!categoryId || !unitId) return { ok: false, error: 'Famille et unité sont obligatoires.' }
   if (name.length < 2) return { ok: false, error: 'Le nom de l’article est obligatoire.' }
 
+  // Les cibles arrivent sous la forme « stock-<departmentId> ».
+  const targets: { departmentId: number; quantity: number }[] = []
+  for (const [key, value] of form.entries()) {
+    if (!key.startsWith('stock-')) continue
+    const departmentId = Number(key.slice('stock-'.length))
+    if (!departmentId) continue
+    const raw = String(value).replace(',', '.').trim()
+    const quantity = raw === '' ? 0 : Number(raw)
+    if (!Number.isFinite(quantity) || quantity < 0) {
+      return { ok: false, error: 'Stock fixe invalide.' }
+    }
+    if (quantity > 0) targets.push({ departmentId, quantity })
+  }
+
   const clash = await prisma.product.findFirst({
     where: { name: { equals: name, mode: 'insensitive' } },
     select: { name: true },
   })
   if (clash) return { ok: false, error: `L’article « ${clash.name} » existe déjà.` }
 
-  const refs = await prisma.product.findMany({ select: { reference: true } })
-  const next =
-    Math.max(...refs.map((r) => Number(r.reference)).filter((n) => Number.isFinite(n)), 0) + 1
+  await prisma.$transaction(async (tx) => {
+    const refs = await tx.product.findMany({ select: { reference: true } })
+    const next =
+      Math.max(...refs.map((r) => Number(r.reference)).filter((n) => Number.isFinite(n)), 0) + 1
 
-  await prisma.product.create({
-    data: { reference: String(next).padStart(4, '0'), name, categoryId, baseUnitId: unitId },
+    const product = await tx.product.create({
+      data: { reference: String(next).padStart(4, '0'), name, categoryId, baseUnitId: unitId },
+      select: { id: true },
+    })
+
+    for (const t of targets) {
+      await tx.stockFixe.create({
+        data: { departmentId: t.departmentId, productId: product.id, quantity: t.quantity },
+      })
+      await attachToSheet(tx, t.departmentId, product.id, categoryId)
+    }
   })
 
   revalidatePath('/admin/affectations')
   revalidatePath('/admin/stock-fixe')
+  revalidatePath('/employe/commande')
   return { ok: true }
 }
 

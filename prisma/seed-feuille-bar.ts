@@ -6,10 +6,10 @@
  * seule qui contient aussi les eaux, SHARK, GARCI et BOGA MOJITO, tous présents
  * sur la feuille.
  *
- * Cinq lignes du papier n'ont aucun article au catalogue et sont omises :
- * schwips citron, snick bar, cornet glace, fruit sec thé gourmand, boga lemon,
- * goblet capucin. Elles sont listées en fin d'exécution, à créer depuis
- * l'administration puis à ajouter à la feuille.
+ * Les 107 lignes du document sont reprises une à une. Trois portent au
+ * catalogue un nom voisin — boga lemon → BOGA LIME, schwips citron →
+ * SCHWEPPES TONIC, goblet capucin → GOBLET CAPU. Cinq manquaient et ont été
+ * créées par prisma/creer-articles-bar.ts.
  */
 import 'dotenv/config'
 import { PrismaPg } from '@prisma/adapter-pg'
@@ -24,8 +24,9 @@ const FEUILLE: { section: string; articles: string[] }[] = [
   {
     section: 'SODA / EAUX',
     articles: [
-      'APLA', 'BOGA CIDRE', 'BOGA MOJITO 1 L', 'COCA', 'COCA ZERO',
-      'EAU 0.4L', 'EAU 1L', 'FANTA', 'GARCI  1L', 'ORANGINA', 'SHARK', 'SPRITE',
+      'APLA', 'BOGA CIDRE', 'BOGA LIME', 'BOGA MOJITO 1 L', 'COCA', 'COCA ZERO',
+      'EAU 0.4L', 'EAU 1L', 'FANTA', 'GARCI  1L', 'ORANGINA', 'SCHWEPPES TONIC',
+      'SHARK', 'SPRITE',
     ],
   },
   {
@@ -38,21 +39,23 @@ const FEUILLE: { section: string; articles: string[] }[] = [
       'BISCUIT CRUNCHY CACAO', 'CHOCOLAT CHAUD', 'CHOCOLINE 280Gr',
       'FERRERO ROCHER', 'HLOU CAFE TURC', 'KINDER BUENO CHOCOLAT',
       'MARCHMELLO 17P', 'MIEL BAR', 'NESTLE 1KG', 'NUTELLA', 'OREO BISCUIT',
+      'SNICK BAR',
     ],
   },
   { section: 'FRUITS', articles: ['BANANE', 'CITRON', 'DATTE', 'KIWI'] },
   {
     section: 'GOBLETS & AUTRES',
     articles: [
-      'AGITATEUR  CAFE', 'CURE DENT 100 P', 'GOBLET COCKTAIL', 'GOBLET DIRECT',
-      'GOBLET EXPRESS', 'GOBLET PERSONNEL', 'PAILLES',
+      'GOBLET CAPU', 'AGITATEUR  CAFE', 'CORNET GLACE', 'CURE DENT 100 P',
+      'GOBLET COCKTAIL', 'GOBLET DIRECT', 'GOBLET EXPRESS', 'GOBLET PERSONNEL',
+      'PAILLES',
     ],
   },
   {
     section: 'PUREE',
     articles: [
       'PURE DE BANANE', 'PURE ANANAS', 'PURE FRAISE', 'PURE KIWI',
-      'PURE DE MANGUE', 'PURE LYCHEE', 'PURE NOIX DE COCO',
+      'PURE DE MANGUE', 'PURE MYRTILLE', 'PURE NOIX DE COCO',
       'PURE FRUIT DE PASSION', 'PURE PECHE', 'PURE POMME',
     ],
   },
@@ -69,15 +72,16 @@ const FEUILLE: { section: string; articles: string[] }[] = [
     section: 'PATES',
     articles: [
       'PATE CARAMEL BEUR SALE', 'PATE FERRERO CRUNCHY', 'PATE NOISETTE',
-      'PATE ORIO', 'PATE SPECULOSE CRUNCHY',
+      'PATE ORIO', 'PATE PISTACHE', 'PATE SPECULOSE CRUNCHY',
     ],
   },
   {
     section: 'FRUITS SECS',
     articles: [
       'ABRICOT SECHE', 'AMANDE CONCASSE', 'ANANAS TRANCHET', 'ANANAS SECHE',
-      'FRAMBOISE CONGELE', 'GRANOLA', 'KIWI SECHE', 'MANGUE CONGELE',
-      'MYRTILLE CONGELE', 'PIGNON', 'PISTACHE CONCASSE',
+      'FRAMBOISE CONGELE', 'FRUITS SEC JWAJEM', 'FRUIT SEC THE GOURMAND',
+      'GRANOLA', 'KIWI SECHE', 'MANGUE CONGELE', 'MYRTILLE CONGELE',
+      'PIGNON', 'PISTACHE CONCASSE',
     ],
   },
   { section: 'AUTRES', articles: ['CHOUCH WARD', 'YAOURT JWEJEM'] },
@@ -86,7 +90,8 @@ const FEUILLE: { section: string; articles: string[] }[] = [
     articles: [
       'SIROP BLEU', 'SIROP CARAMEL', 'SIROP COOKIES', 'SIROP FRAISE',
       'SIROP FRAMBOISE', 'SIROP FRUIT DE BOIS', 'SIROP FRUITS DE PASSION',
-      'SIROP GRENADINE', 'SIROP MANGUE', 'SIROP MENTHE', 'SIROP MOJITO',
+      'SIROP GRENADINE', 'SIROP MANGUE', 'SIROP MELON', 'SIROP MENTHE',
+      'SIROP MOJITO',
       'SIROP NOISETTE', 'SIROP PECHE', 'SIROP PINACOLADA', 'SIROP POMME',
       'SIROP SPECULOS', 'SIROP TIRAMISSO', 'SIROP VANILLE',
     ],
@@ -99,13 +104,6 @@ const FEUILLE: { section: string; articles: string[] }[] = [
       'YAOURT GLACE', 'YAOURT GREECOS',
     ],
   },
-]
-
-/** Lignes du papier sans article au catalogue — à créer puis ajouter. */
-const SANS_EQUIVALENT = [
-  'schwips citron', 'snick bar', 'cornet glace',
-  'fruit sec thé gourmand', 'boga lemon', 'goblet capucin',
-  'sirop melon (absent du catalogue)',
 ]
 
 async function main() {
@@ -163,9 +161,6 @@ async function main() {
     console.log(`\n${sansCible.length} article(s) sans stock fixe — à régler dans l'administration :`)
     for (const s of sansCible) console.log(`    ${s.product.name} (${s.product.baseUnit.symbol})`)
   }
-
-  console.log(`\n${SANS_EQUIVALENT.length} ligne(s) du papier sans article au catalogue :`)
-  for (const s of SANS_EQUIVALENT) console.log(`    ${s}`)
 }
 
 main()

@@ -166,10 +166,15 @@ supplémentaire n'est nécessaire côté commande de build.
 | `DATABASE_URL`      | oui         | URL Postgres accessible depuis l'extérieur (voir plus bas)  |
 | `AUTH_SECRET`       | oui         | `openssl rand -base64 32` — une valeur unique, jamais celle d'un exemple |
 | `AUTH_TRUST_HOST`   | oui         | `true`                                                      |
+| `BUSINESS_TIMEZONE` | oui         | fuseau de l'établissement, ex. `Africa/Tunis` — il définit la journée de service |
 | `WEBAUTHN_RP_ID`    | pour l'empreinte | le domaine seul, ex. `economan.vercel.app` (ni protocole, ni port) |
 | `WEBAUTHN_ORIGIN`   | pour l'empreinte | l'URL complète, ex. `https://economan.vercel.app`      |
 | `WEBAUTHN_RP_NAME`  | non         | nom affiché lors de l'enrôlement                            |
 | `DATABASE_POOL_MAX` | non         | taille du pool par instance (défaut : 3 en serverless)      |
+
+**Le fuseau compte.** L'hébergeur tourne en UTC ; sans `BUSINESS_TIMEZONE`, une
+commande passée entre minuit et 1 h à Tunis serait rangée la veille et
+n'apparaîtrait pas dans le tableau du jour.
 
 **`localhost` ne fonctionne pas en ligne.** La base doit être joignable depuis
 Internet — Neon, Supabase, Railway ou un Postgres managé. Derrière un pooler

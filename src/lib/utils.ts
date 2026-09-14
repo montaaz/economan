@@ -61,9 +61,30 @@ export function initials(fullName: string): string {
     .map((p) => p[0]?.toUpperCase() ?? '').join('')
 }
 
-/** Jour ouvré courant, à minuit UTC — la clé de regroupement des tickets. */
+/** Fuseau de l'établissement : c'est lui qui définit la journée de service. */
+export const BUSINESS_TZ = process.env.BUSINESS_TIMEZONE || 'Africa/Tunis'
+
+/**
+ * Jour ouvré courant, à minuit UTC — la clé de regroupement des tickets.
+ *
+ * La date est résolue dans le fuseau de l'établissement, jamais dans celui du
+ * serveur. Sur un hébergeur réglé en UTC, `getDate()` bascule à minuit UTC,
+ * soit 01 h à Tunis : une commande passée entre minuit et 1 h serait rangée la
+ * veille, et le tableau du jour — qui demande « aujourd'hui » — ne la verrait
+ * pas. On lit donc les composantes telles que les voit l'établissement.
+ */
 export function businessDay(d = new Date()): Date {
-  return new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()))
+  // en-CA rend « AAAA-MM-JJ », directement exploitable.
+  const [y, m, day] = new Intl.DateTimeFormat('en-CA', {
+    timeZone: BUSINESS_TZ,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  })
+    .format(d)
+    .split('-')
+    .map(Number)
+  return new Date(Date.UTC(y, m - 1, day))
 }
 
 export function addDays(d: Date, n: number): Date {

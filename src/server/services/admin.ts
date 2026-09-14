@@ -460,3 +460,39 @@ export async function deleteProduct(id: number): Promise<ActionResult> {
   revalidatePath('/employe/commande')
   return { ok: true }
 }
+
+/* ---------------------------------------------------------------- familles */
+
+/**
+ * Crée une famille d'articles.
+ *
+ * Elle se range en fin de liste, et n'est affectée à aucun département : c'est
+ * la matrice des affectations qui décide ensuite qui la commande.
+ */
+export async function createCategory(_prev: ActionResult, form: FormData): Promise<ActionResult> {
+  await requireRole(['ADMIN'], '/admin/login')
+
+  const name = String(form.get('name') ?? '').trim()
+  const icon = String(form.get('icon') ?? '').trim() || null
+
+  if (name.length < 2) return { ok: false, error: 'Le nom de la famille est obligatoire.' }
+
+  const clash = await prisma.category.findFirst({
+    where: { name: { equals: name, mode: 'insensitive' } },
+    select: { name: true },
+  })
+  if (clash) return { ok: false, error: `La famille « ${clash.name} » existe déjà.` }
+
+  const last = await prisma.category.findFirst({
+    orderBy: { sortOrder: 'desc' },
+    select: { sortOrder: true },
+  })
+
+  await prisma.category.create({
+    data: { name, icon, sortOrder: (last?.sortOrder ?? 0) + 10 },
+  })
+
+  revalidatePath('/admin/affectations')
+  revalidatePath('/admin/stock-fixe')
+  return { ok: true }
+}

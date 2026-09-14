@@ -2,6 +2,7 @@ import type { Metadata } from 'next'
 import { prisma } from '@/server/db'
 import { PageHeader } from '@/components/ui/stat'
 import { AssignmentMatrix } from './assignment-matrix'
+import { NewCategoryButton } from './new-category-button'
 
 export const metadata: Metadata = { title: 'Affectations' }
 export const dynamic = 'force-dynamic'
@@ -32,6 +33,7 @@ export default async function AssignmentsPage() {
       <PageHeader
         title="Affectations"
         description="Choisissez les catégories d’articles que chaque département peut commander. Un département ne voit que les articles des catégories cochées."
+        actions={<NewCategoryButton />}
       />
       <AssignmentMatrix
         departments={departments}

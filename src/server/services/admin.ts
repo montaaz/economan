@@ -300,3 +300,122 @@ export async function createProductForDepartment(
   revalidatePath('/employe/commande')
   return { ok: true }
 }
+
+/** Articles d'une famille, pour l'écran des affectations. */
+export async function listCategoryProducts(categoryId: number) {
+  await requireRole(['ADMIN'], '/admin/login')
+  return prisma.product.findMany({
+    where: { categoryId, isActive: true },
+    orderBy: { name: 'asc' },
+    select: {
+      id: true,
+      name: true,
+      reference: true,
+      baseUnit: { select: { id: true, name: true, symbol: true } },
+      _count: { select: { lines: true, departments: true } },
+    },
+  })
+}
+
+/** Crée un article dans une famille, sans l'attacher à un département. */
+export async function createProduct(_prev: ActionResult, form: FormData): Promise<ActionResult> {
+  await requireRole(['ADMIN'], '/admin/login')
+
+  const categoryId = Number(form.get('categoryId'))
+  const unitId = Number(form.get('unitId'))
+  const name = String(form.get('name') ?? '').trim()
+
+  if (!categoryId || !unitId) return { ok: false, error: 'Famille et unité sont obligatoires.' }
+  if (name.length < 2) return { ok: false, error: 'Le nom de l’article est obligatoire.' }
+
+  const clash = await prisma.product.findFirst({
+    where: { name: { equals: name, mode: 'insensitive' } },
+    select: { name: true },
+  })
+  if (clash) return { ok: false, error: `L’article « ${clash.name} » existe déjà.` }
+
+  const refs = await prisma.product.findMany({ select: { reference: true } })
+  const next =
+    Math.max(...refs.map((r) => Number(r.reference)).filter((n) => Number.isFinite(n)), 0) + 1
+
+  await prisma.product.create({
+    data: { reference: String(next).padStart(4, '0'), name, categoryId, baseUnitId: unitId },
+  })
+
+  revalidatePath('/admin/affectations')
+  revalidatePath('/admin/stock-fixe')
+  return { ok: true }
+}
+
+/** Renomme un article, change sa famille ou son unité. */
+export async function updateProduct(_prev: ActionResult, form: FormData): Promise<ActionResult> {
+  await requireRole(['ADMIN'], '/admin/login')
+
+  const id = Number(form.get('id'))
+  const categoryId = Number(form.get('categoryId'))
+  const unitId = Number(form.get('unitId'))
+  const name = String(form.get('name') ?? '').trim()
+
+  if (!id) return { ok: false, error: 'Article introuvable.' }
+  if (!categoryId || !unitId) return { ok: false, error: 'Famille et unité sont obligatoires.' }
+  if (name.length < 2) return { ok: false, error: 'Le nom de l’article est obligatoire.' }
+
+  const clash = await prisma.product.findFirst({
+    where: { name: { equals: name, mode: 'insensitive' }, NOT: { id } },
+    select: { name: true },
+  })
+  if (clash) return { ok: false, error: `L’article « ${clash.name} » existe déjà.` }
+
+  await prisma.product.update({
+    where: { id },
+    data: { name, categoryId, baseUnitId: unitId },
+  })
+
+  revalidatePath('/admin/affectations')
+  revalidatePath('/admin/stock-fixe')
+  revalidatePath('/employe/commande')
+  return { ok: true }
+}
+
+/**
+ * Retire un article.
+ *
+ * Un article déjà commandé n'est jamais supprimé : les lignes de commande le
+ * référencent, et un bon ancien deviendrait illisible. Il est désactivé, ce
+ * qui le retire des feuilles sans toucher à l'historique.
+ */
+export async function deleteProduct(id: number): Promise<ActionResult> {
+  await requireRole(['ADMIN'], '/admin/login')
+
+  const product = await prisma.product.findUnique({
+    where: { id },
+    select: { name: true, _count: { select: { lines: true } } },
+  })
+  if (!product) return { ok: false, error: 'Article introuvable.' }
+
+  if (product._count.lines > 0) {
+    await prisma.$transaction([
+      prisma.product.update({ where: { id }, data: { isActive: false } }),
+      prisma.departmentProduct.deleteMany({ where: { productId: id } }),
+      prisma.stockFixe.deleteMany({ where: { productId: id } }),
+    ])
+    revalidatePath('/admin/affectations')
+    revalidatePath('/admin/stock-fixe')
+    revalidatePath('/employe/commande')
+    return {
+      ok: true,
+      error: `« ${product.name} » figure dans ${product._count.lines} ligne(s) de commande : il a été désactivé et retiré des feuilles, l’historique est conservé.`,
+    }
+  }
+
+  await prisma.$transaction([
+    prisma.departmentProduct.deleteMany({ where: { productId: id } }),
+    prisma.stockFixe.deleteMany({ where: { productId: id } }),
+    prisma.product.delete({ where: { id } }),
+  ])
+
+  revalidatePath('/admin/affectations')
+  revalidatePath('/admin/stock-fixe')
+  revalidatePath('/employe/commande')
+  return { ok: true }
+}

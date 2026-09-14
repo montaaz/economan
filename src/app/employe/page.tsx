@@ -5,7 +5,7 @@ import { executeGraphQL } from '@/server/graphql/execute'
 import { PageHeader } from '@/components/ui/stat'
 import { GlassCard, Button, EmptyState, Badge } from '@/components/ui/glass'
 import { StatusBadge } from '@/components/ui/status'
-import { formatLongDate, formatTime, formatQty } from '@/lib/utils'
+import { formatInstantDate, formatLongDate, formatTime, formatQty } from '@/lib/utils'
 
 export const metadata: Metadata = { title: 'Mes commandes' }
 export const dynamic = 'force-dynamic'
@@ -24,6 +24,7 @@ const QUERY = /* GraphQL */ `
       totalServed
       note
       department { name color }
+      createdBy { fullName }
     }
   }
 `
@@ -40,6 +41,7 @@ type Order = {
   totalServed: number
   note: string | null
   department: { name: string; color: string }
+  createdBy: { fullName: string }
 }
 
 export default async function MyOrdersPage() {
@@ -121,8 +123,14 @@ export default async function MyOrdersPage() {
                           ) : null}
                         </div>
 
-                        <p className="text-[0.76rem] text-fg-subtle">
-                          Envoyée à {formatTime(o.createdAt)}
+                        <p className="text-[0.76rem] leading-snug text-fg-subtle">
+                          <span className="font-medium text-fg-muted">
+                            {o.createdBy.fullName}
+                          </span>
+                          {/* La date reste utile : la carte peut être lue un
+                              autre jour que celui de l'envoi. */}
+                          <span className="mx-1.5">·</span>
+                          {formatInstantDate(o.createdAt)} à {formatTime(o.createdAt)}
                         </p>
 
                         {o.status === 'DELIVERED' ? (

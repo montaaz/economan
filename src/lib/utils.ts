@@ -47,7 +47,24 @@ export function formatWeekday(value: Date | string | null | undefined): string {
 export function formatTime(value: Date | string | null | undefined): string {
   if (!value) return '—'
   const d = typeof value === 'string' ? new Date(value) : value
-  return new Intl.DateTimeFormat('fr-FR', { hour: '2-digit', minute: '2-digit' }).format(d)
+  return new Intl.DateTimeFormat('fr-FR', {
+    hour: '2-digit',
+    minute: '2-digit',
+    timeZone: BUSINESS_TZ,
+  }).format(d)
+}
+
+/**
+ * Date d'un horodatage, dans le fuseau de l'établissement.
+ *
+ * À ne pas confondre avec `formatDate`, qui rend en UTC : celui-ci convient à
+ * `businessDay` (stocké à minuit UTC), jamais à un `createdAt`, qui serait
+ * sinon daté de la veille pour toute commande passée après minuit à Tunis.
+ */
+export function formatInstantDate(value: Date | string | null | undefined): string {
+  if (!value) return '—'
+  const d = typeof value === 'string' ? new Date(value) : value
+  return new Intl.DateTimeFormat('fr-FR', { timeZone: BUSINESS_TZ }).format(d)
 }
 
 export function formatDateTime(value: Date | string | null | undefined): string {

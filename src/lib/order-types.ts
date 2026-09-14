@@ -17,6 +17,10 @@ export type ProcessLine = {
   quantityOnHand: number
   quantityAsked: number
   quantityServed: number | null
+  /** Compté par l'employé à la réception ; nul tant qu'il n'a pas vérifié. */
+  quantityReceived: number | null
+  /** Écart reçu − servi. 0 si conforme ou non vérifié. */
+  receiptGap: number
   status: LineStatus
   rejectReason: string | null
 }

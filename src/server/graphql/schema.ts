@@ -65,6 +65,10 @@ const typeDefs = /* GraphQL */ `
     productId: ID!
     "Cible au moment de l'envoi."
     stockFixe: Float!
+    "Quantité réellement comptée par l'employé à la réception."
+    quantityReceived: Float
+    "Écart entre le servi et le compté. 0 si conforme ou non vérifié."
+    receiptGap: Float!
     "Stock compté par l'employé au moment de l'envoi."
     quantityOnHand: Float!
     productName: String!
@@ -120,6 +124,7 @@ const typeDefs = /* GraphQL */ `
   "L'employé déclare le stock qu'il a en rayon ; le serveur en déduit la quantité."
   input OrderLineInput { productId: ID!, quantityOnHand: Float! }
   input StockFixeInput { productId: ID!, quantity: Float! }
+  input ReceivedLineInput { lineId: ID!, quantityReceived: Float! }
   input ServedLineInput {
     lineId: ID!
     status: LineStatus!
@@ -151,7 +156,8 @@ const typeDefs = /* GraphQL */ `
     acceptOrder(id: ID!): Order!
     setServedLines(id: ID!, lines: [ServedLineInput!]!): Order!
     deliverOrder(id: ID!): Order!
-    receiveOrder(id: ID!): Order!
+    "L'employé confirme la réception, en déclarant ce qu'il a compté."
+    receiveOrder(id: ID!, lines: [ReceivedLineInput!]): Order!
     "Administration : règle le stock fixe d'un département."
     setStockFixe(departmentId: ID!, lines: [StockFixeInput!]!): Int!
   }
@@ -233,6 +239,15 @@ const resolvers = {
   OrderLine: {
     unitSymbol: (l: { unit?: { symbol: string } }) => l.unit?.symbol ?? '',
     stockFixe: (l: { stockFixe: unknown }) => Number(l.stockFixe ?? 0),
+    quantityReceived: (l: { quantityReceived: unknown }) =>
+      l.quantityReceived === null || l.quantityReceived === undefined
+        ? null
+        : Number(l.quantityReceived),
+    receiptGap: (l: { quantityReceived: unknown; quantityServed: unknown }) => {
+      // Tant que rien n'est compté, il n'y a pas d'écart à signaler.
+      if (l.quantityReceived === null || l.quantityReceived === undefined) return 0
+      return Number(l.quantityReceived) - Number(l.quantityServed ?? 0)
+    },
     quantityOnHand: (l: { quantityOnHand: unknown }) => Number(l.quantityOnHand ?? 0),
     quantityAsked: (l: { quantityAsked: unknown }) => Number(l.quantityAsked),
     quantityServed: (l: { quantityServed: unknown }) =>
@@ -485,9 +500,22 @@ const resolvers = {
       return toSet.length
     },
 
-    receiveOrder: async (_p: unknown, a: { id: string }, ctx: Ctx) => {
+    receiveOrder: async (
+      _p: unknown,
+      a: { id: string; lines?: { lineId: string; quantityReceived: number }[] },
+      ctx: Ctx,
+    ) => {
       const u = requireEmployee(ctx)
-      await run(() => receiveOrder(Number(a.id), u))
+      await run(() =>
+        receiveOrder(
+          Number(a.id),
+          u,
+          a.lines?.map((l) => ({
+            lineId: Number(l.lineId),
+            quantityReceived: l.quantityReceived,
+          })),
+        ),
+      )
       return prisma.order.findUniqueOrThrow({ where: { id: Number(a.id) }, include: ORDER_INCLUDE })
     },
   },

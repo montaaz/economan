@@ -7,7 +7,7 @@ import { GlassCard, Badge, TableWrap, Th, Td, Button } from '@/components/ui/gla
 import { StatusBadge, statusSteps } from '@/components/ui/status'
 import { Ticket, type TicketOrder } from '@/components/ui/ticket'
 import { formatLongDate, formatQty, formatTime, cn } from '@/lib/utils'
-import { ReceiveButton } from './receive-button'
+import { ReceptionPanel } from './reception-panel'
 import { PrintButton } from '@/components/ui/print-button'
 
 export const metadata: Metadata = { title: 'Commande' }
@@ -42,6 +42,8 @@ const QUERY = /* GraphQL */ `
         quantityOnHand
         quantityAsked
         quantityServed
+        quantityReceived
+        receiptGap
         status
         rejectReason
       }
@@ -94,7 +96,7 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
             <Printer className="size-3.5" />
             Imprimer
           </PrintButton>
-          {order.status === 'DELIVERED' ? <ReceiveButton orderId={order.id} /> : null}
+          {/* La confirmation vit désormais dans le panneau de vérification. */}
         </div>
       </div>
 
@@ -176,6 +178,10 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
           ) : null}
         </GlassCard>
 
+        {order.status === 'DELIVERED' ? (
+          <ReceptionPanel orderId={order.id} lines={order.lines} />
+        ) : null}
+
         <GlassCard>
           <TableWrap minWidth="34rem">
             <thead>
@@ -184,6 +190,9 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
                 <Th className="w-full">Article</Th>
                 <Th className="text-right">Demandé</Th>
                 <Th className="text-right">Servi</Th>
+                {order.status === 'RECEIVED' ? (
+                  <Th className="text-right">Reçu</Th>
+                ) : null}
                 <Th>État</Th>
               </tr>
             </thead>
@@ -205,6 +214,22 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
                   <Td className="whitespace-nowrap text-right font-medium tabular-nums text-fg">
                     {l.quantityServed === null ? '—' : `${formatQty(l.quantityServed)} ${l.unitSymbol}`}
                   </Td>
+                  {order.status === 'RECEIVED' ? (
+                    <Td className="whitespace-nowrap text-right tabular-nums">
+                      {l.quantityReceived == null ? (
+                        <span className="text-fg-subtle">—</span>
+                      ) : (
+                        <span className={cn((l.receiptGap ?? 0) !== 0 && 'font-bold text-warn')}>
+                          {formatQty(l.quantityReceived)} {l.unitSymbol}
+                          {(l.receiptGap ?? 0) !== 0 ? (
+                            <span className="ml-1 text-[0.72rem]">
+                              ({(l.receiptGap ?? 0) > 0 ? '+' : ''}{formatQty(l.receiptGap ?? 0)})
+                            </span>
+                          ) : null}
+                        </span>
+                      )}
+                    </Td>
+                  ) : null}
                   <Td>
                     <Badge tone={LINE_TONE[l.status]}>{LINE_LABEL[l.status]}</Badge>
                     {l.rejectReason ? (

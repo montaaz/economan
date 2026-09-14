@@ -236,6 +236,9 @@ model OrderLine {
   quantityOnHand  Decimal    @default(0) @db.Decimal(14, 3)
   quantityAsked   Decimal    @db.Decimal(14, 3)
   quantityServed  Decimal?   @db.Decimal(14, 3)
+  /// Ce que l'employé a réellement compté à la réception. Nul tant qu'il n'a
+  /// pas vérifié ; un écart avec quantityServed est conservé comme trace.
+  quantityReceived Decimal?  @db.Decimal(14, 3)
   status          LineStatus @default(PENDING)
   rejectReason    String?
   sortOrder       Int        @default(0)

@@ -66,6 +66,7 @@ export function OrderView({ order }: { order: ProcessOrder }) {
               <Th className="w-full">Article</Th>
               <Th className="text-right">Demandé</Th>
               <Th className="text-right">Servi</Th>
+              <Th className="text-right">Reçu</Th>
               <Th>État</Th>
             </tr>
           </thead>
@@ -86,6 +87,20 @@ export function OrderView({ order }: { order: ProcessOrder }) {
                 </Td>
                 <Td className="whitespace-nowrap text-right font-medium tabular-nums text-fg">
                   {l.quantityServed === null ? '—' : `${formatQty(l.quantityServed)} ${l.unitSymbol}`}
+                </Td>
+                <Td className="whitespace-nowrap text-right tabular-nums">
+                  {l.quantityReceived == null ? (
+                    <span className="text-fg-subtle">—</span>
+                  ) : (
+                    <span className={cn((l.receiptGap ?? 0) !== 0 && 'font-bold text-warn')}>
+                      {formatQty(l.quantityReceived)} {l.unitSymbol}
+                      {(l.receiptGap ?? 0) !== 0 ? (
+                        <span className="ml-1 text-[0.72rem]">
+                          ({(l.receiptGap ?? 0) > 0 ? '+' : ''}{formatQty(l.receiptGap ?? 0)})
+                        </span>
+                      ) : null}
+                    </span>
+                  )}
                 </Td>
                 <Td>
                   <Badge tone={LINE[l.status].tone}>{LINE[l.status].label}</Badge>

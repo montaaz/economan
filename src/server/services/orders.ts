@@ -228,22 +228,70 @@ export async function deliverOrder(orderId: number, actorId: number) {
   })
 }
 
-/** L'employé confirme la réception — le dossier se clôt. */
-export async function receiveOrder(orderId: number, actor: SessionUser) {
-  const order = await prisma.order.findUnique({
-    where: { id: orderId },
-    select: { status: true, departmentId: true },
-  })
-  if (!order) throw new WorkflowError('Commande introuvable.')
-  if (order.departmentId !== actor.departmentId) {
-    throw new WorkflowError('Cette commande ne concerne pas votre département.')
-  }
-  if (order.status !== 'DELIVERED') {
-    throw new WorkflowError('Cette commande n’a pas encore été livrée.')
-  }
-  return prisma.order.update({
-    where: { id: orderId },
-    data: { status: 'RECEIVED', receivedAt: new Date() },
-    select: { id: true },
+/// Ce que l'employé déclare avoir compté, ligne par ligne.
+export type ReceivedLine = { lineId: number; quantityReceived: number }
+
+/**
+ * L'employé confirme la réception — le dossier se clôt.
+ *
+ * Les quantités comptées sont facultatives : une commande peut être reçue sans
+ * vérification détaillée. Quand elles sont fournies, chaque ligne conserve ce
+ * qui a été réellement reçu, et l'écart avec la quantité servie reste lisible
+ * par l'économat et la direction.
+ */
+export async function receiveOrder(
+  orderId: number,
+  actor: SessionUser,
+  received?: ReceivedLine[],
+) {
+  return prisma.$transaction(async (tx) => {
+    const order = await tx.order.findUnique({
+      where: { id: orderId },
+      select: {
+        status: true,
+        departmentId: true,
+        lines: { select: { id: true, quantityServed: true, status: true } },
+      },
+    })
+    if (!order) throw new WorkflowError('Commande introuvable.')
+    if (order.departmentId !== actor.departmentId) {
+      throw new WorkflowError('Cette commande ne concerne pas votre département.')
+    }
+    if (order.status !== 'DELIVERED') {
+      throw new WorkflowError('Cette commande n’a pas encore été livrée.')
+    }
+
+    const known = new Map(order.lines.map((l) => [l.id, l]))
+
+    if (received && received.length > 0) {
+      for (const r of received) {
+        if (!known.has(r.lineId)) {
+          throw new WorkflowError('Ligne inconnue pour cette commande.')
+        }
+        if (!Number.isFinite(r.quantityReceived) || r.quantityReceived < 0) {
+          throw new WorkflowError('Quantité reçue invalide.')
+        }
+        await tx.orderLine.update({
+          where: { id: r.lineId },
+          data: { quantityReceived: r.quantityReceived },
+        })
+      }
+    } else {
+      // Sans vérification détaillée, on considère reçu ce qui a été servi :
+      // la colonne ne doit pas rester vide et laisser croire à un oubli.
+      for (const l of order.lines) {
+        if (l.status === 'REJECTED') continue
+        await tx.orderLine.update({
+          where: { id: l.id },
+          data: { quantityReceived: l.quantityServed ?? 0 },
+        })
+      }
+    }
+
+    return tx.order.update({
+      where: { id: orderId },
+      data: { status: 'RECEIVED', receivedAt: new Date() },
+      select: { id: true },
+    })
   })
 }

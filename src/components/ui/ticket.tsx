@@ -10,6 +10,10 @@ export type TicketLine = {
   quantityOnHand: number
   quantityAsked: number
   quantityServed: number | null
+  /** Compté à la réception ; nul tant que l'employé n'a pas vérifié. */
+  quantityReceived?: number | null
+  /** Écart reçu − servi. 0 si conforme ou non vérifié. */
+  receiptGap?: number
   status: 'PENDING' | 'VALIDATED' | 'ADJUSTED' | 'REJECTED'
   rejectReason: string | null
 }

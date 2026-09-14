@@ -312,7 +312,7 @@ export function NewOrderForm({
                 </Th>
                 <Th className="px-1 text-right sm:px-3">
                   <span className="sm:hidden">Cmd.</span>
-                  <span className="hidden sm:inline">À commander</span>
+                  <span className="hidden sm:inline">commande</span>
                 </Th>
               </tr>
             </thead>

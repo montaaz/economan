@@ -61,6 +61,8 @@ export const ORDER_QUERY = /* GraphQL */ `
         quantityOnHand
         quantityAsked
         quantityServed
+        quantityReceived
+        receiptGap
         status
         rejectReason
       }

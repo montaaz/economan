@@ -331,7 +331,7 @@ export function NewOrderForm({
                       <tr className="[&>td]:border-r-0">
                         <td
                           colSpan={5}
-                          className="bg-[rgb(var(--glass-edge)/0.16)] px-2 py-1.5 text-[0.72rem] font-bold uppercase tracking-[0.06em] text-fg-muted sm:px-3 sm:text-[0.76rem]"
+                          className="bg-ok/12 px-2 py-1.5 text-[0.72rem] font-bold uppercase tracking-[0.06em] text-ok sm:px-3 sm:text-[0.76rem]"
                         >
                           <span className="flex items-center gap-1.5">
                             {p.category.icon ? (

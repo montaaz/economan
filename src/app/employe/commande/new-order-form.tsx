@@ -318,14 +318,31 @@ export function NewOrderForm({
             </thead>
             <tbody className="divide-y divide-[rgb(var(--glass-edge)/0.12)] [&_td:not(:last-child)]:border-r [&_td]:border-[rgb(var(--glass-edge)/0.12)]">
               {paged.shown.map((p, i) => {
+                const previous = i > 0 ? paged.shown[i - 1] : null
+                const opensFamily = previous?.category.id !== p.category.id
                 const filled = isFilled(p.id)
                 const flagged = showMissing && !filled
                 const stock = toNumber(onHand[p.id])
                 const asked = filled ? toOrder(p.stockFixe, stock) : 0
                 const noPar = p.stockFixe <= 0
                 return (
+                  <React.Fragment key={p.id}>
+                    {opensFamily ? (
+                      <tr className="[&>td]:border-r-0">
+                        <td
+                          colSpan={5}
+                          className="bg-[rgb(var(--glass-edge)/0.16)] px-2 py-1.5 text-[0.72rem] font-bold uppercase tracking-[0.06em] text-fg-muted sm:px-3 sm:text-[0.76rem]"
+                        >
+                          <span className="flex items-center gap-1.5">
+                            {p.category.icon ? (
+                              <Icon name={p.category.icon} className="size-3.5 shrink-0" />
+                            ) : null}
+                            {p.category.name}
+                          </span>
+                        </td>
+                      </tr>
+                    ) : null}
                   <tr
-                    key={p.id}
                     className={cn(
                       'transition-colors',
                       flagged && 'bg-danger/[0.07]',
@@ -339,10 +356,8 @@ export function NewOrderForm({
                       <p className="truncate text-[0.78rem] font-medium leading-snug text-fg sm:text-[0.85rem]">
                         {p.name}
                       </p>
-                      <p className="truncate text-[0.68rem] text-fg-subtle sm:text-[0.7rem]">
-                        <span className="font-mono">{p.reference}</span>
-                        <span className="mx-1.5">·</span>
-                        {p.category.name}
+                      <p className="truncate font-mono text-[0.68rem] text-fg-subtle sm:text-[0.7rem]">
+                        {p.reference}
                       </p>
                     </Td>
 
@@ -416,6 +431,7 @@ export function NewOrderForm({
                       )}
                     </Td>
                   </tr>
+                  </React.Fragment>
                 )
               })}
             </tbody>

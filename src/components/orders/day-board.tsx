@@ -3,7 +3,7 @@ import { Inbox } from 'lucide-react'
 import { GlassCard, Badge, EmptyState } from '@/components/ui/glass'
 import { Icon } from '@/components/ui/icon'
 import { StatusBadge } from '@/components/ui/status'
-import { formatQty, formatTime } from '@/lib/utils'
+import { formatInstantDate, formatQty, formatTime } from '@/lib/utils'
 
 export type BoardOrder = {
   id: string
@@ -88,25 +88,31 @@ export function DayBoard({ board, basePath }: { board: Board; basePath: string }
               <Link key={o.id} href={`${basePath}/${o.id}`}>
                 <GlassCard hover className="h-full">
                   <div className="space-y-2.5 p-4">
+                    {/* Même disposition que côté employé : l'auteur et
+                        l'horodatage ouvrent la carte, le ticket vient après. */}
                     <div className="flex items-start justify-between gap-2">
-                      <span className="flex min-w-0 items-center gap-2">
-                        <span
-                          className="grid size-8 shrink-0 place-items-center rounded-lg text-[0.82rem] font-bold tabular-nums text-white"
-                          style={{ background: g.department.color }}
-                        >
-                          {o.ticketNumber}
-                        </span>
-                        <span className="min-w-0">
-                          <span className="block truncate font-mono text-[0.78rem] font-semibold text-fg">
-                            {o.reference}
-                          </span>
-                          <span className="block truncate text-[0.72rem] text-fg-subtle">
-                            {o.createdBy.fullName} · {formatTime(o.createdAt)}
-                          </span>
-                        </span>
-                      </span>
+                      <div className="min-w-0">
+                        <p className="truncate text-[0.95rem] font-bold leading-tight text-fg">
+                          {o.createdBy.fullName}
+                        </p>
+                        <p className="mt-0.5 text-[0.82rem] tabular-nums text-fg-muted">
+                          {formatInstantDate(o.createdAt)} à {formatTime(o.createdAt)}
+                        </p>
+                      </div>
                       <StatusBadge status={o.status} />
                     </div>
+
+                    <p className="flex items-center gap-2">
+                      <span
+                        className="grid size-7 shrink-0 place-items-center rounded-lg text-[0.78rem] font-bold tabular-nums text-white"
+                        style={{ background: g.department.color }}
+                      >
+                        {o.ticketNumber}
+                      </span>
+                      <span className="truncate font-mono text-[0.8rem] font-semibold text-fg-muted">
+                        {o.reference}
+                      </span>
+                    </p>
 
                     <div className="flex flex-wrap gap-1.5">
                       <Badge tone="neutral">{o.lineCount} article{o.lineCount > 1 ? 's' : ''}</Badge>

@@ -521,3 +521,127 @@ export async function createCategory(_prev: ActionResult, form: FormData): Promi
   revalidatePath('/admin/stock-fixe')
   return { ok: true }
 }
+
+/* ------------------------------------------------------------------ unités */
+
+/** Unités avec leur usage, pour l'écran de gestion. */
+export async function listUnits() {
+  await requireRole(['ADMIN'], '/admin/login')
+  return prisma.unit.findMany({
+    orderBy: { name: 'asc' },
+    select: {
+      id: true,
+      name: true,
+      symbol: true,
+      allowsDecimals: true,
+      _count: { select: { products: true, orderLines: true } },
+    },
+  })
+}
+
+/** Crée une unité de mesure. */
+export async function createUnit(_prev: ActionResult, form: FormData): Promise<ActionResult> {
+  await requireRole(['ADMIN'], '/admin/login')
+
+  const name = String(form.get('name') ?? '').trim()
+  const symbol = String(form.get('symbol') ?? '').trim()
+  const allowsDecimals = String(form.get('allowsDecimals') ?? '') === 'on'
+
+  if (name.length < 2) return { ok: false, error: 'Le nom de l’unité est obligatoire.' }
+  if (!symbol) return { ok: false, error: 'Le symbole est obligatoire.' }
+
+  const clash = await prisma.unit.findFirst({
+    where: {
+      OR: [
+        { name: { equals: name, mode: 'insensitive' } },
+        { symbol: { equals: symbol, mode: 'insensitive' } },
+      ],
+    },
+    select: { name: true, symbol: true },
+  })
+  if (clash) {
+    return {
+      ok: false,
+      error: `L’unité « ${clash.name} » (${clash.symbol}) occupe déjà ce nom ou ce symbole.`,
+    }
+  }
+
+  await prisma.unit.create({ data: { name, symbol, allowsDecimals } })
+
+  revalidatePath('/admin/stock-fixe')
+  return { ok: true }
+}
+
+/**
+ * Renomme une unité ou change son symbole.
+ *
+ * Sans danger pour l'existant : articles et lignes de commande référencent
+ * l'identifiant, pas le libellé. Le changement se répercute donc partout, y
+ * compris sur les bons déjà imprimés si on les réimprime.
+ */
+export async function updateUnit(_prev: ActionResult, form: FormData): Promise<ActionResult> {
+  await requireRole(['ADMIN'], '/admin/login')
+
+  const id = Number(form.get('id'))
+  const name = String(form.get('name') ?? '').trim()
+  const symbol = String(form.get('symbol') ?? '').trim()
+  const allowsDecimals = String(form.get('allowsDecimals') ?? '') === 'on'
+
+  if (!id) return { ok: false, error: 'Unité introuvable.' }
+  if (name.length < 2) return { ok: false, error: 'Le nom de l’unité est obligatoire.' }
+  if (!symbol) return { ok: false, error: 'Le symbole est obligatoire.' }
+
+  const clash = await prisma.unit.findFirst({
+    where: {
+      NOT: { id },
+      OR: [
+        { name: { equals: name, mode: 'insensitive' } },
+        { symbol: { equals: symbol, mode: 'insensitive' } },
+      ],
+    },
+    select: { name: true, symbol: true },
+  })
+  if (clash) {
+    return {
+      ok: false,
+      error: `L’unité « ${clash.name} » (${clash.symbol}) occupe déjà ce nom ou ce symbole.`,
+    }
+  }
+
+  await prisma.unit.update({ where: { id }, data: { name, symbol, allowsDecimals } })
+
+  revalidatePath('/admin/stock-fixe')
+  revalidatePath('/employe/commande')
+  return { ok: true }
+}
+
+/**
+ * Supprime une unité.
+ *
+ * Refusée dès qu'un article ou une ligne de commande l'utilise : contrairement
+ * à un article, une unité n'a pas d'état « inactif » et la retirer casserait
+ * les références.
+ */
+export async function deleteUnit(id: number): Promise<ActionResult> {
+  await requireRole(['ADMIN'], '/admin/login')
+
+  const unit = await prisma.unit.findUnique({
+    where: { id },
+    select: { name: true, _count: { select: { products: true, orderLines: true } } },
+  })
+  if (!unit) return { ok: false, error: 'Unité introuvable.' }
+
+  const used = unit._count.products + unit._count.orderLines
+  if (used > 0) {
+    return {
+      ok: false,
+      error:
+        `« ${unit.name} » est utilisée par ${unit._count.products} article(s) et ` +
+        `${unit._count.orderLines} ligne(s) de commande : elle ne peut pas être supprimée.`,
+    }
+  }
+
+  await prisma.unit.delete({ where: { id } })
+  revalidatePath('/admin/stock-fixe')
+  return { ok: true }
+}

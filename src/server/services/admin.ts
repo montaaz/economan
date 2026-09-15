@@ -645,3 +645,168 @@ export async function deleteUnit(id: number): Promise<ActionResult> {
   revalidatePath('/admin/stock-fixe')
   return { ok: true }
 }
+
+/* ------------------------------------------------- relations département */
+
+/**
+ * État complet des relations d'un département : ses familles, et pour chacune
+ * les articles présents ou non sur sa feuille.
+ *
+ * C'est la feuille (`department_products`) qui fait foi — c'est elle que voit
+ * l'employé. La case « famille » n'est donc pas un simple lien : elle indique
+ * qu'au moins un article de cette famille est sur la feuille.
+ */
+export async function getDepartmentRelations(departmentId: number) {
+  await requireRole(['ADMIN'], '/admin/login')
+
+  const [categories, sheet, links] = await Promise.all([
+    prisma.category.findMany({
+      where: { isActive: true },
+      orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
+      select: {
+        id: true,
+        name: true,
+        icon: true,
+        products: {
+          where: { isActive: true },
+          orderBy: { name: 'asc' },
+          select: { id: true, name: true, reference: true, baseUnit: { select: { symbol: true } } },
+        },
+      },
+    }),
+    prisma.departmentProduct.findMany({
+      where: { departmentId },
+      select: { productId: true },
+    }),
+    prisma.departmentCategory.findMany({
+      where: { departmentId },
+      select: { categoryId: true },
+    }),
+  ])
+
+  const onSheet = new Set(sheet.map((r) => r.productId))
+  const linked = new Set(links.map((r) => r.categoryId))
+
+  return categories.map((c) => ({
+    id: c.id,
+    name: c.name,
+    icon: c.icon,
+    // Le lien de catégorie seul ne suffit pas : d'anciennes affectations
+    // pointent des familles dont aucun article n'est sur la feuille, et
+    // l'employé ne verrait rien. Une famille vide n'est donc pas « cochée ».
+    linked: linked.has(c.id) && c.products.some((p) => onSheet.has(p.id)),
+    products: c.products.map((p) => ({
+      id: p.id,
+      name: p.name,
+      reference: p.reference,
+      symbol: p.baseUnit.symbol,
+      onSheet: onSheet.has(p.id),
+    })),
+  }))
+}
+
+/**
+ * Rattache ou détache une famille entière.
+ *
+ * Cocher une famille place tous ses articles sur la feuille : sans cela le
+ * lien serait décoratif, puisque l'employé ne voit que la feuille. Décocher
+ * les retire — le stock fixe correspondant part avec, il n'aurait plus de sens.
+ */
+export async function toggleDepartmentCategory(
+  departmentId: number,
+  categoryId: number,
+  linked: boolean,
+): Promise<ActionResult> {
+  await requireRole(['ADMIN'], '/admin/login')
+
+  await prisma.$transaction(async (tx) => {
+    if (!linked) {
+      const products = await tx.product.findMany({
+        where: { categoryId },
+        select: { id: true },
+      })
+      const ids = products.map((p) => p.id)
+      await tx.departmentProduct.deleteMany({ where: { departmentId, productId: { in: ids } } })
+      await tx.stockFixe.deleteMany({ where: { departmentId, productId: { in: ids } } })
+      await tx.departmentCategory.deleteMany({ where: { departmentId, categoryId } })
+      return
+    }
+
+    await tx.departmentCategory.upsert({
+      where: { departmentId_categoryId: { departmentId, categoryId } },
+      update: {},
+      create: { departmentId, categoryId },
+    })
+
+    const products = await tx.product.findMany({
+      where: { categoryId, isActive: true },
+      orderBy: { name: 'asc' },
+      select: { id: true },
+    })
+    if (products.length === 0) return
+
+    const last = await tx.departmentProduct.findFirst({
+      where: { departmentId },
+      orderBy: { sortOrder: 'desc' },
+      select: { sortOrder: true },
+    })
+    let order = (last?.sortOrder ?? 0) + 10
+
+    await tx.departmentProduct.createMany({
+      data: products.map((p) => ({ departmentId, productId: p.id, sortOrder: (order += 10) })),
+      skipDuplicates: true,
+    })
+  })
+
+  revalidatePath('/admin/stock-fixe')
+  revalidatePath('/employe/commande')
+  return { ok: true }
+}
+
+/**
+ * Ajoute ou retire un article de la feuille d'un département.
+ *
+ * Retirer le dernier article d'une famille détache aussi la famille : garder
+ * un lien vide laisserait croire que le département commande cette famille.
+ */
+export async function toggleDepartmentProduct(
+  departmentId: number,
+  productId: number,
+  onSheet: boolean,
+): Promise<ActionResult> {
+  await requireRole(['ADMIN'], '/admin/login')
+
+  const product = await prisma.product.findUnique({
+    where: { id: productId },
+    select: { categoryId: true },
+  })
+  if (!product) return { ok: false, error: 'Article introuvable.' }
+
+  await prisma.$transaction(async (tx) => {
+    if (!onSheet) {
+      await tx.departmentProduct.deleteMany({ where: { departmentId, productId } })
+      await tx.stockFixe.deleteMany({ where: { departmentId, productId } })
+
+      const reste = await tx.departmentProduct.count({
+        where: { departmentId, product: { categoryId: product.categoryId } },
+      })
+      if (reste === 0) {
+        await tx.departmentCategory.deleteMany({
+          where: { departmentId, categoryId: product.categoryId },
+        })
+      }
+      return
+    }
+
+    await tx.departmentCategory.upsert({
+      where: { departmentId_categoryId: { departmentId, categoryId: product.categoryId } },
+      update: {},
+      create: { departmentId, categoryId: product.categoryId },
+    })
+    await attachToSheet(tx, departmentId, productId, product.categoryId)
+  })
+
+  revalidatePath('/admin/stock-fixe')
+  revalidatePath('/employe/commande')
+  return { ok: true }
+}

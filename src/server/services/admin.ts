@@ -483,13 +483,38 @@ export async function createCategory(_prev: ActionResult, form: FormData): Promi
   })
   if (clash) return { ok: false, error: `La famille « ${clash.name} » existe déjà.` }
 
+  // Les départements cochés arrivent sous la forme « dep-<id> ».
+  const departmentIds: number[] = []
+  for (const [key, value] of form.entries()) {
+    if (!key.startsWith('dep-')) continue
+    if (String(value) !== 'on') continue
+    const id = Number(key.slice('dep-'.length))
+    if (id) departmentIds.push(id)
+  }
+
   const last = await prisma.category.findFirst({
     orderBy: { sortOrder: 'desc' },
     select: { sortOrder: true },
   })
 
-  await prisma.category.create({
-    data: { name, icon, sortOrder: (last?.sortOrder ?? 0) + 10 },
+  await prisma.$transaction(async (tx) => {
+    const category = await tx.category.create({
+      data: { name, icon, sortOrder: (last?.sortOrder ?? 0) + 10 },
+      select: { id: true },
+    })
+
+    // Affecter la famille dans la foulée évite un aller-retour par l'écran
+    // des affectations : une famille que personne ne commande ne sert à rien.
+    if (departmentIds.length > 0) {
+      await tx.departmentCategory.createMany({
+        data: departmentIds.map((departmentId, i) => ({
+          departmentId,
+          categoryId: category.id,
+          sortOrder: i * 10,
+        })),
+        skipDuplicates: true,
+      })
+    }
   })
 
   revalidatePath('/admin/affectations')

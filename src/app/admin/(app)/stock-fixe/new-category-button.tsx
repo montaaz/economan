@@ -18,7 +18,14 @@ const ICONS = [
   'apple', 'wheat', 'flame', 'snowflake', 'wine', 'cup-soda', 'cake-slice', 'spray-can',
 ]
 
-export function NewCategoryButton() {
+export type DeptRef = { id: number; name: string; color: string; icon: string | null }
+
+export function NewCategoryButton({
+  departments, selectedId,
+}: {
+  departments: DeptRef[]
+  selectedId: number
+}) {
   const [open, setOpen] = React.useState(false)
 
   return (
@@ -27,12 +34,24 @@ export function NewCategoryButton() {
         <Plus className="size-4" />
         Nouvelle famille
       </Button>
-      {open ? <NewCategoryForm onClose={() => setOpen(false)} /> : null}
+      {open ? (
+        <NewCategoryForm
+          departments={departments}
+          selectedId={selectedId}
+          onClose={() => setOpen(false)}
+        />
+      ) : null}
     </>
   )
 }
 
-function NewCategoryForm({ onClose }: { onClose: () => void }) {
+function NewCategoryForm({
+  departments, selectedId, onClose,
+}: {
+  departments: DeptRef[]
+  selectedId: number
+  onClose: () => void
+}) {
   const router = useRouter()
   const { push } = useToast()
   const [state, formAction] = useActionState<ActionResult, FormData>(createCategory, { ok: false })
@@ -40,7 +59,7 @@ function NewCategoryForm({ onClose }: { onClose: () => void }) {
 
   React.useEffect(() => {
     if (state.ok) {
-      push('success', 'Famille créée. Cochez-la pour les départements concernés.')
+      push('success', 'Famille créée. Ajoutez-y vos articles ci-dessous.')
       router.refresh()
       onClose()
     }
@@ -52,8 +71,8 @@ function NewCategoryForm({ onClose }: { onClose: () => void }) {
         <input type="hidden" name="icon" value={icon} />
 
         <p className="rounded-xl border border-ok/30 bg-ok/[0.07] px-3 py-2.5 text-[0.8rem] leading-snug text-fg-muted">
-          La famille est créée vide et n’est affectée à aucun département. Cochez-la ensuite
-          pour les départements qui la commandent, puis ajoutez-y des articles.
+          La famille est créée vide. Cochez les départements qui la commandent : elle
+          apparaîtra sur leur écran, prête à recevoir des articles.
         </p>
 
         {state.error ? (
@@ -97,6 +116,32 @@ function NewCategoryForm({ onClose }: { onClose: () => void }) {
               </button>
             ))}
           </div>
+        </Field>
+
+        <Field label="Départements qui commandent cette famille">
+          <ul className="space-y-1">
+            {departments.map((d) => (
+              <li key={d.id}>
+                <label className="flex cursor-pointer items-center gap-2 rounded-lg px-1.5 py-1 hover:bg-[rgb(var(--glass-edge)/0.12)]">
+                  <input
+                    type="checkbox"
+                    name={`dep-${d.id}`}
+                    // Le département affiché est coché d'office : c'est depuis
+                    // son écran que l'administrateur crée la famille.
+                    defaultChecked={d.id === selectedId}
+                    className="size-4 accent-[var(--ok)]"
+                  />
+                  <span
+                    className="grid size-6 shrink-0 place-items-center rounded-lg text-white"
+                    style={{ background: d.color }}
+                  >
+                    <Icon name={d.icon ?? 'Building2'} className="size-3.5" />
+                  </span>
+                  <span className="min-w-0 flex-1 truncate text-[0.82rem] text-fg">{d.name}</span>
+                </label>
+              </li>
+            ))}
+          </ul>
         </Field>
 
         <div className="flex items-center justify-end gap-2 pt-1">

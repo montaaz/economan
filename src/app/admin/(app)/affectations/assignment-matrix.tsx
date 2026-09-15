@@ -1,35 +1,24 @@
 'use client'
 
 import * as React from 'react'
-import { useActionState } from 'react'
-import { useFormStatus } from 'react-dom'
 import { useRouter } from 'next/navigation'
-import { Save, Check, RotateCcw, Settings2, Plus, Pencil, Trash2, AlertCircle, PackageSearch } from 'lucide-react'
-import { GlassCard, Button, Badge, Field, EmptyState } from '@/components/ui/glass'
-import { Modal } from '@/components/ui/modal'
+import { Save, Check, RotateCcw } from 'lucide-react'
+import { GlassCard, Button, Badge } from '@/components/ui/glass'
 import { Icon } from '@/components/ui/icon'
 import { useToast } from '@/components/ui/toast'
 import { cn } from '@/lib/utils'
-import {
-  setDepartmentCategories, listCategoryProducts, createProduct, updateProduct, deleteProduct,
-  type ActionResult,
-} from '@/server/services/admin'
+import { setDepartmentCategories } from '@/server/services/admin'
 
 type Dept = { id: number; name: string; code: string; color: string; icon: string | null }
 type Cat = { id: number; name: string; icon: string | null; _count: { products: number } }
 
-type UnitRef = { id: string; name: string; symbol: string }
-
 export function AssignmentMatrix({
-  departments, categories, links, units,
+  departments, categories, links,
 }: {
   departments: Dept[]
   categories: Cat[]
   links: { departmentId: number; categoryId: number }[]
-  units: UnitRef[]
 }) {
-  // Famille dont on gère les articles ; null quand le panneau est fermé.
-  const [managing, setManaging] = React.useState<Cat | null>(null)
   const router = useRouter()
   const { push } = useToast()
 
@@ -137,20 +126,17 @@ export function AssignmentMatrix({
               {categories.map((c) => {
                 const on = checked.has(c.id)
                 return (
-                  <div
+                  <button
                     key={c.id}
+                    type="button"
+                    onClick={() => toggle(d.id, c.id)}
+                    aria-pressed={on}
                     className={cn(
-                      'flex items-center gap-1 rounded-xl border pr-1 transition-colors',
+                      'flex items-center gap-2 rounded-xl border px-2.5 py-2 text-left transition-colors',
                       on
                         ? 'border-accent/40 bg-accent/10'
                         : 'border-[rgb(var(--glass-edge)/0.26)] bg-white/40 hover:bg-white/70',
                     )}
-                  >
-                  <button
-                    type="button"
-                    onClick={() => toggle(d.id, c.id)}
-                    aria-pressed={on}
-                    className="flex min-w-0 flex-1 items-center gap-2 px-2.5 py-2 text-left"
                   >
                     <span
                       className={cn(
@@ -175,308 +161,12 @@ export function AssignmentMatrix({
                       </span>
                     </span>
                   </button>
-                  {/* Gérer les articles de la famille, sans toucher à la case. */}
-                  <button
-                    type="button"
-                    onClick={() => setManaging(c)}
-                    title={`Gérer les articles de « ${c.name} »`}
-                    aria-label={`Gérer les articles de ${c.name}`}
-                    className="grid size-7 shrink-0 place-items-center rounded-lg text-fg-subtle transition-colors hover:bg-[rgb(var(--glass-edge)/0.2)] hover:text-fg"
-                  >
-                    <Settings2 className="size-4" />
-                  </button>
-                  </div>
                 )
               })}
             </div>
           </GlassCard>
         )
       })}
-      {managing ? (
-        <ManageProducts
-          category={managing}
-          units={units}
-          departments={departments}
-          links={links}
-          onClose={() => setManaging(null)}
-          onChanged={() => router.refresh()}
-        />
-      ) : null}
     </div>
-  )
-}
-
-type Row = {
-  id: number
-  name: string
-  reference: string
-  baseUnit: { id: number; name: string; symbol: string }
-  _count: { lines: number; departments: number }
-}
-
-/** Ajout, modification et retrait des articles d'une famille. */
-function ManageProducts({
-  category, units, departments, links, onClose, onChanged,
-}: {
-  category: Cat
-  units: UnitRef[]
-  departments: Dept[]
-  links: { departmentId: number; categoryId: number }[]
-  onClose: () => void
-  onChanged: () => void
-}) {
-  const { push } = useToast()
-  const [rows, setRows] = React.useState<Row[] | null>(null)
-  const [editing, setEditing] = React.useState<Row | null | undefined>(undefined)
-  const [busy, setBusy] = React.useState(false)
-
-  const load = React.useCallback(async () => {
-    const list = (await listCategoryProducts(category.id)) as unknown as Row[]
-    setRows(list)
-  }, [category.id])
-
-  React.useEffect(() => {
-    void load()
-  }, [load])
-
-  const remove = async (row: Row) => {
-    if (!confirm(`Retirer « ${row.name} » ?`)) return
-    setBusy(true)
-    try {
-      const r = await deleteProduct(row.id)
-      if (!r.ok) {
-        push('error', r.error ?? 'Suppression impossible.')
-      } else {
-        // Un article déjà commandé est désactivé plutôt que supprimé : le
-        // message explique ce qui s'est passé.
-        push(r.error ? 'info' : 'success', r.error ?? 'Article retiré.')
-        await load()
-        onChanged()
-      }
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  return (
-    <>
-      <Modal title={`Articles — ${category.name}`} onClose={onClose}>
-        <div className="space-y-3">
-          <div className="flex items-center justify-between gap-2">
-            <p className="text-[0.8rem] text-fg-muted">
-              {rows === null ? 'Chargement…' : `${rows.length} article(s)`}
-            </p>
-            <Button size="sm" variant="primary" onClick={() => setEditing(null)}>
-              <Plus className="size-3.5" />
-              Nouvel article
-            </Button>
-          </div>
-
-          {rows !== null && rows.length === 0 ? (
-            <EmptyState
-              icon={<PackageSearch className="size-6" />}
-              title="Aucun article"
-              description="Cette famille est vide."
-            />
-          ) : null}
-
-          <ul className="divide-y divide-[rgb(var(--glass-edge)/0.14)]">
-            {(rows ?? []).map((row) => (
-              <li key={row.id} className="flex items-center gap-2 py-2">
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-[0.85rem] font-medium text-fg">{row.name}</p>
-                  <p className="truncate text-[0.7rem] text-fg-subtle">
-                    <span className="font-mono">{row.reference}</span>
-                    <span className="mx-1.5">·</span>
-                    {row.baseUnit.symbol}
-                    {row._count.departments > 0 ? (
-                      <>
-                        <span className="mx-1.5">·</span>
-                        {row._count.departments} feuille(s)
-                      </>
-                    ) : null}
-                  </p>
-                </div>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  aria-label={`Modifier ${row.name}`}
-                  disabled={busy}
-                  onClick={() => setEditing(row)}
-                >
-                  <Pencil className="size-4" />
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  aria-label={`Retirer ${row.name}`}
-                  disabled={busy}
-                  className="text-danger hover:bg-danger/10"
-                  onClick={() => remove(row)}
-                >
-                  <Trash2 className="size-4" />
-                </Button>
-              </li>
-            ))}
-          </ul>
-        </div>
-      </Modal>
-
-      {editing !== undefined ? (
-        <ProductForm
-          product={editing}
-          category={category}
-          units={units}
-          departments={departments}
-          links={links}
-          onClose={() => setEditing(undefined)}
-          onSaved={async () => {
-            setEditing(undefined)
-            push('success', 'Article enregistré.')
-            await load()
-            onChanged()
-          }}
-        />
-      ) : null}
-    </>
-  )
-}
-
-function ProductForm({
-  product, category, units, departments, links, onClose, onSaved,
-}: {
-  product: Row | null
-  category: Cat
-  units: UnitRef[]
-  departments: Dept[]
-  links: { departmentId: number; categoryId: number }[]
-  onClose: () => void
-  onSaved: () => void
-}) {
-  const [state, formAction] = useActionState<ActionResult, FormData>(
-    product ? updateProduct : createProduct,
-    { ok: false },
-  )
-
-  // Une famille sert souvent plusieurs départements : chacun a sa propre
-  // cible, et seuls ceux qu'on renseigne reçoivent l'article sur leur feuille.
-  const concerned = React.useMemo(
-    () =>
-      departments.filter((d) =>
-        links.some((l) => l.departmentId === d.id && l.categoryId === category.id),
-      ),
-    [departments, links, category.id],
-  )
-
-  React.useEffect(() => {
-    if (state.ok) onSaved()
-  }, [state.ok, onSaved])
-
-  return (
-    <Modal title={product ? 'Modifier l’article' : 'Nouvel article'} onClose={onClose}>
-      <form action={formAction} className="space-y-4">
-        {product ? <input type="hidden" name="id" value={product.id} /> : null}
-        <input type="hidden" name="categoryId" value={category.id} />
-
-        {state.error ? (
-          <div
-            role="alert"
-            className="flex items-start gap-2 rounded-xl border border-danger/30 bg-danger/10 px-3 py-2.5 text-[0.83rem] font-medium text-danger"
-          >
-            <AlertCircle className="mt-px size-4 shrink-0" />
-            <span>{state.error}</span>
-          </div>
-        ) : null}
-
-        <Field label="Nom de l’article" htmlFor="a-name" required>
-          <input
-            id="a-name"
-            name="name"
-            defaultValue={product?.name}
-            className="field"
-            autoFocus
-            required
-            placeholder="SIROP MELON"
-          />
-        </Field>
-
-        <Field label="Famille" hint={`L’article reste dans « ${category.name} ».`}>
-          <input className="field" value={category.name} disabled readOnly />
-        </Field>
-
-        <Field label="Unité" htmlFor="a-unit" required>
-          <select
-            id="a-unit"
-            name="unitId"
-            defaultValue={product ? String(product.baseUnit.id) : undefined}
-            className="field"
-            required
-          >
-            {units.map((u) => (
-              <option key={u.id} value={u.id}>{u.name} ({u.symbol})</option>
-            ))}
-          </select>
-        </Field>
-
-        {/* Les cibles ne s'affichent qu'à la création : modifier celles d'un
-            article existant se fait sur l'écran Stock fixe, département par
-            département. */}
-        {!product ? (
-          concerned.length > 0 ? (
-            <div className="space-y-2">
-              <p className="text-[0.8rem] font-medium text-fg-muted">
-                Stock fixe par département
-              </p>
-              <p className="text-[0.75rem] leading-snug text-fg-subtle">
-                Un département dont la cible est renseignée reçoit l’article sur sa feuille.
-                Laissez à 0 ceux qui ne le commandent pas.
-              </p>
-              <ul className="space-y-1.5">
-                {concerned.map((d) => (
-                  <li key={d.id} className="flex items-center gap-2">
-                    <span
-                      className="grid size-6 shrink-0 place-items-center rounded-lg text-white"
-                      style={{ background: d.color }}
-                    >
-                      <Icon name={d.icon ?? 'Building2'} className="size-3.5" />
-                    </span>
-                    <label htmlFor={`stock-${d.id}`} className="min-w-0 flex-1 truncate text-[0.82rem] text-fg">
-                      {d.name}
-                    </label>
-                    <input
-                      id={`stock-${d.id}`}
-                      name={`stock-${d.id}`}
-                      inputMode="decimal"
-                      defaultValue="0"
-                      aria-label={`Stock fixe pour ${d.name}`}
-                      className="field h-9 w-20 px-2 py-0 text-right text-[0.85rem] tabular-nums"
-                    />
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ) : (
-            <p className="rounded-xl border border-warn/30 bg-warn/[0.07] px-3 py-2.5 text-[0.8rem] leading-snug text-fg-muted">
-              Aucun département n’a cette famille affectée : l’article sera créé au catalogue
-              sans figurer sur une feuille.
-            </p>
-          )
-        ) : null}
-
-        <div className="flex items-center justify-end gap-2 pt-1">
-          <Button type="button" variant="ghost" onClick={onClose}>Annuler</Button>
-          <SubmitButton edit={!!product} />
-        </div>
-      </form>
-    </Modal>
-  )
-}
-
-function SubmitButton({ edit }: { edit: boolean }) {
-  const { pending } = useFormStatus()
-  return (
-    <Button type="submit" variant="primary" loading={pending}>
-      {edit ? 'Enregistrer' : 'Créer l’article'}
-    </Button>
   )
 }

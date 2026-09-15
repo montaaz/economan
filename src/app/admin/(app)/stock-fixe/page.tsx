@@ -4,6 +4,7 @@ import { PageHeader } from '@/components/ui/stat'
 import { GlassCard, EmptyState } from '@/components/ui/glass'
 import { Building2 } from 'lucide-react'
 import { StockFixeEditor } from './stock-fixe-editor'
+import { NewCategoryButton } from './new-category-button'
 
 export const metadata: Metadata = { title: 'Stock fixe' }
 export const dynamic = 'force-dynamic'
@@ -93,6 +94,7 @@ export default async function StockFixePage({
       <PageHeader
         title="Stock fixe"
         description="La quantité que chaque département doit détenir. L’employé saisit son stock réel ; la commande est l’écart entre cette cible et ce qu’il a."
+        actions={<NewCategoryButton departments={departments} selectedId={selected.id} />}
       />
       <StockFixeEditor
         departments={departments}

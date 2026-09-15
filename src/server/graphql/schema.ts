@@ -114,6 +114,16 @@ const typeDefs = /* GraphQL */ `
     ticketCount: Int!
   }
 
+  "Les articles d'un département, cumulés sur la journée."
+  type DayDepartmentArticles {
+    department: Department!
+    lines: [DayArticleLine!]!
+    articleCount: Int!
+    orderCount: Int!
+    totalAsked: Float!
+    totalServed: Float!
+  }
+
   "Un département et ses commandes pour une journée donnée."
   type DepartmentDay {
     department: Department!
@@ -162,6 +172,8 @@ const typeDefs = /* GraphQL */ `
     activeDays(limit: Int = 30): [Date!]!
     "Articles commandés par un département sur une journée, tous tickets cumulés."
     dayArticles(departmentId: ID!, day: Date): [DayArticleLine!]!
+    "Articles de tous les départements sur une journée, groupés par département."
+    dayArticlesByDepartment(day: Date): [DayDepartmentArticles!]!
     "Stock fixe d'un département, tous ses articles — écran d'administration."
     stockFixeMatrix(departmentId: ID!): [StockFixeLine!]!
   }
@@ -249,6 +261,75 @@ function toDate(v: unknown): Date {
 }
 
 /* --------------------------------------------------------------- resolvers */
+
+/**
+ * Articles d'un département sur une journée, tous tickets cumulés.
+ *
+ * Un même article peut figurer sur plusieurs tickets du jour : on somme les
+ * quantités et on compte les tickets, pour distinguer « 3 × 5 » de « 1 × 15 ».
+ * Partagé par la vue d'un département et par celle de la journée entière.
+ */
+async function cumulerArticles(day: Date, departmentId: number) {
+    const lines = await prisma.orderLine.findMany({
+      where: {
+        order: { businessDay: day, departmentId: departmentId },
+      },
+      select: {
+        productId: true,
+        productName: true,
+        productRef: true,
+        categoryName: true,
+        quantityAsked: true,
+        quantityServed: true,
+        orderId: true,
+        unit: { select: { symbol: true } },
+      },
+    })
+
+    // Un même article peut figurer sur plusieurs tickets du jour : on somme,
+    // et on compte les tickets pour distinguer « 3 × 5 » de « 1 × 15 ».
+    const byProduct = new Map<
+      number,
+      {
+        productId: number
+        productName: string
+        productRef: string
+        categoryName: string
+        unitSymbol: string
+        quantityAsked: number
+        quantityServed: number
+        orders: Set<number>
+      }
+    >()
+
+    for (const l of lines) {
+      const row = byProduct.get(l.productId)
+      if (row) {
+        row.quantityAsked += Number(l.quantityAsked)
+        row.quantityServed += Number(l.quantityServed ?? 0)
+        row.orders.add(l.orderId)
+        continue
+      }
+      byProduct.set(l.productId, {
+        productId: l.productId,
+        productName: l.productName,
+        productRef: l.productRef,
+        categoryName: l.categoryName,
+        unitSymbol: l.unit?.symbol ?? '',
+        quantityAsked: Number(l.quantityAsked),
+        quantityServed: Number(l.quantityServed ?? 0),
+        orders: new Set([l.orderId]),
+      })
+    }
+
+    return [...byProduct.values()]
+      .map((r) => ({ ...r, ticketCount: r.orders.size }))
+      .sort(
+        (x, y) =>
+          x.categoryName.localeCompare(y.categoryName) ||
+          x.productName.localeCompare(y.productName),
+      )
+}
 
 const resolvers = {
   Date: {
@@ -390,66 +471,40 @@ const resolvers = {
     ) => {
       requireStaff(ctx)
       const day = a.day ? toDate(a.day) : businessDay()
+      return cumulerArticles(day, Number(a.departmentId))
+    },
 
-      const lines = await prisma.orderLine.findMany({
-        where: {
-          order: { businessDay: day, departmentId: Number(a.departmentId) },
-        },
-        select: {
-          productId: true,
-          productName: true,
-          productRef: true,
-          categoryName: true,
-          quantityAsked: true,
-          quantityServed: true,
-          orderId: true,
-          unit: { select: { symbol: true } },
-        },
+    dayArticlesByDepartment: async (_p: unknown, a: { day?: string }, ctx: Ctx) => {
+      requireStaff(ctx)
+      const day = a.day ? toDate(a.day) : businessDay()
+
+      // On ne liste que les départements ayant commandé : un service sans
+      // ticket n'a rien à montrer et allongerait la vue pour rien.
+      const groups = await prisma.order.groupBy({
+        by: ['departmentId'],
+        where: { businessDay: day },
+        _count: { _all: true },
+      })
+      if (groups.length === 0) return []
+
+      const departments = await prisma.department.findMany({
+        where: { id: { in: groups.map((g) => g.departmentId) } },
+        orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
       })
 
-      // Un même article peut figurer sur plusieurs tickets du jour : on somme,
-      // et on compte les tickets pour distinguer « 3 × 5 » de « 1 × 15 ».
-      const byProduct = new Map<
-        number,
-        {
-          productId: number
-          productName: string
-          productRef: string
-          categoryName: string
-          unitSymbol: string
-          quantityAsked: number
-          quantityServed: number
-          orders: Set<number>
-        }
-      >()
-
-      for (const l of lines) {
-        const row = byProduct.get(l.productId)
-        if (row) {
-          row.quantityAsked += Number(l.quantityAsked)
-          row.quantityServed += Number(l.quantityServed ?? 0)
-          row.orders.add(l.orderId)
-          continue
-        }
-        byProduct.set(l.productId, {
-          productId: l.productId,
-          productName: l.productName,
-          productRef: l.productRef,
-          categoryName: l.categoryName,
-          unitSymbol: l.unit?.symbol ?? '',
-          quantityAsked: Number(l.quantityAsked),
-          quantityServed: Number(l.quantityServed ?? 0),
-          orders: new Set([l.orderId]),
+      const result = []
+      for (const d of departments) {
+        const lines = await cumulerArticles(day, d.id)
+        result.push({
+          department: d,
+          lines,
+          articleCount: lines.length,
+          orderCount: groups.find((g) => g.departmentId === d.id)?._count._all ?? 0,
+          totalAsked: lines.reduce((s, l) => s + l.quantityAsked, 0),
+          totalServed: lines.reduce((s, l) => s + l.quantityServed, 0),
         })
       }
-
-      return [...byProduct.values()]
-        .map((r) => ({ ...r, ticketCount: r.orders.size }))
-        .sort(
-          (x, y) =>
-            x.categoryName.localeCompare(y.categoryName) ||
-            x.productName.localeCompare(y.productName),
-        )
+      return result
     },
 
     dayBoard: async (_p: unknown, a: { day?: string }, ctx: Ctx) => {

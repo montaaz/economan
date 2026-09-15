@@ -136,36 +136,4 @@ export function DayBoard({ board, basePath }: { board: Board; basePath: string }
   )
 }
 
-/** Total de la journée, toutes commandes confondues. */
-export function DayTotals({ board }: { board: Board }) {
-  return (
-    <GlassCard deep className="mt-6">
-      <div className="flex flex-wrap items-center justify-between gap-4 p-4 sm:p-5">
-        <div>
-          <p className="text-[0.72rem] font-semibold uppercase tracking-wide text-fg-subtle">
-            Total de la journée
-          </p>
-          <p className="mt-1 text-[0.85rem] tabular-nums text-fg-muted">
-            {board.departments.length} département{board.departments.length > 1 ? 's' : ''} ·{' '}
-            {board.orderCount} ticket{board.orderCount > 1 ? 's' : ''} · {board.lineCount} ligne
-            {board.lineCount > 1 ? 's' : ''}
-          </p>
-        </div>
-        <div className="flex items-baseline gap-5">
-          <div className="text-right">
-            <p className="text-[0.7rem] font-medium uppercase tracking-wide text-fg-subtle">Demandé</p>
-            <p className="text-[1.5rem] font-bold leading-none tabular-nums text-accent">
-              {formatQty(board.totalAsked)}
-            </p>
-          </div>
-          <div className="text-right">
-            <p className="text-[0.7rem] font-medium uppercase tracking-wide text-fg-subtle">Servi</p>
-            <p className="text-[1.5rem] font-bold leading-none tabular-nums text-ok">
-              {formatQty(board.totalServed)}
-            </p>
-          </div>
-        </div>
-      </div>
-    </GlassCard>
-  )
-}
+export { DayTotals } from './day-totals'

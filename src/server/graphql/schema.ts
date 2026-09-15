@@ -101,6 +101,19 @@ const typeDefs = /* GraphQL */ `
     totalServed: Float!
   }
 
+  "Un article et ce qu'un département en a demandé sur toute une journée."
+  type DayArticleLine {
+    productId: ID!
+    productName: String!
+    productRef: String!
+    categoryName: String!
+    unitSymbol: String!
+    quantityAsked: Float!
+    quantityServed: Float!
+    "Nombre de tickets du jour où l'article figure."
+    ticketCount: Int!
+  }
+
   "Un département et ses commandes pour une journée donnée."
   type DepartmentDay {
     department: Department!
@@ -147,6 +160,8 @@ const typeDefs = /* GraphQL */ `
     dayBoard(day: Date): DayBoard!
     "Journées ayant au moins une commande, la plus récente d'abord."
     activeDays(limit: Int = 30): [Date!]!
+    "Articles commandés par un département sur une journée, tous tickets cumulés."
+    dayArticles(departmentId: ID!, day: Date): [DayArticleLine!]!
     "Stock fixe d'un département, tous ses articles — écran d'administration."
     stockFixeMatrix(departmentId: ID!): [StockFixeLine!]!
   }
@@ -366,6 +381,75 @@ const resolvers = {
         product: { ...p, stockFixe: parBy.get(p.id) ?? 0 },
         quantity: parBy.get(p.id) ?? 0,
       }))
+    },
+
+    dayArticles: async (
+      _p: unknown,
+      a: { departmentId: string; day?: string },
+      ctx: Ctx,
+    ) => {
+      requireStaff(ctx)
+      const day = a.day ? toDate(a.day) : businessDay()
+
+      const lines = await prisma.orderLine.findMany({
+        where: {
+          order: { businessDay: day, departmentId: Number(a.departmentId) },
+        },
+        select: {
+          productId: true,
+          productName: true,
+          productRef: true,
+          categoryName: true,
+          quantityAsked: true,
+          quantityServed: true,
+          orderId: true,
+          unit: { select: { symbol: true } },
+        },
+      })
+
+      // Un même article peut figurer sur plusieurs tickets du jour : on somme,
+      // et on compte les tickets pour distinguer « 3 × 5 » de « 1 × 15 ».
+      const byProduct = new Map<
+        number,
+        {
+          productId: number
+          productName: string
+          productRef: string
+          categoryName: string
+          unitSymbol: string
+          quantityAsked: number
+          quantityServed: number
+          orders: Set<number>
+        }
+      >()
+
+      for (const l of lines) {
+        const row = byProduct.get(l.productId)
+        if (row) {
+          row.quantityAsked += Number(l.quantityAsked)
+          row.quantityServed += Number(l.quantityServed ?? 0)
+          row.orders.add(l.orderId)
+          continue
+        }
+        byProduct.set(l.productId, {
+          productId: l.productId,
+          productName: l.productName,
+          productRef: l.productRef,
+          categoryName: l.categoryName,
+          unitSymbol: l.unit?.symbol ?? '',
+          quantityAsked: Number(l.quantityAsked),
+          quantityServed: Number(l.quantityServed ?? 0),
+          orders: new Set([l.orderId]),
+        })
+      }
+
+      return [...byProduct.values()]
+        .map((r) => ({ ...r, ticketCount: r.orders.size }))
+        .sort(
+          (x, y) =>
+            x.categoryName.localeCompare(y.categoryName) ||
+            x.productName.localeCompare(y.productName),
+        )
     },
 
     dayBoard: async (_p: unknown, a: { day?: string }, ctx: Ctx) => {

@@ -4,6 +4,7 @@ import { GlassCard, Badge, EmptyState } from '@/components/ui/glass'
 import { Icon } from '@/components/ui/icon'
 import { StatusBadge } from '@/components/ui/status'
 import { formatInstantDate, formatQty, formatTime } from '@/lib/utils'
+import { DepartmentTotal } from './department-total'
 
 export type BoardOrder = {
   id: string
@@ -126,6 +127,9 @@ export function DayBoard({ board, basePath }: { board: Board; basePath: string }
               </Link>
             ))}
           </div>
+
+          {/* Sous-total du département, entre ses tickets et le total du jour. */}
+          <DepartmentTotal group={g} day={board.day} />
         </section>
       ))}
     </div>

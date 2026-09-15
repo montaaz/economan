@@ -44,7 +44,9 @@ export function StockFixeEditor({
   units: (Ref & { symbol: string })[]
 }) {
   // Famille visée par le formulaire d'ajout ; null quand il est fermé.
-  const [addingTo, setAddingTo] = React.useState<{ id: string; name: string } | null>(null)
+  const [addingTo, setAddingTo] = React.useState<
+    { id: string; name: string; preset?: boolean } | null
+  >(null)
   const router = useRouter()
   const { push } = useToast()
 
@@ -162,6 +164,17 @@ export function StockFixeEditor({
           </div>
 
           <div className="flex shrink-0 items-center gap-1.5">
+            {/* Ajout depuis l'en-tête : la famille se choisit dans le formulaire. */}
+            {allCategories.length > 0 ? (
+              <Button
+                size="sm"
+                variant="success"
+                onClick={() => setAddingTo({ ...allCategories[0], preset: false })}
+              >
+                <Plus className="size-3.5" />
+                Nouvel article
+              </Button>
+            ) : null}
             {dirty.length > 0 ? <Badge tone="warn">{dirty.length} modifié(s)</Badge> : null}
             {dirty.length > 0 ? (
               <Button
@@ -341,6 +354,7 @@ export function StockFixeEditor({
           family={addingTo}
           categories={allCategories}
           units={units}
+          preset={addingTo.preset !== false}
           onClose={() => setAddingTo(null)}
           onSaved={() => {
             setAddingTo(null)
@@ -354,13 +368,15 @@ export function StockFixeEditor({
 }
 
 function AddProductForm({
-  departmentId, departmentName, family, categories, units, onClose, onSaved,
+  departmentId, departmentName, family, categories, units, preset = true, onClose, onSaved,
 }: {
   departmentId: number
   departmentName: string
   family: { id: string; name: string }
   categories: Ref[]
   units: (Ref & { symbol: string })[]
+  /** Faux quand le formulaire s'ouvre depuis l'en-tête : la famille est à choisir. */
+  preset?: boolean
   onClose: () => void
   onSaved: () => void
 }) {
@@ -380,8 +396,12 @@ function AddProductForm({
 
         <p className="rounded-xl border border-ok/30 bg-ok/[0.07] px-3 py-2.5 text-[0.8rem] leading-snug text-fg-muted">
           L’article sera créé au catalogue et ajouté à la feuille de{' '}
-          <strong className="text-fg">{departmentName}</strong>, en fin de la famille{' '}
-          <strong className="text-ok">{family.name}</strong>.
+          <strong className="text-fg">{departmentName}</strong>, en fin de la famille
+          {preset ? (
+            <> <strong className="text-ok">{family.name}</strong>.</>
+          ) : (
+            <> choisie ci-dessous.</>
+          )}
         </p>
 
         {state.error ? (

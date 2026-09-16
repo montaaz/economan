@@ -1,15 +1,14 @@
 /**
- * Feuille de service Bar & Comptoir, reprise des deux pages du document papier.
+ * Feuille de service Bar & Comptoir — version du 16/09/2026.
  *
- * Le catalogue porte deux gammes de sodas : les noms courts (catégorie JUS ET
- * BOISSONS) et les noms préfixés SODA. La première a été retenue — c'est la
- * seule qui contient aussi les eaux, SHARK, GARCI et BOGA MOJITO, tous présents
- * sur la feuille.
+ * Remplace celle du 14/09 : les sections diffèrent sensiblement (pâtes et
+ * fruits secs en vrac disparaissent, glaces, fruits de saison et décorations
+ * apparaissent). L'historique des commandes n'est pas touché, les lignes de
+ * commande figeant le nom des articles.
  *
- * Les 107 lignes du document sont reprises une à une. Trois portent au
- * catalogue un nom voisin — boga lemon → BOGA LIME, schwips citron →
- * SCHWEPPES TONIC, goblet capucin → GOBLET CAPU. Cinq manquaient et ont été
- * créées par prisma/creer-articles-bar.ts.
+ * Les noms du papier ne sont pas toujours ceux du catalogue : les
+ * rapprochements évidents sont commentés ligne à ligne, et les choix qui
+ * relevaient d'un arbitrage portent la mention « arbitrage ».
  */
 import 'dotenv/config'
 import { PrismaPg } from '@prisma/adapter-pg'
@@ -18,91 +17,176 @@ import { PrismaClient } from '../src/generated/prisma/client'
 const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL! })
 const prisma = new PrismaClient({ adapter })
 
-/** Nom exact au catalogue, dans l'ordre des sections du papier. */
 const FEUILLE: { section: string; articles: string[] }[] = [
-  // ---- Page 1 : Bar & Comptoir ----
   {
-    section: 'SODA / EAUX',
+    section: 'FRUITS SECS',
     articles: [
-      'APLA', 'BOGA CIDRE', 'BOGA LIME', 'BOGA MOJITO 1 L', 'COCA', 'COCA ZERO',
-      'EAU 0.4L', 'EAU 1L', 'FANTA', 'GARCI  1L', 'ORANGINA', 'SCHWEPPES TONIC',
-      'SHARK', 'SPRITE',
+      'PORTIONS PIGNONS',
+      'PORTIONS FRUITS SECS JWEJEM',
+      'PORTIONS THE GOURMAND',
+      'AMANDE FRAIS',
     ],
   },
   {
-    section: 'CAFE',
-    articles: ['CAFE MOKADOR', 'CAPSULE NESPRESSO', 'CAFE TURC', 'CAPUCCINO'],
-  },
-  {
-    section: 'BISCUITS & CHOCOLATS & LAIT',
+    section: 'EAUX & BOISSONS',
     articles: [
-      'BISCUIT CRUNCHY CACAO', 'CHOCOLAT CHAUD', 'CHOCOLINE 280Gr',
-      'FERRERO ROCHER', 'HLOU CAFE TURC', 'KINDER BUENO CHOCOLAT',
-      'MARCHMELLO 17P', 'MIEL BAR', 'NESTLE 1KG', 'NUTELLA', 'OREO BISCUIT',
-      'SNICK BAR',
-    ],
-  },
-  { section: 'FRUITS', articles: ['BANANE', 'CITRON', 'DATTE', 'KIWI'] },
-  {
-    section: 'GOBLETS & AUTRES',
-    articles: [
-      'GOBLET CAPU', 'AGITATEUR  CAFE', 'CORNET GLACE', 'CURE DENT 100 P',
-      'GOBLET COCKTAIL', 'GOBLET DIRECT', 'GOBLET EXPRESS', 'GOBLET PERSONNEL',
-      'PAILLES',
-    ],
-  },
-  {
-    section: 'PUREE',
-    articles: [
-      'PURE DE BANANE', 'PURE ANANAS', 'PURE FRAISE', 'PURE KIWI',
-      'PURE DE MANGUE', 'PURE MYRTILLE', 'PURE NOIX DE COCO',
-      'PURE FRUIT DE PASSION', 'PURE PECHE', 'PURE POMME',
+      'EAU 1L',                  // « EAUX 1L »
+      'EAU 0.4L',                // « EAUX 0,4L »
+      'GARCI  1L',               // « GARCI »
+      'SHARK',
+      'ORANGINA',
+      'SPRITE',
+      'SHWEPPES LIME',
+      'SCHWEPPES TONIC',         // « SHWEPPES TONIC »
+      'COCA ZERO',
+      'FANTA',
+      'COCA',                    // arbitrage : « COCA COLA » → COCA, gamme courte
+      'APLA',
+      'BOGA LIME',
+      'BOGA CIDRE',
     ],
   },
   {
     section: 'JUS',
     articles: [
-      "JUS D'ANANAS", 'JUS FRAISE', 'JUS KIWI', 'JUS DE MANGUE',
-      "JUS D'ORANGE", 'CITRONNADE',
-    ],
-  },
-
-  // ---- Page 2 ----
-  {
-    section: 'PATES',
-    articles: [
-      'PATE CARAMEL BEUR SALE', 'PATE FERRERO CRUNCHY', 'PATE NOISETTE',
-      'PATE ORIO', 'PATE PISTACHE', 'PATE SPECULOSE CRUNCHY',
+      'JUS ANNANS',
+      'JUS DE MANGUE',           // « JUS MANGUE »
+      "JUS D'ORANGE",
+      'JUS FRAISE',
+      'CITRONNADE',
+      'JUS KIWI',
     ],
   },
   {
-    section: 'FRUITS SECS',
+    section: 'CAFE & THE',
     articles: [
-      'ABRICOT SECHE', 'AMANDE CONCASSE', 'ANANAS TRANCHET', 'ANANAS SECHE',
-      'FRAMBOISE CONGELE', 'FRUITS SEC JWAJEM', 'FRUIT SEC THE GOURMAND',
-      'GRANOLA', 'KIWI SECHE', 'MANGUE CONGELE', 'MYRTILLE CONGELE',
-      'PIGNON', 'PISTACHE CONCASSE',
+      'CAFE MOKADOR',
+      'CAPSULE NESPRESSO',       // « NESPRESSO »
+      'CHOCOLAT CHAUD',
+      'CHOCOLINE 280Gr',         // « CHOCOLINE »
+      'CAFE TURC',
+      'THE VERT 200Gr',          // arbitrage : « THE »
+      'THE INFUSION VERT',
+      'THE INFUSION NOIR',
+      'VERVEINE 25P',            // « VERVEINE »
     ],
   },
-  { section: 'AUTRES', articles: ['CHOUCH WARD', 'YAOURT JWEJEM'] },
   {
-    section: 'SIROPS',
+    section: 'BISCUITS & CHOCOLAT',
     articles: [
-      'SIROP BLEU', 'SIROP CARAMEL', 'SIROP COOKIES', 'SIROP FRAISE',
-      'SIROP FRAMBOISE', 'SIROP FRUIT DE BOIS', 'SIROP FRUITS DE PASSION',
-      'SIROP GRENADINE', 'SIROP MANGUE', 'SIROP MELON', 'SIROP MENTHE',
+      'FERRERO ROCHER',          // arbitrage : « FERRERO »
+      'HLOU CAFE TURC',          // « HLOU CAFE TURC (2P) »
+      'KINDER BUENO CHOCOLAT',   // arbitrage : « KINDER CHOCOLAT »
+      'MARCHMELLO 17P',          // « MARCHMELLO »
+      'OREO BISCUIT',            // « OREO »
+      'CORNETS',
+      'BISCUIT CRUNCHY SPECULOS',
+      'PORTORICAIN',             // arbitrage : « PORTORICAIN CAFE PISTACHE »
+    ],
+  },
+  {
+    section: 'PUREE',
+    articles: [
+      'PURE DE BANANE',          // « PUREE BANANE »
+      'PURE ANANAS',
+      'PURE FRAISE',
+      'PURE KIWI',
+      'PURE DE MANGUE',
+      'PURE NOIX DE COCO',       // « PUREE NOIS DE COCO »
+      'PURE FRUIT DE PASSION',   // « PUREE PASSION FRTS »
+      'PURE PECHE',
+      'PURE POMME',
+    ],
+  },
+  {
+    section: 'SIROPS SAVEURS',
+    articles: [
+      'SIROP BLEU',
+      'SIROP CARAMEL',
+      'SIROP MANGUE',
+      'SIROP FRAISE',
+      'SIROP FRAMBOISE',
+      'SIROP FRUIT DE BOIS',     // « SIROP FRUITS DE BOIS »
+      'SIROP FRUITS DE PASSION',
       'SIROP MOJITO',
-      'SIROP NOISETTE', 'SIROP PECHE', 'SIROP PINACOLADA', 'SIROP POMME',
-      'SIROP SPECULOS', 'SIROP TIRAMISSO', 'SIROP VANILLE',
+      'SIROP NOISETTE',
+      'SIROP PECHE',
+      'SIROP PINACOLADA',
+      'SIROP POMME',
+      'SIROP TIRAMISSO',         // « SIROP TIRAMISU »
+      'SIROP VANILLE',
     ],
   },
   {
     section: 'LAIT & AUTRES',
     articles: [
-      'LAIT ENTIER', 'CREME CHANTILLY 700Gr', 'CREME FOUETTE',
-      'SUCRE BUSINESS', 'SUCRE POUDRE', 'THE VERT 200Gr',
-      'YAOURT GLACE', 'YAOURT GREECOS',
+      'LAIT ENTIER',             // arbitrage : « LAIT »
+      'CREME FOUETTE',           // « CREME FOUETTER »
+      'YAOURT GLACE',
+      'YAOURT GREECOS',
+      'YAOURT JWEJEM',
+      'SUCRE POUDRE',
+      'NESTLE 1KG',              // « NESTLE »
+      'ANANAS TRANCHET',         // « ANANAS EN TRANCHE »
+      'CREME CHANTILLY 700Gr',   // « CREME CHANTILLY »
     ],
+  },
+  {
+    section: 'CHOCOLATS',
+    articles: [
+      'PATE CARAMEL BEUR SALE',  // « PATE CARAMEL »
+      'PATE FERRERO CRUNCHY',    // « PATE FERRERO »
+      'PATE NOISETTE',
+      'NUTELLA',
+      'MIEL BAR',                // arbitrage : « MIEL »
+      'DOCREME PISTACHE',        // « DOKREME PISTACHE »
+      'PATE SPECULOSE CRUNCHY',  // « PATE SPECULOS »
+    ],
+  },
+  {
+    section: 'GOBLETS & AUTRES',
+    articles: [
+      'SUCRE BUSINESS',
+      'GOBLET DIRECT',           // « GOBLE DIRECT »
+      'GOBLET CAPU',             // « GOBLET CAPUCIN »
+      'GOBLET EXPRESS',
+      'GOBLET COCKTAIL',         // « GOBLET COCKTAIL TRANSPARANT »
+      'PAILLES',
+      'AGITATEUR  CAFE',         // « AGITATEURS »
+      'PINCES',
+    ],
+  },
+  {
+    section: 'GLACES & AUTRES',
+    articles: [
+      'GLACE NEUTRE 5L',         // « GLACE NEUTRE »
+      'MYRTILLE CONGELE',        // « MERTYLLE CGL »
+      'FRAMBOISE CONGELE',       // « FRAMBOISE CGL »
+      'MANGUE CONGELE',          // « MANGUE CGL »
+      'GLACE VANILLE',
+      'GLACE FRAISE',
+      'GLACE PISTACHE',
+      'GLACE CHOCOLAT',
+      'SORBET CITRON',
+    ],
+  },
+  {
+    section: 'FRUITS DE SAISON',
+    articles: ['PECHE', 'KIWI', 'PASTEQUE', 'MELON', 'DATTE'],  // « DATTES »
+  },
+  {
+    section: 'AUTRES',
+    articles: [
+      'KERFA',
+      'KIWI SECHE',              // « KIWI SECHEE »
+      'ANANAS SECHE',            // « ANANAS SECHEE »
+      'GRANOLA',                 // arbitrage : « GRANULA »
+      'CHOUCH WARD',
+    ],
+  },
+  {
+    section: 'DECORATIONS',
+    articles: ['CORDON DECORATIF', 'FLEURS SECHES'],
   },
 ]
 
@@ -118,15 +202,13 @@ async function main() {
 
   const missing = wanted.filter((n) => !idByName.has(n))
   if (missing.length > 0) {
-    console.warn(`\n! ${missing.length} nom(s) introuvable(s) — vérifier l'orthographe :`)
+    console.warn(`\n! ${missing.length} nom(s) introuvable(s) :`)
     for (const m of missing) console.warn(`    ${m}`)
     console.warn('')
   }
 
-  // La feuille est remplacée d'un bloc : pas de résidu d'un ancien réglage.
   await prisma.$transaction(async (tx) => {
     await tx.departmentProduct.deleteMany({ where: { departmentId: dept.id } })
-
     let order = 0
     const rows: { departmentId: number; productId: number; sortOrder: number }[] = []
     for (const s of FEUILLE) {
@@ -141,32 +223,19 @@ async function main() {
   })
 
   const n = await prisma.departmentProduct.count({ where: { departmentId: dept.id } })
-  console.log(`${dept.name} : ${n} articles affectés (feuille papier : ${wanted.length} lignes retenues)`)
+  console.log(`${dept.name} : ${n} articles affectés (feuille papier : ${wanted.length} lignes)`)
 
-  // Le stock fixe ne doit exister que pour les articles de la feuille.
   const removed = await prisma.stockFixe.deleteMany({
     where: { departmentId: dept.id, productId: { notIn: [...idByName.values()] } },
   })
   console.log(`stock fixe : ${removed.count} cible(s) hors feuille supprimée(s)`)
 
-  const sansCible = await prisma.departmentProduct.findMany({
-    where: {
-      departmentId: dept.id,
-      product: { stockFixe: { none: { departmentId: dept.id } } },
-    },
-    include: { product: { select: { name: true, baseUnit: { select: { symbol: true } } } } },
-    orderBy: { sortOrder: 'asc' },
+  const sansCible = await prisma.departmentProduct.count({
+    where: { departmentId: dept.id, product: { stockFixe: { none: { departmentId: dept.id } } } },
   })
-  if (sansCible.length > 0) {
-    console.log(`\n${sansCible.length} article(s) sans stock fixe — à régler dans l'administration :`)
-    for (const s of sansCible) console.log(`    ${s.product.name} (${s.product.baseUnit.symbol})`)
-  }
+  console.log(`${sansCible} article(s) sans stock fixe — à régler dans l'administration`)
 }
 
 main()
   .then(() => prisma.$disconnect())
-  .catch(async (e) => {
-    console.error(e)
-    await prisma.$disconnect()
-    process.exit(1)
-  })
+  .catch(async (e) => { console.error(e); await prisma.$disconnect(); process.exit(1) })

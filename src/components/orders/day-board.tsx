@@ -1,9 +1,9 @@
 import Link from 'next/link'
-import { Inbox } from 'lucide-react'
+import { Inbox, ChevronRight } from 'lucide-react'
 import { GlassCard, EmptyState } from '@/components/ui/glass'
 import { Icon } from '@/components/ui/icon'
 import { StatusBadge } from '@/components/ui/status'
-import { formatInstantDate, formatQty, formatTime } from '@/lib/utils'
+import { cn, formatInstantDate, formatQty, formatTime } from '@/lib/utils'
 import { DepartmentTotal } from './department-total'
 
 export type BoardOrder = {
@@ -42,6 +42,10 @@ export type Board = {
 /**
  * Journée de service : un bloc par département, ses tickets en cartes, et le
  * total du département. Le total général est rendu à part, en pied de page.
+ *
+ * Chaque département est un panneau teinté de sa propre couleur : les blocs se
+ * distinguaient auparavant par leur seul titre, ce qui obligeait à relire
+ * l'en-tête pour savoir où l'on se trouvait en faisant défiler.
  */
 export function DayBoard({ board, basePath }: { board: Board; basePath: string }) {
   if (board.departments.length === 0) {
@@ -58,129 +62,160 @@ export function DayBoard({ board, basePath }: { board: Board; basePath: string }
 
   return (
     <div className="space-y-5">
-      {board.departments.map((g) => (
-        <section key={g.department.id}>
-          {/* Ligne du département */}
-          <div className="mb-2.5 flex flex-wrap items-center justify-between gap-2 px-0.5">
-            <h2 className="flex min-w-0 items-center gap-2.5">
-              <span
-                className="grid size-9 shrink-0 place-items-center rounded-xl text-white shadow-sm"
-                style={{ background: `linear-gradient(140deg, ${g.department.color}, ${g.department.color}bb)` }}
-              >
-                <Icon name={g.department.icon ?? 'Building2'} className="size-5" />
-              </span>
-              <span className="min-w-0">
-                <span className="block truncate text-[1rem] font-bold leading-tight tracking-tight text-fg">
-                  {g.department.name}
+      {board.departments.map((g) => {
+        const c = g.department.color
+        return (
+          <section
+            key={g.department.id}
+            className="overflow-hidden rounded-[calc(var(--radius)+4px)] border bg-white/45 backdrop-blur-xl"
+            style={{ borderColor: `${c}33` }}
+          >
+            {/* En-tête : le département donne son nom et sa couleur au bloc. */}
+            <header
+              className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 border-b px-3.5 py-3 sm:px-4"
+              style={{
+                borderColor: `${c}26`,
+                background: `linear-gradient(120deg, ${c}1f, ${c}0a 70%, transparent)`,
+              }}
+            >
+              <h2 className="flex min-w-0 items-center gap-2.5">
+                <span
+                  className="grid size-10 shrink-0 place-items-center rounded-xl text-white shadow-sm"
+                  style={{ background: `linear-gradient(140deg, ${c}, ${c}bb)` }}
+                >
+                  <Icon name={g.department.icon ?? 'Building2'} className="size-5" />
                 </span>
-                <span className="block text-[0.75rem] tabular-nums text-fg-subtle">
-                  {g.orderCount} ticket{g.orderCount > 1 ? 's' : ''} · {g.lineCount} ligne
-                  {g.lineCount > 1 ? 's' : ''}
+                <span className="min-w-0">
+                  <span className="block truncate text-[1.05rem] font-bold leading-tight tracking-tight text-fg">
+                    {g.department.name}
+                  </span>
+                  <span className="block text-[0.75rem] tabular-nums text-fg-subtle">
+                    {g.orderCount} ticket{g.orderCount > 1 ? 's' : ''} · {g.lineCount} ligne
+                    {g.lineCount > 1 ? 's' : ''}
+                  </span>
                 </span>
-              </span>
-            </h2>
-            {/* Le détail chiffré revient dans le sous-total juste dessous :
-                ici le texte suffit, les pastilles alourdissaient la ligne. */}
-            <p className="shrink-0 text-[0.8rem] tabular-nums">
-              <span className="font-semibold text-accent">{formatQty(g.totalAsked)}</span>
-              <span className="text-fg-subtle"> demandé</span>
-              {g.totalServed > 0 ? (
-                <>
-                  <span className="mx-1.5 text-fg-subtle">·</span>
-                  <span className="font-semibold text-ok">{formatQty(g.totalServed)}</span>
-                  <span className="text-fg-subtle"> servi</span>
-                </>
-              ) : null}
-            </p>
-          </div>
+              </h2>
 
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-            {g.orders.map((o) => (
-              <Link key={o.id} href={`${basePath}/${o.id}`}>
-                <GlassCard hover className="h-full">
-                  <div className="space-y-2 p-3">
-                    {/* Le numéro de ticket tient la colonne de gauche et sert
-                        de repère : le reste s'articule autour, sur deux lignes
-                        au lieu de trois blocs empilés. */}
-                    <div className="flex items-start gap-2.5">
-                      <span
-                        className="grid size-9 shrink-0 place-items-center rounded-xl text-[0.9rem] font-bold tabular-nums text-white"
-                        style={{ background: g.department.color }}
-                      >
-                        {o.ticketNumber}
-                      </span>
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-start justify-between gap-2">
-                          <p className="min-w-0 truncate text-[0.88rem] font-bold leading-tight text-fg">
-                            {o.createdBy.fullName}
-                          </p>
-                          <StatusBadge status={o.status} />
-                        </div>
-                        {/* La référence passe sous l'heure : à 390 px, les deux
-                            sur une ligne poussaient le badge hors de la carte. */}
-                        <p className="truncate text-[0.74rem] tabular-nums text-fg-subtle">
-                          {formatInstantDate(o.createdAt)} à {formatTime(o.createdAt)}
-                        </p>
-                        <p className="truncate font-mono text-[0.7rem] text-fg-subtle">
-                          {o.reference}
-                        </p>
-                      </div>
-                    </div>
+              <p className="shrink-0 text-right text-[0.8rem] tabular-nums">
+                <span className="font-bold text-accent">{formatQty(g.totalAsked)}</span>
+                <span className="text-fg-subtle"> demandé</span>
+                {g.totalServed > 0 ? (
+                  <>
+                    <span className="mx-1.5 text-fg-subtle">·</span>
+                    <span className="font-bold text-ok">{formatQty(g.totalServed)}</span>
+                    <span className="text-fg-subtle"> servi</span>
+                  </>
+                ) : null}
+              </p>
+            </header>
 
-                    <div className="pl-[2.9rem]">
-                      {/* Une barre par ticket : d'un regard sur la colonne on
-                          voit lesquels avancent et lesquels stagnent. */}
-                      {(() => {
-                        const part = o.totalAsked > 0
-                          ? Math.min(100, Math.round((o.totalServed / o.totalAsked) * 100))
-                          : 0
-                        return (
-                          <>
-                            <div className="flex items-center gap-2">
-                              <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-[rgb(var(--glass-edge)/0.22)]">
-                                <div
-                                  className="h-full rounded-full bg-ok transition-[width] duration-500"
-                                  style={{ width: `${part}%` }}
-                                />
-                              </div>
-                              <span className="shrink-0 text-[0.72rem] font-semibold tabular-nums text-fg-muted">
-                                {part}%
-                              </span>
-                            </div>
-                            <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[0.74rem] tabular-nums">
-                              <span className="text-fg-subtle">
-                                {o.lineCount} article{o.lineCount > 1 ? 's' : ''}
-                              </span>
-                              <span className="font-medium text-accent">
-                                {formatQty(o.totalAsked)} demandé
-                              </span>
-                              {/* Ce qui cloche se signale ici, pas dans le détail. */}
-                              {o.rejectedCount > 0 ? (
-                                <span className="font-semibold text-danger">
-                                  {o.rejectedCount} rupture{o.rejectedCount > 1 ? 's' : ''}
-                                </span>
-                              ) : null}
-                              {o.adjustedCount > 0 ? (
-                                <span className="font-medium text-warn">
-                                  {o.adjustedCount} ajustée{o.adjustedCount > 1 ? 's' : ''}
-                                </span>
-                              ) : null}
-                            </div>
-                          </>
-                        )
-                      })()}
-                    </div>
-                  </div>
-                </GlassCard>
-              </Link>
-            ))}
-          </div>
+            <div className="grid gap-2.5 p-3 sm:grid-cols-2 sm:p-3.5 xl:grid-cols-3">
+              {g.orders.map((o) => (
+                <TicketCard key={o.id} order={o} color={c} href={`${basePath}/${o.id}`} />
+              ))}
+            </div>
 
-          {/* Sous-total du département, entre ses tickets et le total du jour. */}
-          <DepartmentTotal group={g} day={board.day} />
-        </section>
-      ))}
+            {/* Sous-total du département, en pied de son propre bloc. */}
+            <DepartmentTotal group={g} day={board.day} />
+          </section>
+        )
+      })}
     </div>
+  )
+}
+
+/**
+ * Carte d'un ticket. La barre d'avancement longe le bord gauche : sur une
+ * colonne de cartes, les tickets qui stagnent se repèrent sans lire un chiffre.
+ */
+function TicketCard({
+  order: o, color, href,
+}: {
+  order: BoardOrder
+  color: string
+  href: string
+}) {
+  const part = o.totalAsked > 0
+    ? Math.min(100, Math.round((o.totalServed / o.totalAsked) * 100))
+    : 0
+
+  // Une jauge vide se confond avec une bordure : un ticket dont rien n'est
+  // sorti serait passé inaperçu alors que c'est lui qui appelle une action.
+  // Le rail se colore donc selon l'état, et le remplissage mesure l'avancée.
+  const rien = part === 0
+  const encart = o.status === 'CANCELLED'
+    ? 'bg-[rgb(var(--glass-edge)/0.3)]'
+    : rien
+      ? 'bg-warn/30'
+      : 'bg-[rgb(var(--glass-edge)/0.2)]'
+
+  return (
+    <Link
+      href={href}
+      className="group relative flex overflow-hidden rounded-xl border border-[rgb(var(--glass-edge)/0.26)] bg-white/70 transition-[transform,box-shadow,border-color] duration-200 hover:-translate-y-0.5 hover:border-[rgb(var(--glass-edge)/0.5)] hover:shadow-[0_10px_24px_-12px_rgb(var(--shadow-ambient)/0.4)]"
+    >
+      {/* Jauge verticale : le remplissage EST l'avancement. */}
+      <span aria-hidden className={cn('relative w-1.5 shrink-0', encart)}>
+        {rien ? (
+          // À 0 %, la couleur seule porte le message : rien à remplir.
+          <span className="absolute inset-0 bg-warn/70" />
+        ) : (
+          <span
+            className="absolute inset-x-0 bottom-0 rounded-t-full bg-ok transition-[height] duration-500"
+            style={{ height: `${part}%` }}
+          />
+        )}
+      </span>
+
+      <div className="min-w-0 flex-1 p-3">
+        <div className="flex items-start gap-2.5">
+          <span
+            className="grid size-9 shrink-0 place-items-center rounded-xl text-[0.9rem] font-bold tabular-nums text-white shadow-sm"
+            style={{ background: `linear-gradient(140deg, ${color}, ${color}c4)` }}
+          >
+            {o.ticketNumber}
+          </span>
+
+          <div className="min-w-0 flex-1">
+            <div className="flex items-start justify-between gap-2">
+              <p className="min-w-0 truncate text-[0.9rem] font-bold leading-tight text-fg">
+                {o.createdBy.fullName}
+              </p>
+              <StatusBadge status={o.status} />
+            </div>
+            <p className="truncate text-[0.74rem] tabular-nums text-fg-subtle">
+              {formatInstantDate(o.createdAt)} à {formatTime(o.createdAt)}
+            </p>
+            <p className="truncate font-mono text-[0.7rem] text-fg-subtle">{o.reference}</p>
+          </div>
+        </div>
+
+        <div className="mt-2.5 flex flex-wrap items-center gap-x-2.5 gap-y-1 border-t border-[rgb(var(--glass-edge)/0.16)] pt-2 text-[0.75rem] tabular-nums">
+          <span className={cn('font-bold', rien ? 'text-warn' : 'text-fg')}>
+            {part}
+            <span className={rien ? 'text-warn/70' : 'text-fg-subtle'}>%</span>
+          </span>
+          <span className="text-fg-subtle">
+            {o.lineCount} article{o.lineCount > 1 ? 's' : ''}
+          </span>
+          <span className="font-medium text-accent">{formatQty(o.totalAsked)}</span>
+
+          {/* Ce qui cloche se signale ici, pas dans le détail. */}
+          {o.rejectedCount > 0 ? (
+            <span className="rounded-full bg-danger/12 px-1.5 font-semibold text-danger">
+              {o.rejectedCount} rupture{o.rejectedCount > 1 ? 's' : ''}
+            </span>
+          ) : null}
+          {o.adjustedCount > 0 ? (
+            <span className="rounded-full bg-warn/14 px-1.5 font-medium text-warn">
+              {o.adjustedCount} ajustée{o.adjustedCount > 1 ? 's' : ''}
+            </span>
+          ) : null}
+
+          <ChevronRight className="ml-auto size-4 shrink-0 text-fg-subtle transition-transform duration-200 group-hover:translate-x-0.5 group-hover:text-accent" />
+        </div>
+      </div>
+    </Link>
   )
 }
 

@@ -1,15 +1,15 @@
-import { AlertTriangle, CheckCircle2, Clock, Inbox, Building2, Layers } from 'lucide-react'
-import { GlassCard } from '@/components/ui/glass'
-import { cn, formatQty } from '@/lib/utils'
+import { AlertTriangle, CheckCircle2, Clock, Inbox, Building2, Layers, TrendingUp } from 'lucide-react'
+import { cn, formatQty, formatLongDate } from '@/lib/utils'
 import type { Board } from './day-board'
 
 /**
- * En-tête de journée : l'état d'abord, les chiffres ensuite.
+ * Bandeau de tête : un seul bloc qui porte la journée, son état et son
+ * avancement.
  *
- * Un tableau de bord doit répondre à « est-ce que ma journée va bien ? » avant
- * de détailler. Trois nombres neutres empilés ne le disaient pas : il fallait
- * ouvrir chaque ticket pour savoir si quelque chose clochait. La part servie
- * et les tickets en attente donnent maintenant cet état en un coup d'œil.
+ * Empiler un bandeau d'état puis une carte d'avancement puis des compteurs
+ * donnait trois blocs de même poids : l'œil n'avait pas de point d'entrée.
+ * Tout est réuni ici dans un panneau sombre — le seul de la page — pour que le
+ * regard s'y pose d'abord, et le reste de l'écran redevient une liste.
  */
 export function DaySummary({ board }: { board: Board }) {
   const part = board.totalAsked > 0
@@ -68,76 +68,134 @@ export function DaySummary({ board }: { board: Board }) {
               : 'tous les tickets traités, aucune rupture',
           }
 
+  // Sur fond sombre, les tons de la charte manquent de luminance : on éclaircit.
   const TONS = {
-    warn: 'border-warn/35 bg-warn/[0.09] text-warn',
-    danger: 'border-danger/35 bg-danger/[0.09] text-danger',
-    ok: 'border-ok/35 bg-ok/[0.09] text-ok',
-    neutral: 'border-[rgb(var(--glass-edge)/0.3)] bg-white/50 text-fg-muted',
+    warn: 'border-[#f3a850]/40 bg-[#f3a850]/12 text-[#ffc987]',
+    danger: 'border-[#e8657c]/40 bg-[#e8657c]/12 text-[#ff9aab]',
+    ok: 'border-[#2fc48f]/40 bg-[#2fc48f]/12 text-[#6ee7b7]',
+    neutral: 'border-white/14 bg-white/[0.06] text-white/70',
   }
 
   return (
-    <div className="mb-4 space-y-3">
-      {/* 1. L'état de la journée, en premier et en grand. */}
-      <div className={cn('flex items-center gap-3 rounded-2xl border px-4 py-3', TONS[etat.ton])}>
-        <etat.icone className="size-6 shrink-0" />
-        <div className="min-w-0 flex-1">
-          <p className="text-[1.05rem] font-bold leading-tight">{etat.titre}</p>
-          <p className="mt-0.5 text-[0.8rem] leading-snug opacity-80">{etat.detail}</p>
-        </div>
-      </div>
+    <section
+      className={cn(
+        'relative mb-5 overflow-hidden rounded-[calc(var(--radius)+6px)]',
+        'border border-white/12 text-white',
+        'shadow-[0_24px_60px_-22px_rgb(var(--shadow-ambient)/0.55),0_6px_18px_-8px_rgb(var(--shadow-ambient)/0.3)]',
+      )}
+      style={{
+        background:
+          'linear-gradient(150deg, #16305c 0%, #0f2247 55%, #0b1830 100%)',
+      }}
+    >
+      {/* Halo spéculaire : le même vocabulaire de verre, en version nuit. */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-0"
+        style={{
+          background:
+            'radial-gradient(38rem 20rem at 8% -30%, rgb(106 168 242 / 0.4), transparent 62%),' +
+            'radial-gradient(28rem 18rem at 98% 0%, rgb(47 196 143 / 0.16), transparent 60%)',
+        }}
+      />
 
-      {/* 2. L'avancement du service, seul chiffre qui se compare. */}
-      {board.orderCount > 0 ? (
-        <GlassCard>
-          <div className="p-4">
-            <div className="flex items-baseline justify-between gap-3">
-              <p className="text-[0.74rem] font-semibold uppercase tracking-wide text-fg-subtle">
-                Avancement du service
-              </p>
-              <p className="text-[0.78rem] tabular-nums text-fg-muted">
-                <span className="text-[1.05rem] font-bold text-ok">{part}</span>
-                <span className="text-fg-subtle"> %</span>
-              </p>
-            </div>
+      <div className="relative z-[1] p-5 sm:p-6">
+        <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:gap-8">
+          {/* Colonne gauche : la journée et son état. */}
+          <div className="min-w-0 flex-1">
+            <p className="text-[0.7rem] font-semibold uppercase tracking-[0.14em] text-white/45">
+              Journée de service
+            </p>
+            <h2 className="mt-1 text-[1.4rem] font-bold capitalize leading-tight tracking-tight sm:text-[1.7rem]">
+              {formatLongDate(board.day)}
+            </h2>
 
             <div
-              className="mt-2 h-2.5 overflow-hidden rounded-full bg-[rgb(var(--glass-edge)/0.22)]"
-              role="meter"
-              aria-valuenow={part}
-              aria-valuemin={0}
-              aria-valuemax={100}
-              aria-label={`${part}% de la quantité demandée a été servie`}
+              className={cn(
+                'mt-3.5 inline-flex max-w-full items-center gap-2.5 rounded-xl border px-3 py-2',
+                TONS[etat.ton],
+              )}
             >
-              <div
-                className="h-full rounded-full bg-ok transition-[width] duration-500"
-                style={{ width: `${part}%` }}
-              />
-            </div>
-
-            <p className="mt-2 text-[0.8rem] tabular-nums text-fg-muted">
-              <span className="font-semibold text-ok">{formatQty(board.totalServed)}</span> servi
-              <span className="mx-1.5 text-fg-subtle">sur</span>
-              <span className="font-semibold text-accent">{formatQty(board.totalAsked)}</span> demandé
-            </p>
-
-            {/* 3. Le volume, en pied : l'information de contexte. */}
-            <div className="mt-3 flex items-center gap-4 border-t border-[rgb(var(--glass-edge)/0.16)] pt-2.5 text-[0.78rem] tabular-nums text-fg-muted">
-              <span className="flex items-center gap-1.5">
-                <Inbox className="size-3.5 text-fg-subtle" />
-                {board.orderCount} ticket{board.orderCount > 1 ? 's' : ''}
-              </span>
-              <span className="flex items-center gap-1.5">
-                <Building2 className="size-3.5 text-fg-subtle" />
-                {board.departments.length} département{board.departments.length > 1 ? 's' : ''}
-              </span>
-              <span className="flex items-center gap-1.5">
-                <Layers className="size-3.5 text-fg-subtle" />
-                {board.lineCount} ligne{board.lineCount > 1 ? 's' : ''}
+              <etat.icone className="size-5 shrink-0" />
+              <span className="min-w-0">
+                <span className="block text-[0.92rem] font-bold leading-tight">{etat.titre}</span>
+                <span className="block text-[0.76rem] leading-snug opacity-75">{etat.detail}</span>
               </span>
             </div>
           </div>
-        </GlassCard>
-      ) : null}
+
+          {/* Colonne droite : l'avancement, chiffre unique et dominant. */}
+          {board.orderCount > 0 ? (
+            <div className="w-full shrink-0 lg:w-[22rem]">
+              <div className="flex items-end justify-between gap-3">
+                <span className="text-[0.7rem] font-semibold uppercase tracking-[0.12em] text-white/45">
+                  Avancement du service
+                </span>
+                <span className="flex items-baseline gap-1 leading-none">
+                  <span className="text-[2.6rem] font-bold tabular-nums tracking-tighter text-[#6ee7b7]">
+                    {part}
+                  </span>
+                  <span className="text-[1rem] font-semibold text-white/40">%</span>
+                </span>
+              </div>
+
+              <div
+                className="mt-2 h-2.5 overflow-hidden rounded-full bg-white/12"
+                role="meter"
+                aria-valuenow={part}
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-label={`${part}% de la quantité demandée a été servie`}
+              >
+                <div
+                  className="h-full rounded-full bg-gradient-to-r from-[#2fc48f] to-[#6ee7b7] transition-[width] duration-500"
+                  style={{ width: `${part}%` }}
+                />
+              </div>
+
+              <p className="mt-2 text-[0.82rem] tabular-nums text-white/60">
+                <span className="font-bold text-[#6ee7b7]">{formatQty(board.totalServed)}</span> servi
+                <span className="mx-1.5 text-white/30">sur</span>
+                <span className="font-bold text-white/90">{formatQty(board.totalAsked)}</span> demandé
+              </p>
+            </div>
+          ) : null}
+        </div>
+
+        {/* Pied : le volume, information de contexte. */}
+        {board.orderCount > 0 ? (
+          <div className="mt-5 grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-white/10 bg-white/10 sm:grid-cols-4">
+            <Chiffre icon={Inbox} valeur={board.orderCount} libelle="tickets" />
+            <Chiffre icon={Building2} valeur={board.departments.length} libelle="départements" />
+            <Chiffre icon={Layers} valeur={board.lineCount} libelle="lignes" />
+            <Chiffre
+              icon={TrendingUp}
+              valeur={formatQty(board.totalAsked)}
+              libelle="quantité demandée"
+            />
+          </div>
+        ) : null}
+      </div>
+    </section>
+  )
+}
+
+function Chiffre({
+  icon: Icone, valeur, libelle,
+}: {
+  icon: typeof Inbox
+  valeur: number | string
+  libelle: string
+}) {
+  return (
+    <div className="bg-[#0f2247]/70 px-3 py-2.5">
+      <p className="flex items-center gap-1.5 text-[0.68rem] font-medium uppercase tracking-wide text-white/40">
+        <Icone className="size-3.5" />
+        {libelle}
+      </p>
+      <p className="mt-0.5 text-[1.1rem] font-bold tabular-nums leading-none text-white/95">
+        {valeur}
+      </p>
     </div>
   )
 }

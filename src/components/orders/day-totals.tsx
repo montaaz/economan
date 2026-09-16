@@ -1,8 +1,8 @@
 'use client'
 
 import * as React from 'react'
-import { Loader2, PackageSearch } from 'lucide-react'
-import { GlassCard, Badge, EmptyState, TableWrap, Th, Td } from '@/components/ui/glass'
+import { ChevronRight, Loader2, PackageSearch } from 'lucide-react'
+import { Badge, EmptyState, TableWrap, Th, Td } from '@/components/ui/glass'
 import { Icon } from '@/components/ui/icon'
 import { Modal } from '@/components/ui/modal'
 import { gql, errorMessage } from '@/lib/graphql-client'
@@ -57,37 +57,52 @@ export function DayTotals({ board }: { board: Board }) {
 
   return (
     <>
-      <button type="button" onClick={() => setOpen(true)} className="mt-6 block w-full text-left">
-        <GlassCard deep hover>
-          <div className="flex flex-wrap items-center justify-between gap-4 p-4 sm:p-5">
-            <div>
-              <p className="text-[0.72rem] font-semibold uppercase tracking-wide text-fg-subtle">
-                Total de la journée
-              </p>
-              <p className="mt-1 text-[0.85rem] tabular-nums text-fg-muted">
-                {board.departments.length} département{board.departments.length > 1 ? 's' : ''} ·{' '}
-                {board.orderCount} ticket{board.orderCount > 1 ? 's' : ''} · {board.lineCount} ligne
-                {board.lineCount > 1 ? 's' : ''}
-                <span className="mx-1.5 text-fg-subtle">·</span>
-                <span className="text-accent">voir tous les articles</span>
+      {/* Le total ferme la page avec le même poids que le bandeau de tête :
+          la journée s'ouvre et se referme sur le même fond sombre. */}
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="group relative mt-6 block w-full overflow-hidden rounded-[calc(var(--radius)+6px)] border border-white/12 p-4 text-left text-white shadow-[0_24px_60px_-22px_rgb(var(--shadow-ambient)/0.5)] transition-transform duration-200 hover:-translate-y-0.5 sm:p-5"
+        style={{ background: 'linear-gradient(150deg, #16305c 0%, #0f2247 60%, #0b1830 100%)' }}
+      >
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-0"
+          style={{
+            background:
+              'radial-gradient(30rem 16rem at 95% 0%, rgb(106 168 242 / 0.28), transparent 62%)',
+          }}
+        />
+        <div className="relative z-[1] flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <p className="text-[0.72rem] font-semibold uppercase tracking-[0.12em] text-white/45">
+              Total de la journée
+            </p>
+            <p className="mt-1 text-[0.85rem] tabular-nums text-white/60">
+              {board.departments.length} département{board.departments.length > 1 ? 's' : ''} ·{' '}
+              {board.orderCount} ticket{board.orderCount > 1 ? 's' : ''} · {board.lineCount} ligne
+              {board.lineCount > 1 ? 's' : ''}
+            </p>
+            <p className="mt-1.5 inline-flex items-center gap-1 text-[0.82rem] font-semibold text-[#8fc0f7]">
+              Voir tous les articles
+              <ChevronRight className="size-4 transition-transform duration-200 group-hover:translate-x-0.5" />
+            </p>
+          </div>
+          <div className="flex items-baseline gap-6">
+            <div className="text-right">
+              <p className="text-[0.7rem] font-medium uppercase tracking-wide text-white/45">Demandé</p>
+              <p className="text-[1.8rem] font-bold leading-none tabular-nums text-white">
+                {formatQty(board.totalAsked)}
               </p>
             </div>
-            <div className="flex items-baseline gap-5">
-              <div className="text-right">
-                <p className="text-[0.7rem] font-medium uppercase tracking-wide text-fg-subtle">Demandé</p>
-                <p className="text-[1.5rem] font-bold leading-none tabular-nums text-accent">
-                  {formatQty(board.totalAsked)}
-                </p>
-              </div>
-              <div className="text-right">
-                <p className="text-[0.7rem] font-medium uppercase tracking-wide text-fg-subtle">Servi</p>
-                <p className="text-[1.5rem] font-bold leading-none tabular-nums text-ok">
-                  {formatQty(board.totalServed)}
-                </p>
-              </div>
+            <div className="text-right">
+              <p className="text-[0.7rem] font-medium uppercase tracking-wide text-white/45">Servi</p>
+              <p className="text-[1.8rem] font-bold leading-none tabular-nums text-[#6ee7b7]">
+                {formatQty(board.totalServed)}
+              </p>
             </div>
           </div>
-        </GlassCard>
+        </div>
       </button>
 
       {open ? <AllDepartments board={board} onClose={() => setOpen(false)} /> : null}

@@ -1,9 +1,8 @@
 'use client'
 
 import * as React from 'react'
-import { Layers, Loader2, PackageSearch } from 'lucide-react'
-import { GlassCard, Badge, EmptyState, TableWrap, Th, Td } from '@/components/ui/glass'
-import { Icon } from '@/components/ui/icon'
+import { ChevronRight, Layers, Loader2, PackageSearch } from 'lucide-react'
+import { Badge, EmptyState, TableWrap, Th, Td } from '@/components/ui/glass'
 import { Modal } from '@/components/ui/modal'
 import { gql, errorMessage } from '@/lib/graphql-client'
 import { cn, formatLongDate, formatQty } from '@/lib/utils'
@@ -54,54 +53,46 @@ export function DepartmentTotal({ group, day }: { group: DeptTotal; day: string 
 
   return (
     <>
+      {/* Pied du bloc département : il en fait partie, d'où l'absence de carte
+          propre — une carte de plus aurait rompu l'unité du panneau. */}
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="mt-3 block w-full text-left"
+        className="flex w-full flex-wrap items-center justify-between gap-3 border-t px-3.5 py-3 text-left transition-colors sm:px-4"
+        style={{
+          borderColor: `${group.department.color}26`,
+          background: `linear-gradient(120deg, ${group.department.color}14, transparent 70%)`,
+        }}
         aria-label={`Détail des articles de ${group.department.name}`}
       >
-        <GlassCard hover>
-          <div className="flex flex-wrap items-center justify-between gap-3 p-3.5 sm:p-4">
-            <div className="flex min-w-0 items-center gap-2.5">
-              <span
-                className="grid size-8 shrink-0 place-items-center rounded-lg text-white"
-                style={{ background: group.department.color }}
-              >
-                <Icon name={group.department.icon ?? 'Building2'} className="size-4" />
-              </span>
-              <div className="min-w-0">
-                <p className="text-[0.72rem] font-semibold uppercase tracking-wide text-fg-subtle">
-                  Total {group.department.name}
-                </p>
-                <p className="mt-0.5 text-[0.8rem] tabular-nums text-fg-muted">
-                  {group.orderCount} ticket{group.orderCount > 1 ? 's' : ''} · {group.lineCount} ligne
-                  {group.lineCount > 1 ? 's' : ''}
-                  <span className="mx-1.5 text-fg-subtle">·</span>
-                  <span className="text-accent">voir le détail</span>
-                </p>
-              </div>
-            </div>
+        <div className="min-w-0">
+          <p className="text-[0.72rem] font-semibold uppercase tracking-wide text-fg-subtle">
+            Total {group.department.name}
+          </p>
+          <p className="mt-0.5 flex items-center gap-1 text-[0.8rem] font-medium text-accent">
+            Voir les articles cumulés
+            <ChevronRight className="size-3.5" />
+          </p>
+        </div>
 
-            <div className="flex items-baseline gap-5">
-              <div className="text-right">
-                <p className="text-[0.68rem] font-medium uppercase tracking-wide text-fg-subtle">
-                  Demandé
-                </p>
-                <p className="text-[1.15rem] font-bold leading-none tabular-nums text-accent">
-                  {formatQty(group.totalAsked)}
-                </p>
-              </div>
-              <div className="text-right">
-                <p className="text-[0.68rem] font-medium uppercase tracking-wide text-fg-subtle">
-                  Servi
-                </p>
-                <p className="text-[1.15rem] font-bold leading-none tabular-nums text-ok">
-                  {formatQty(group.totalServed)}
-                </p>
-              </div>
-            </div>
+        <div className="flex items-baseline gap-5">
+          <div className="text-right">
+            <p className="text-[0.68rem] font-medium uppercase tracking-wide text-fg-subtle">
+              Demandé
+            </p>
+            <p className="text-[1.25rem] font-bold leading-none tabular-nums text-accent">
+              {formatQty(group.totalAsked)}
+            </p>
           </div>
-        </GlassCard>
+          <div className="text-right">
+            <p className="text-[0.68rem] font-medium uppercase tracking-wide text-fg-subtle">
+              Servi
+            </p>
+            <p className="text-[1.25rem] font-bold leading-none tabular-nums text-ok">
+              {formatQty(group.totalServed)}
+            </p>
+          </div>
+        </div>
       </button>
 
       {open ? (

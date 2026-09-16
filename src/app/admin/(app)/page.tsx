@@ -5,7 +5,6 @@ import { DayBoard, DayTotals, type Board } from '@/components/orders/day-board'
 import { DaySummary } from '@/components/orders/day-summary'
 import { DayPicker } from '@/components/orders/day-picker'
 import { DAY_BOARD_QUERY } from '@/lib/queries'
-import { formatLongDate } from '@/lib/utils'
 
 export const metadata: Metadata = { title: 'Tableau de bord' }
 export const dynamic = 'force-dynamic'
@@ -29,11 +28,7 @@ export default async function AdminPage({
         actions={<DayPicker days={data.activeDays} current={b.day} basePath="/admin" />}
       />
 
-      {/* La journée d'abord — c'est la première chose à lire. */}
-      <p className="mb-3 text-[1.1rem] font-bold capitalize tracking-tight text-fg sm:text-[1.25rem]">
-        {formatLongDate(b.day)}
-      </p>
-
+      {/* La date est portée par le bandeau : la répéter ici faisait doublon. */}
       <DaySummary board={b} />
 
       <DayBoard board={b} basePath="/admin/commandes" />

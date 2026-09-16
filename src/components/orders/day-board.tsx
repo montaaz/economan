@@ -1,6 +1,6 @@
 import Link from 'next/link'
 import { Inbox } from 'lucide-react'
-import { GlassCard, Badge, EmptyState } from '@/components/ui/glass'
+import { GlassCard, EmptyState } from '@/components/ui/glass'
 import { Icon } from '@/components/ui/icon'
 import { StatusBadge } from '@/components/ui/status'
 import { formatInstantDate, formatQty, formatTime } from '@/lib/utils'
@@ -77,49 +77,65 @@ export function DayBoard({ board, basePath }: { board: Board; basePath: string }
                 </span>
               </span>
             </h2>
-            {/* Total du département */}
-            <div className="flex shrink-0 items-center gap-1.5">
-              <Badge tone="accent">{formatQty(g.totalAsked)} demandé</Badge>
-              {g.totalServed > 0 ? <Badge tone="ok">{formatQty(g.totalServed)} servi</Badge> : null}
-            </div>
+            {/* Le détail chiffré revient dans le sous-total juste dessous :
+                ici le texte suffit, les pastilles alourdissaient la ligne. */}
+            <p className="shrink-0 text-[0.8rem] tabular-nums">
+              <span className="font-semibold text-accent">{formatQty(g.totalAsked)}</span>
+              <span className="text-fg-subtle"> demandé</span>
+              {g.totalServed > 0 ? (
+                <>
+                  <span className="mx-1.5 text-fg-subtle">·</span>
+                  <span className="font-semibold text-ok">{formatQty(g.totalServed)}</span>
+                  <span className="text-fg-subtle"> servi</span>
+                </>
+              ) : null}
+            </p>
           </div>
 
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
             {g.orders.map((o) => (
               <Link key={o.id} href={`${basePath}/${o.id}`}>
                 <GlassCard hover className="h-full">
-                  <div className="space-y-2.5 p-4">
-                    {/* Même disposition que côté employé : l'auteur et
-                        l'horodatage ouvrent la carte, le ticket vient après. */}
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="min-w-0">
-                        <p className="truncate text-[0.95rem] font-bold leading-tight text-fg">
-                          {o.createdBy.fullName}
-                        </p>
-                        <p className="mt-0.5 text-[0.82rem] tabular-nums text-fg-muted">
-                          {formatInstantDate(o.createdAt)} à {formatTime(o.createdAt)}
-                        </p>
-                      </div>
-                      <StatusBadge status={o.status} />
-                    </div>
-
-                    <p className="flex items-center gap-2">
+                  <div className="space-y-2 p-3">
+                    {/* Le numéro de ticket tient la colonne de gauche et sert
+                        de repère : le reste s'articule autour, sur deux lignes
+                        au lieu de trois blocs empilés. */}
+                    <div className="flex items-start gap-2.5">
                       <span
-                        className="grid size-7 shrink-0 place-items-center rounded-lg text-[0.78rem] font-bold tabular-nums text-white"
+                        className="grid size-9 shrink-0 place-items-center rounded-xl text-[0.9rem] font-bold tabular-nums text-white"
                         style={{ background: g.department.color }}
                       >
                         {o.ticketNumber}
                       </span>
-                      <span className="truncate font-mono text-[0.8rem] font-semibold text-fg-muted">
-                        {o.reference}
-                      </span>
-                    </p>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-start justify-between gap-2">
+                          <p className="min-w-0 truncate text-[0.88rem] font-bold leading-tight text-fg">
+                            {o.createdBy.fullName}
+                          </p>
+                          <StatusBadge status={o.status} />
+                        </div>
+                        {/* La référence passe sous l'heure : à 390 px, les deux
+                            sur une ligne poussaient le badge hors de la carte. */}
+                        <p className="truncate text-[0.74rem] tabular-nums text-fg-subtle">
+                          {formatInstantDate(o.createdAt)} à {formatTime(o.createdAt)}
+                        </p>
+                        <p className="truncate font-mono text-[0.7rem] text-fg-subtle">
+                          {o.reference}
+                        </p>
+                      </div>
+                    </div>
 
-                    <div className="flex flex-wrap gap-1.5">
-                      <Badge tone="neutral">{o.lineCount} article{o.lineCount > 1 ? 's' : ''}</Badge>
-                      <Badge tone="neutral">{formatQty(o.totalAsked)} demandé</Badge>
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 pl-[2.9rem] text-[0.76rem] tabular-nums">
+                      <span className="text-fg-subtle">
+                        {o.lineCount} article{o.lineCount > 1 ? 's' : ''}
+                      </span>
+                      <span className="font-medium text-accent">
+                        {formatQty(o.totalAsked)} demandé
+                      </span>
                       {o.totalServed > 0 ? (
-                        <Badge tone="ok">{formatQty(o.totalServed)} servi</Badge>
+                        <span className="font-medium text-ok">
+                          {formatQty(o.totalServed)} servi
+                        </span>
                       ) : null}
                     </div>
                   </div>

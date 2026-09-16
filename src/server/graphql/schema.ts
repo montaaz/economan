@@ -84,6 +84,10 @@ const typeDefs = /* GraphQL */ `
   type Order {
     id: ID!
     reference: String!
+    "Lignes en rupture sur ce ticket."
+    rejectedCount: Int!
+    "Lignes servies en quantité différente."
+    adjustedCount: Int!
     ticketNumber: Int!
     businessDay: Date!
     status: OrderStatus!
@@ -375,6 +379,10 @@ const resolvers = {
 
   Order: {
     lineCount: (o: { lines?: unknown[] }) => o.lines?.length ?? 0,
+    rejectedCount: (o: { lines?: { status: string }[] }) =>
+      (o.lines ?? []).filter((l) => l.status === 'REJECTED').length,
+    adjustedCount: (o: { lines?: { status: string }[] }) =>
+      (o.lines ?? []).filter((l) => l.status === 'ADJUSTED').length,
     totalAsked: (o: { lines?: { quantityAsked: unknown }[] }) =>
       (o.lines ?? []).reduce((s, l) => s + Number(l.quantityAsked), 0),
     totalServed: (o: { lines?: { quantityServed: unknown }[] }) =>

@@ -1,107 +1,143 @@
-import { Inbox, Building2, Layers, TrendingUp } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, Clock, Inbox, Building2, Layers } from 'lucide-react'
 import { GlassCard } from '@/components/ui/glass'
 import { cn, formatQty } from '@/lib/utils'
 import type { Board } from './day-board'
 
 /**
- * Résumé de la journée, en une bande.
+ * En-tête de journée : l'état d'abord, les chiffres ensuite.
  *
- * Quatre tuiles en grille occupaient presque un écran de téléphone pour quatre
- * nombres. Ici les chiffres sont alignés sur une seule ligne, et la part servie
- * se lit d'un coup grâce à la barre de progression — ce qu'un pourcentage écrit
- * en toutes lettres ne donnait pas.
+ * Un tableau de bord doit répondre à « est-ce que ma journée va bien ? » avant
+ * de détailler. Trois nombres neutres empilés ne le disaient pas : il fallait
+ * ouvrir chaque ticket pour savoir si quelque chose clochait. La part servie
+ * et les tickets en attente donnent maintenant cet état en un coup d'œil.
  */
 export function DaySummary({ board }: { board: Board }) {
   const part = board.totalAsked > 0
     ? Math.min(100, Math.round((board.totalServed / board.totalAsked) * 100))
     : 0
 
-  const chiffres = [
-    {
-      label: 'Tickets',
-      value: board.orderCount,
-      icon: Inbox,
-      detail: board.pendingCount > 0 ? `${board.pendingCount} en attente` : 'tous traités',
-      alerte: board.pendingCount > 0,
-    },
-    {
-      label: 'Départements',
-      value: board.departments.length,
-      icon: Building2,
-      detail: 'ayant commandé',
-    },
-    {
-      label: 'Lignes',
-      value: board.lineCount,
-      icon: Layers,
-      detail: 'articles',
-    },
-  ]
+  const ruptures = board.departments.reduce(
+    (n, g) => n + g.orders.reduce((m, o) => m + o.rejectedCount, 0), 0,
+  )
+  const ajustes = board.departments.reduce(
+    (n, g) => n + g.orders.reduce((m, o) => m + o.adjustedCount, 0), 0,
+  )
+
+  // Un ticket accepté mais dont rien n'est servi reste du travail en cours :
+  // le compter comme conforme donnerait une fausse assurance.
+  const enCours = board.departments.reduce(
+    (n, g) => n + g.orders.filter((o) => o.status === 'ACCEPTED' && o.totalServed === 0).length,
+    0,
+  )
+
+  // L'état dominant : ce qui appelle une action passe avant le reste.
+  const etat = board.pendingCount > 0
+    ? {
+        ton: 'warn' as const,
+        icone: Clock,
+        titre: `${board.pendingCount} ticket${board.pendingCount > 1 ? 's' : ''} en attente`,
+        detail: 'à prendre en charge par l’économat',
+      }
+    : enCours > 0
+    ? {
+        ton: 'warn' as const,
+        icone: Clock,
+        titre: `${enCours} ticket${enCours > 1 ? 's' : ''} à servir`,
+        detail: 'acceptés par l’économat, rien n’est encore sorti',
+      }
+    : ruptures > 0
+      ? {
+          ton: 'danger' as const,
+          icone: AlertTriangle,
+          titre: `${ruptures} rupture${ruptures > 1 ? 's' : ''}`,
+          detail: 'des articles n’ont pas pu être servis',
+        }
+      : board.orderCount === 0
+        ? {
+            ton: 'neutral' as const,
+            icone: Inbox,
+            titre: 'Aucune commande',
+            detail: 'aucun département n’a commandé ce jour',
+          }
+        : {
+            ton: 'ok' as const,
+            icone: CheckCircle2,
+            titre: 'Journée conforme',
+            detail: ajustes > 0
+              ? `${ajustes} ligne${ajustes > 1 ? 's' : ''} ajustée${ajustes > 1 ? 's' : ''}, aucune rupture`
+              : 'tous les tickets traités, aucune rupture',
+          }
+
+  const TONS = {
+    warn: 'border-warn/35 bg-warn/[0.09] text-warn',
+    danger: 'border-danger/35 bg-danger/[0.09] text-danger',
+    ok: 'border-ok/35 bg-ok/[0.09] text-ok',
+    neutral: 'border-[rgb(var(--glass-edge)/0.3)] bg-white/50 text-fg-muted',
+  }
 
   return (
-    <GlassCard className="mb-4">
-      <div className="divide-y divide-[rgb(var(--glass-edge)/0.14)] sm:flex sm:divide-x sm:divide-y-0">
-        {chiffres.map((c) => (
-          <div key={c.label} className="flex items-center gap-3 px-4 py-3 sm:flex-1 sm:py-4">
-            <span
-              className={cn(
-                'grid size-9 shrink-0 place-items-center rounded-xl',
-                c.alerte ? 'bg-warn/12 text-warn' : 'bg-[rgb(var(--glass-edge)/0.16)] text-fg-muted',
-              )}
-            >
-              <c.icon className="size-[1.05rem]" />
-            </span>
-            <div className="min-w-0">
-              <p className="flex items-baseline gap-1.5">
-                <span className="text-[1.35rem] font-bold leading-none tabular-nums text-fg">
-                  {c.value}
-                </span>
-                <span className="truncate text-[0.74rem] font-medium uppercase tracking-wide text-fg-subtle">
-                  {c.label}
-                </span>
-              </p>
-              <p
-                className={cn(
-                  'mt-0.5 truncate text-[0.74rem]',
-                  c.alerte ? 'font-medium text-warn' : 'text-fg-subtle',
-                )}
-              >
-                {c.detail}
-              </p>
-            </div>
-          </div>
-        ))}
-
-        {/* La part servie : le seul chiffre qui appelle une comparaison. */}
-        <div className="px-4 py-3 sm:flex-[1.4] sm:py-4">
-          <div className="flex items-baseline justify-between gap-2">
-            <p className="flex items-baseline gap-1.5">
-              <span className="text-[1.35rem] font-bold leading-none tabular-nums text-ok">
-                {formatQty(board.totalServed)}
-              </span>
-              <span className="text-[0.74rem] font-medium uppercase tracking-wide text-fg-subtle">
-                servi
-              </span>
-            </p>
-            <p className="text-[0.78rem] tabular-nums text-fg-muted">
-              sur {formatQty(board.totalAsked)}
-            </p>
-          </div>
-          <div
-            className="mt-2 h-1.5 overflow-hidden rounded-full bg-[rgb(var(--glass-edge)/0.2)]"
-            role="meter"
-            aria-valuenow={part}
-            aria-valuemin={0}
-            aria-valuemax={100}
-            aria-label={`${part}% de la quantité demandée a été servie`}
-          >
-            <div
-              className="h-full rounded-full bg-ok transition-[width] duration-500"
-              style={{ width: `${part}%` }}
-            />
-          </div>
+    <div className="mb-4 space-y-3">
+      {/* 1. L'état de la journée, en premier et en grand. */}
+      <div className={cn('flex items-center gap-3 rounded-2xl border px-4 py-3', TONS[etat.ton])}>
+        <etat.icone className="size-6 shrink-0" />
+        <div className="min-w-0 flex-1">
+          <p className="text-[1.05rem] font-bold leading-tight">{etat.titre}</p>
+          <p className="mt-0.5 text-[0.8rem] leading-snug opacity-80">{etat.detail}</p>
         </div>
       </div>
-    </GlassCard>
+
+      {/* 2. L'avancement du service, seul chiffre qui se compare. */}
+      {board.orderCount > 0 ? (
+        <GlassCard>
+          <div className="p-4">
+            <div className="flex items-baseline justify-between gap-3">
+              <p className="text-[0.74rem] font-semibold uppercase tracking-wide text-fg-subtle">
+                Avancement du service
+              </p>
+              <p className="text-[0.78rem] tabular-nums text-fg-muted">
+                <span className="text-[1.05rem] font-bold text-ok">{part}</span>
+                <span className="text-fg-subtle"> %</span>
+              </p>
+            </div>
+
+            <div
+              className="mt-2 h-2.5 overflow-hidden rounded-full bg-[rgb(var(--glass-edge)/0.22)]"
+              role="meter"
+              aria-valuenow={part}
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-label={`${part}% de la quantité demandée a été servie`}
+            >
+              <div
+                className="h-full rounded-full bg-ok transition-[width] duration-500"
+                style={{ width: `${part}%` }}
+              />
+            </div>
+
+            <p className="mt-2 text-[0.8rem] tabular-nums text-fg-muted">
+              <span className="font-semibold text-ok">{formatQty(board.totalServed)}</span> servi
+              <span className="mx-1.5 text-fg-subtle">sur</span>
+              <span className="font-semibold text-accent">{formatQty(board.totalAsked)}</span> demandé
+            </p>
+
+            {/* 3. Le volume, en pied : l'information de contexte. */}
+            <div className="mt-3 flex items-center gap-4 border-t border-[rgb(var(--glass-edge)/0.16)] pt-2.5 text-[0.78rem] tabular-nums text-fg-muted">
+              <span className="flex items-center gap-1.5">
+                <Inbox className="size-3.5 text-fg-subtle" />
+                {board.orderCount} ticket{board.orderCount > 1 ? 's' : ''}
+              </span>
+              <span className="flex items-center gap-1.5">
+                <Building2 className="size-3.5 text-fg-subtle" />
+                {board.departments.length} département{board.departments.length > 1 ? 's' : ''}
+              </span>
+              <span className="flex items-center gap-1.5">
+                <Layers className="size-3.5 text-fg-subtle" />
+                {board.lineCount} ligne{board.lineCount > 1 ? 's' : ''}
+              </span>
+            </div>
+          </div>
+        </GlassCard>
+      ) : null}
+    </div>
   )
 }

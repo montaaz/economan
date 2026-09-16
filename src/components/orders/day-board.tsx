@@ -10,6 +10,8 @@ export type BoardOrder = {
   id: string
   reference: string
   ticketNumber: number
+  rejectedCount: number
+  adjustedCount: number
   status: 'PENDING' | 'ACCEPTED' | 'DELIVERED' | 'RECEIVED' | 'CANCELLED'
   createdAt: string
   lineCount: number
@@ -125,18 +127,48 @@ export function DayBoard({ board, basePath }: { board: Board; basePath: string }
                       </div>
                     </div>
 
-                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 pl-[2.9rem] text-[0.76rem] tabular-nums">
-                      <span className="text-fg-subtle">
-                        {o.lineCount} article{o.lineCount > 1 ? 's' : ''}
-                      </span>
-                      <span className="font-medium text-accent">
-                        {formatQty(o.totalAsked)} demandé
-                      </span>
-                      {o.totalServed > 0 ? (
-                        <span className="font-medium text-ok">
-                          {formatQty(o.totalServed)} servi
-                        </span>
-                      ) : null}
+                    <div className="pl-[2.9rem]">
+                      {/* Une barre par ticket : d'un regard sur la colonne on
+                          voit lesquels avancent et lesquels stagnent. */}
+                      {(() => {
+                        const part = o.totalAsked > 0
+                          ? Math.min(100, Math.round((o.totalServed / o.totalAsked) * 100))
+                          : 0
+                        return (
+                          <>
+                            <div className="flex items-center gap-2">
+                              <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-[rgb(var(--glass-edge)/0.22)]">
+                                <div
+                                  className="h-full rounded-full bg-ok transition-[width] duration-500"
+                                  style={{ width: `${part}%` }}
+                                />
+                              </div>
+                              <span className="shrink-0 text-[0.72rem] font-semibold tabular-nums text-fg-muted">
+                                {part}%
+                              </span>
+                            </div>
+                            <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[0.74rem] tabular-nums">
+                              <span className="text-fg-subtle">
+                                {o.lineCount} article{o.lineCount > 1 ? 's' : ''}
+                              </span>
+                              <span className="font-medium text-accent">
+                                {formatQty(o.totalAsked)} demandé
+                              </span>
+                              {/* Ce qui cloche se signale ici, pas dans le détail. */}
+                              {o.rejectedCount > 0 ? (
+                                <span className="font-semibold text-danger">
+                                  {o.rejectedCount} rupture{o.rejectedCount > 1 ? 's' : ''}
+                                </span>
+                              ) : null}
+                              {o.adjustedCount > 0 ? (
+                                <span className="font-medium text-warn">
+                                  {o.adjustedCount} ajustée{o.adjustedCount > 1 ? 's' : ''}
+                                </span>
+                              ) : null}
+                            </div>
+                          </>
+                        )
+                      })()}
                     </div>
                   </div>
                 </GlassCard>

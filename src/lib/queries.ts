@@ -21,6 +21,8 @@ export const DAY_BOARD_QUERY = /* GraphQL */ `
           status
           createdAt
           lineCount
+          rejectedCount
+          adjustedCount
           totalAsked
           totalServed
           createdBy { fullName }

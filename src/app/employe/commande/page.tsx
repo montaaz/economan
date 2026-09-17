@@ -2,7 +2,8 @@ import type { Metadata } from 'next'
 import { executeGraphQL } from '@/server/graphql/execute'
 import { PageHeader } from '@/components/ui/stat'
 import { requireEmployeeDepartment } from '@/server/auth/guards'
-import { businessDay } from '@/lib/utils'
+import { businessDay, formatLongDate } from '@/lib/utils'
+import { LiveClock } from '@/components/ui/live-clock'
 import { NewOrderForm, type CatalogProduct } from './new-order-form'
 
 export const metadata: Metadata = { title: 'Nouvelle commande' }
@@ -27,9 +28,16 @@ export default async function NewOrderPage() {
 
   return (
     <>
+      {/* La date accompagne le titre plutôt que le cartouche de la feuille :
+          c'est la première chose à vérifier avant de saisir. */}
       <PageHeader
         title="Nouvelle commande"
-        description="Relevez votre stock article par article. La quantité commandée se calcule seule : stock fixe moins ce que vous avez en rayon."
+        actions={
+          <p className="flex items-baseline gap-2 text-[0.95rem] font-semibold tabular-nums text-fg sm:text-[1rem]">
+            <span className="capitalize">{formatLongDate(businessDay())}</span>
+            <LiveClock className="rounded-lg bg-accent/12 px-2 py-0.5 font-bold text-accent" />
+          </p>
+        }
       />
       <NewOrderForm
         products={data.myCatalog}

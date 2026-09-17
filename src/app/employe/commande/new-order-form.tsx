@@ -200,7 +200,9 @@ export function NewOrderForm({
 
   return (
     <GlassCard>
-      {/* Cartouche de la feuille */}
+      {/* Cartouche de la feuille. La date est remontée près du titre ; elle
+          reste imprimée ici, car la feuille sortie du bureau doit porter sa
+          journée. */}
       <div className="flex flex-wrap items-start justify-between gap-3 border-b border-[rgb(var(--glass-edge)/0.16)] px-4 py-3 sm:px-5">
         <div className="min-w-0">
           <p className="text-[0.95rem] font-semibold leading-tight text-fg">
@@ -209,23 +211,9 @@ export function NewOrderForm({
             <span className="font-medium text-fg-muted">{userName}</span>
           </p>
         </div>
-        <p className="shrink-0 text-right text-[0.85rem] font-medium capitalize tabular-nums text-fg-muted">
+        <p className="print-only shrink-0 text-right text-[0.85rem] font-medium capitalize tabular-nums text-fg-muted">
           {formatLongDate(businessDay)}
         </p>
-      </div>
-
-      {/* Rappel de la règle de calcul, et articles encore sans cible. */}
-      <div className="no-print flex flex-wrap items-center gap-2 border-b border-[rgb(var(--glass-edge)/0.16)] bg-accent/[0.05] px-4 py-2.5 sm:px-5">
-        <p className="text-[0.79rem] leading-snug text-fg-muted">
-          Saisissez ce que vous avez <strong className="text-fg">en rayon</strong>. La quantité
-          commandée est calculée automatiquement : <strong className="text-fg">stock fixe −
-          votre stock</strong>.
-        </p>
-        {withoutPar > 0 ? (
-          <span className="rounded-full border border-warn/35 bg-warn/12 px-2 py-0.5 text-[0.72rem] font-medium text-warn">
-            {withoutPar} article(s) sans stock fixe défini
-          </span>
-        ) : null}
       </div>
 
       {/* Barre d'outils */}

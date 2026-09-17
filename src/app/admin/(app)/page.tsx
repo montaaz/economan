@@ -12,11 +12,12 @@ export const dynamic = 'force-dynamic'
 export default async function AdminPage({
   searchParams,
 }: {
-  searchParams: Promise<{ jour?: string }>
+  searchParams: Promise<{ jour?: string; jusquau?: string }>
 }) {
-  const { jour } = await searchParams
+  const { jour, jusquau } = await searchParams
   const data = await executeGraphQL<{ dayBoard: Board; activeDays: string[] }>(DAY_BOARD_QUERY, {
     day: jour ?? null,
+    dayTo: jusquau ?? null,
   })
   const b = data.dayBoard
 
@@ -24,8 +25,19 @@ export default async function AdminPage({
     <>
       <PageHeader
         title="Pilotage général"
-        description="Journée de service : tickets par département, quantités demandées et servies."
-        actions={<DayPicker days={data.activeDays} current={b.day} basePath="/admin" />}
+        description={
+          b.isRange
+            ? 'Période : tickets de toutes les journées, cumulés par département.'
+            : 'Journée de service : tickets par département, quantités demandées et servies.'
+        }
+        actions={
+          <DayPicker
+            days={data.activeDays}
+            current={b.day}
+            currentTo={b.isRange ? b.dayTo : null}
+            basePath="/admin"
+          />
+        }
       />
 
       {/* La date est portée par le bandeau : la répéter ici faisait doublon. */}

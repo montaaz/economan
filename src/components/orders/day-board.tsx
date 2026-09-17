@@ -3,13 +3,14 @@ import { Inbox, ChevronRight } from 'lucide-react'
 import { GlassCard, EmptyState } from '@/components/ui/glass'
 import { Icon } from '@/components/ui/icon'
 import { StatusBadge } from '@/components/ui/status'
-import { cn, formatInstantDate, formatQty, formatTime } from '@/lib/utils'
+import { cn, formatInstantDate, formatQty, formatShortDay, formatTime } from '@/lib/utils'
 import { DepartmentTotal } from './department-total'
 
 export type BoardOrder = {
   id: string
   reference: string
   ticketNumber: number
+  businessDay: string
   rejectedCount: number
   adjustedCount: number
   status: 'PENDING' | 'ACCEPTED' | 'DELIVERED' | 'RECEIVED' | 'CANCELLED'
@@ -31,12 +32,19 @@ export type BoardGroup = {
 
 export type Board = {
   day: string
+  dayTo: string
+  isRange: boolean
   departments: BoardGroup[]
   orderCount: number
   lineCount: number
   totalAsked: number
   totalServed: number
   pendingCount: number
+}
+
+/** Nombre de journées distinctes représentées par une liste de tickets. */
+function joursCouverts(orders: BoardOrder[]): number {
+  return new Set(orders.map((o) => o.businessDay)).size
 }
 
 /**
@@ -92,6 +100,7 @@ export function DayBoard({ board, basePath }: { board: Board; basePath: string }
                   <span className="block text-[0.85rem] tabular-nums text-fg-muted sm:text-[0.78rem]">
                     {g.orderCount} ticket{g.orderCount > 1 ? 's' : ''} · {g.lineCount} ligne
                     {g.lineCount > 1 ? 's' : ''}
+                    {board.isRange ? ` · ${joursCouverts(g.orders)} jour${joursCouverts(g.orders) > 1 ? 's' : ''}` : ''}
                   </span>
                 </span>
               </h2>
@@ -111,12 +120,22 @@ export function DayBoard({ board, basePath }: { board: Board; basePath: string }
 
             <div className="grid gap-2.5 p-3 sm:grid-cols-2 sm:p-3.5 xl:grid-cols-3">
               {g.orders.map((o) => (
-                <TicketCard key={o.id} order={o} color={c} href={`${basePath}/${o.id}`} />
+                <TicketCard
+                  key={o.id}
+                  order={o}
+                  color={c}
+                  href={`${basePath}/${o.id}`}
+                  showDay={board.isRange}
+                />
               ))}
             </div>
 
             {/* Sous-total du département, en pied de son propre bloc. */}
-            <DepartmentTotal group={g} day={board.day} />
+            <DepartmentTotal
+              group={g}
+              day={board.day}
+              dayTo={board.isRange ? board.dayTo : null}
+            />
           </section>
         )
       })}
@@ -129,11 +148,13 @@ export function DayBoard({ board, basePath }: { board: Board; basePath: string }
  * colonne de cartes, les tickets qui stagnent se repèrent sans lire un chiffre.
  */
 function TicketCard({
-  order: o, color, href,
+  order: o, color, href, showDay,
 }: {
   order: BoardOrder
   color: string
   href: string
+  /** Sur une période, la journée du ticket devient une information utile. */
+  showDay?: boolean
 }) {
   const part = o.totalAsked > 0
     ? Math.min(100, Math.round((o.totalServed / o.totalAsked) * 100))
@@ -183,8 +204,17 @@ function TicketCard({
               </p>
               <StatusBadge status={o.status} />
             </div>
-            <p className="mt-0.5 truncate text-[0.85rem] tabular-nums text-fg-muted sm:text-[0.78rem]">
-              {formatInstantDate(o.createdAt)} à {formatTime(o.createdAt)}
+            <p className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-[0.85rem] tabular-nums text-fg-muted sm:text-[0.78rem]">
+              {/* Sur une période, deux tickets numérotés « 1 » coexistent :
+                  sans sa journée, la carte devient ambiguë. */}
+              {showDay ? (
+                <span className="rounded-md bg-[rgb(var(--glass-edge)/0.22)] px-1.5 font-semibold capitalize text-fg">
+                  {formatShortDay(o.businessDay)}
+                </span>
+              ) : null}
+              <span className="truncate">
+                {formatInstantDate(o.createdAt)} à {formatTime(o.createdAt)}
+              </span>
             </p>
             <p className="truncate font-mono text-[0.78rem] text-fg-subtle sm:text-[0.72rem]">{o.reference}</p>
           </div>

@@ -139,7 +139,12 @@ const typeDefs = /* GraphQL */ `
   }
 
   type DayBoard {
+    "Premier jour de la période (la journée elle-même si aucune plage)."
     day: Date!
+    "Dernier jour de la période. Égal au premier pour une journée unique."
+    dayTo: Date!
+    "Vrai dès que la période couvre plus d'une journée."
+    isRange: Boolean!
     departments: [DepartmentDay!]!
     orderCount: Int!
     lineCount: Int!
@@ -170,14 +175,14 @@ const typeDefs = /* GraphQL */ `
     "Mes commandes des N derniers jours (3 par défaut)."
     myOrders(days: Int = 3): [Order!]!
     order(id: ID!): Order
-    "Tableau d'une journée, groupé par département."
-    dayBoard(day: Date): DayBoard!
+    "Tableau d'une journée — ou d'une période si dayTo est fourni."
+    dayBoard(day: Date, dayTo: Date): DayBoard!
     "Journées ayant au moins une commande, la plus récente d'abord."
     activeDays(limit: Int = 30): [Date!]!
-    "Articles commandés par un département sur une journée, tous tickets cumulés."
-    dayArticles(departmentId: ID!, day: Date): [DayArticleLine!]!
-    "Articles de tous les départements sur une journée, groupés par département."
-    dayArticlesByDepartment(day: Date): [DayDepartmentArticles!]!
+    "Articles commandés par un département sur une journée ou une période, tous tickets cumulés."
+    dayArticles(departmentId: ID!, day: Date, dayTo: Date): [DayArticleLine!]!
+    "Articles de tous les départements sur une journée ou une période, groupés par département."
+    dayArticlesByDepartment(day: Date, dayTo: Date): [DayDepartmentArticles!]!
     "Stock fixe d'un département, tous ses articles — écran d'administration."
     stockFixeMatrix(departmentId: ID!): [StockFixeLine!]!
   }
@@ -264,19 +269,47 @@ function toDate(v: unknown): Date {
   return businessDay()
 }
 
+/**
+ * Résout une période de consultation.
+ *
+ * Sans `dayTo`, la période se réduit à la journée : le filtre reste une
+ * égalité, identique au comportement d'origine. Avec `dayTo`, on borne
+ * l'intervalle aux deux extrémités incluses.
+ *
+ * Les bornes sont réordonnées si elles arrivent à l'envers : choisir « du 14
+ * au 10 » est une manipulation courante dans deux champs de date, et rendre
+ * une liste vide laisserait croire qu'aucune commande n'existe.
+ */
+function resolvePeriod(day?: string, dayTo?: string) {
+  const a = day ? toDate(day) : businessDay()
+  if (!dayTo) return { from: a, to: a, isRange: false }
+
+  const b = toDate(dayTo)
+  const [from, to] = a <= b ? [a, b] : [b, a]
+  return { from, to, isRange: from.getTime() !== to.getTime() }
+}
+
+/** Filtre Prisma correspondant à une période : égalité si journée unique. */
+function periodFilter(p: { from: Date; to: Date; isRange: boolean }) {
+  return p.isRange ? { gte: p.from, lte: p.to } : p.from
+}
+
 /* --------------------------------------------------------------- resolvers */
 
 /**
- * Articles d'un département sur une journée, tous tickets cumulés.
+ * Articles d'un département sur une journée ou une période, tous tickets cumulés.
  *
- * Un même article peut figurer sur plusieurs tickets du jour : on somme les
+ * Un même article peut figurer sur plusieurs tickets : on somme les
  * quantités et on compte les tickets, pour distinguer « 3 × 5 » de « 1 × 15 ».
  * Partagé par la vue d'un département et par celle de la journée entière.
  */
-async function cumulerArticles(day: Date, departmentId: number) {
+async function cumulerArticles(
+  period: { from: Date; to: Date; isRange: boolean },
+  departmentId: number,
+) {
     const lines = await prisma.orderLine.findMany({
       where: {
-        order: { businessDay: day, departmentId: departmentId },
+        order: { businessDay: periodFilter(period), departmentId: departmentId },
       },
       select: {
         productId: true,
@@ -474,23 +507,26 @@ const resolvers = {
 
     dayArticles: async (
       _p: unknown,
-      a: { departmentId: string; day?: string },
+      a: { departmentId: string; day?: string; dayTo?: string },
       ctx: Ctx,
     ) => {
       requireStaff(ctx)
-      const day = a.day ? toDate(a.day) : businessDay()
-      return cumulerArticles(day, Number(a.departmentId))
+      return cumulerArticles(resolvePeriod(a.day, a.dayTo), Number(a.departmentId))
     },
 
-    dayArticlesByDepartment: async (_p: unknown, a: { day?: string }, ctx: Ctx) => {
+    dayArticlesByDepartment: async (
+      _p: unknown,
+      a: { day?: string; dayTo?: string },
+      ctx: Ctx,
+    ) => {
       requireStaff(ctx)
-      const day = a.day ? toDate(a.day) : businessDay()
+      const period = resolvePeriod(a.day, a.dayTo)
 
       // On ne liste que les départements ayant commandé : un service sans
       // ticket n'a rien à montrer et allongerait la vue pour rien.
       const groups = await prisma.order.groupBy({
         by: ['departmentId'],
-        where: { businessDay: day },
+        where: { businessDay: periodFilter(period) },
         _count: { _all: true },
       })
       if (groups.length === 0) return []
@@ -502,7 +538,7 @@ const resolvers = {
 
       const result = []
       for (const d of departments) {
-        const lines = await cumulerArticles(day, d.id)
+        const lines = await cumulerArticles(period, d.id)
         result.push({
           department: d,
           lines,
@@ -515,16 +551,18 @@ const resolvers = {
       return result
     },
 
-    dayBoard: async (_p: unknown, a: { day?: string }, ctx: Ctx) => {
+    dayBoard: async (_p: unknown, a: { day?: string; dayTo?: string }, ctx: Ctx) => {
       requireStaff(ctx)
-      const day = a.day ? toDate(a.day) : businessDay()
+      const period = resolvePeriod(a.day, a.dayTo)
 
       const [departments, orders] = await Promise.all([
         prisma.department.findMany({ where: { isActive: true }, orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }] }),
         prisma.order.findMany({
-          where: { businessDay: day },
+          where: { businessDay: periodFilter(period) },
           include: ORDER_INCLUDE,
-          orderBy: [{ departmentId: 'asc' }, { ticketNumber: 'asc' }],
+          // Sur une période, le jour prime : les tickets d'une même journée
+          // restent groupés et dans leur ordre de numérotation.
+          orderBy: [{ departmentId: 'asc' }, { businessDay: 'asc' }, { ticketNumber: 'asc' }],
         }),
       ])
 
@@ -554,7 +592,9 @@ const resolvers = {
         .filter((g) => g.orderCount > 0)
 
       return {
-        day,
+        day: period.from,
+        dayTo: period.to,
+        isRange: period.isRange,
         departments: groups,
         orderCount: orders.length,
         lineCount: groups.reduce((s, g) => s + g.lineCount, 0),

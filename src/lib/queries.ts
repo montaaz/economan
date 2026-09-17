@@ -1,8 +1,10 @@
 /** Requête partagée par l'économat et l'administration. */
 export const DAY_BOARD_QUERY = /* GraphQL */ `
-  query DayBoard($day: Date) {
-    dayBoard(day: $day) {
+  query DayBoard($day: Date, $dayTo: Date) {
+    dayBoard(day: $day, dayTo: $dayTo) {
       day
+      dayTo
+      isRange
       orderCount
       lineCount
       totalAsked
@@ -18,6 +20,7 @@ export const DAY_BOARD_QUERY = /* GraphQL */ `
           id
           reference
           ticketNumber
+          businessDay
           status
           createdAt
           lineCount

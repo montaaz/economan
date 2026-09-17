@@ -86,7 +86,14 @@ export function PageHeader({
         ) : null}
         {children}
       </div>
-      {actions ? <div className="flex shrink-0 flex-wrap items-center gap-2">{actions}</div> : null}
+      {/* Sur mobile les actions prennent toute la largeur : `shrink-0` les
+          empêchait de se contraindre et un sélecteur large débordait de
+          l'écran. À partir de `sm:` elles reprennent leur largeur propre. */}
+      {actions ? (
+        <div className="flex w-full min-w-0 flex-wrap items-center gap-2 sm:w-auto sm:shrink-0">
+          {actions}
+        </div>
+      ) : null}
     </div>
   )
 }

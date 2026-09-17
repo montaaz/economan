@@ -13,11 +13,12 @@ export const dynamic = 'force-dynamic'
 export default async function EconomatPage({
   searchParams,
 }: {
-  searchParams: Promise<{ jour?: string }>
+  searchParams: Promise<{ jour?: string; jusquau?: string }>
 }) {
-  const { jour } = await searchParams
+  const { jour, jusquau } = await searchParams
   const data = await executeGraphQL<{ dayBoard: Board; activeDays: string[] }>(DAY_BOARD_QUERY, {
     day: jour ?? null,
+    dayTo: jusquau ?? null,
   })
 
   return (
@@ -25,7 +26,14 @@ export default async function EconomatPage({
       <PageHeader
         title="Commandes du jour"
         description="Les tickets reçus, regroupés par département."
-        actions={<DayPicker days={data.activeDays} current={data.dayBoard.day} basePath="/economat" />}
+        actions={
+          <DayPicker
+            days={data.activeDays}
+            current={data.dayBoard.day}
+            currentTo={data.dayBoard.isRange ? data.dayBoard.dayTo : null}
+            basePath="/economat"
+          />
+        }
       >
         <p className="mt-2 flex flex-wrap items-center gap-2">
           <span className="text-[0.9rem] font-semibold capitalize text-fg">

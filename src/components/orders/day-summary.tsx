@@ -1,5 +1,5 @@
-import { AlertTriangle, CheckCircle2, Clock, Inbox, Building2, Layers, TrendingUp } from 'lucide-react'
-import { cn, formatQty, formatLongDate } from '@/lib/utils'
+import { AlertTriangle, CalendarRange, CheckCircle2, Clock, Inbox, Building2, Layers, TrendingUp } from 'lucide-react'
+import { cn, countDays, formatQty, formatPeriod } from '@/lib/utils'
 import type { Board } from './day-board'
 
 /**
@@ -57,7 +57,9 @@ export function DaySummary({ board }: { board: Board }) {
             ton: 'neutral' as const,
             icone: Inbox,
             titre: 'Aucune commande',
-            detail: 'aucun département n’a commandé ce jour',
+            detail: board.isRange
+              ? 'aucun département n’a commandé sur cette période'
+              : 'aucun département n’a commandé ce jour',
           }
         : {
             ton: 'ok' as const,
@@ -104,10 +106,14 @@ export function DaySummary({ board }: { board: Board }) {
           {/* Colonne gauche : la journée et son état. */}
           <div className="min-w-0 flex-1">
             <p className="text-[0.78rem] font-semibold uppercase tracking-[0.14em] text-white/50 sm:text-[0.72rem]">
-              Journée de service
+              {board.isRange
+                ? `Période · ${countDays(board.day, board.dayTo)} journées`
+                : 'Journée de service'}
             </p>
-            <h2 className="mt-1 text-[1.55rem] font-bold capitalize leading-tight tracking-tight sm:text-[1.7rem]">
-              {formatLongDate(board.day)}
+            {/* `capitalize` met une majuscule à chaque mot : « Du 12 Au 14 ».
+                On ne capitalise que la première lettre. */}
+            <h2 className="mt-1 text-[1.55rem] font-bold leading-tight tracking-tight first-letter:uppercase sm:text-[1.7rem]">
+              {formatPeriod(board.day, board.dayTo)}
             </h2>
 
             <div
@@ -166,7 +172,17 @@ export function DaySummary({ board }: { board: Board }) {
         {board.orderCount > 0 ? (
           <div className="mt-5 grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-white/10 bg-white/10 sm:grid-cols-4">
             <Chiffre icon={Inbox} valeur={board.orderCount} libelle="tickets" />
-            <Chiffre icon={Building2} valeur={board.departments.length} libelle="départements" />
+            {/* Sur une période, savoir combien de journées portent ces tickets
+                vaut mieux que de répéter le nombre de départements. */}
+            {board.isRange ? (
+              <Chiffre
+                icon={CalendarRange}
+                valeur={countDays(board.day, board.dayTo)}
+                libelle="journées"
+              />
+            ) : (
+              <Chiffre icon={Building2} valeur={board.departments.length} libelle="départements" />
+            )}
             <Chiffre icon={Layers} valeur={board.lineCount} libelle="lignes" />
             <Chiffre
               icon={TrendingUp}

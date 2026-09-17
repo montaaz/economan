@@ -41,6 +41,46 @@ export function formatLongDate(value: Date | string | null | undefined): string 
   }).format(d)
 }
 
+/** « lun. 14 sept. » — pour dater un ticket dans une liste sur plusieurs jours. */
+export function formatShortDay(value: Date | string | null | undefined): string {
+  if (!value) return '—'
+  const d = typeof value === 'string' ? new Date(value) : value
+  return new Intl.DateTimeFormat('fr-FR', {
+    weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC',
+  }).format(d)
+}
+
+/**
+ * Intitulé d'une période.
+ *
+ * Deux bornes identiques ne forment pas une période : on rend alors la date
+ * longue, pour que l'en-tête ne se lise pas « du 14 au 14 ».
+ */
+export function formatPeriod(
+  from: Date | string | null | undefined,
+  to: Date | string | null | undefined,
+): string {
+  if (!from) return '—'
+  const a = typeof from === 'string' ? new Date(from) : from
+  const b = to ? (typeof to === 'string' ? new Date(to) : to) : a
+  if (a.getTime() === b.getTime()) return formatLongDate(a)
+
+  const court = new Intl.DateTimeFormat('fr-FR', {
+    day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC',
+  })
+  return `du ${court.format(a)} au ${court.format(b)}`
+}
+
+/** Nombre de journées d'une période, bornes incluses. */
+export function countDays(
+  from: Date | string,
+  to: Date | string,
+): number {
+  const a = typeof from === 'string' ? new Date(from) : from
+  const b = typeof to === 'string' ? new Date(to) : to
+  return Math.round(Math.abs(b.getTime() - a.getTime()) / 86_400_000) + 1
+}
+
 export function formatWeekday(value: Date | string | null | undefined): string {
   if (!value) return '—'
   const d = typeof value === 'string' ? new Date(value) : value

@@ -6,12 +6,12 @@ import { Badge, EmptyState, TableWrap, Th, Td } from '@/components/ui/glass'
 import { Icon } from '@/components/ui/icon'
 import { Modal } from '@/components/ui/modal'
 import { gql, errorMessage } from '@/lib/graphql-client'
-import { cn, formatLongDate, formatQty } from '@/lib/utils'
+import { cn, countDays, formatPeriod, formatQty } from '@/lib/utils'
 import type { Board } from './day-board'
 
 const BY_DEPARTMENT = /* GraphQL */ `
-  query DayArticlesByDepartment($day: Date) {
-    dayArticlesByDepartment(day: $day) {
+  query DayArticlesByDepartment($day: Date, $dayTo: Date) {
+    dayArticlesByDepartment(day: $day, dayTo: $dayTo) {
       department { id name color icon }
       articleCount
       orderCount
@@ -76,12 +76,13 @@ export function DayTotals({ board }: { board: Board }) {
         <div className="relative z-[1] flex flex-wrap items-center justify-between gap-4">
           <div>
             <p className="text-[0.8rem] font-semibold uppercase tracking-[0.12em] text-white/50 sm:text-[0.74rem]">
-              Total de la journée
+              {board.isRange ? 'Total de la période' : 'Total de la journée'}
             </p>
             <p className="mt-1 text-[0.92rem] tabular-nums text-white/65 sm:text-[0.85rem]">
               {board.departments.length} département{board.departments.length > 1 ? 's' : ''} ·{' '}
               {board.orderCount} ticket{board.orderCount > 1 ? 's' : ''} · {board.lineCount} ligne
               {board.lineCount > 1 ? 's' : ''}
+              {board.isRange ? ` · ${countDays(board.day, board.dayTo)} journées` : ''}
             </p>
             <p className="mt-2 inline-flex items-center gap-1 text-[0.92rem] font-semibold text-[#8fc0f7] sm:text-[0.85rem]">
               Voir tous les articles
@@ -116,7 +117,9 @@ function AllDepartments({ board, onClose }: { board: Board; onClose: () => void 
 
   React.useEffect(() => {
     let vivant = true
-    gql<{ dayArticlesByDepartment: Group[] }>(BY_DEPARTMENT, { day: board.day })
+    gql<{ dayArticlesByDepartment: Group[] }>(BY_DEPARTMENT, {
+      day: board.day, dayTo: board.isRange ? board.dayTo : null,
+    })
       .then((d) => {
         if (vivant) setGroups(d.dayArticlesByDepartment)
       })
@@ -126,10 +129,16 @@ function AllDepartments({ board, onClose }: { board: Board; onClose: () => void 
     return () => {
       vivant = false
     }
-  }, [board.day])
+  }, [board.day, board.dayTo, board.isRange])
 
   return (
-    <Modal title={`Journée du ${formatLongDate(board.day)}`} onClose={onClose} wide>
+    <Modal
+      title={board.isRange
+        ? `Période ${formatPeriod(board.day, board.dayTo)}`
+        : `Journée du ${formatPeriod(board.day, board.day)}`}
+      onClose={onClose}
+      wide
+    >
       {error ? (
         <p role="alert" className="text-[0.85rem] font-medium text-danger">{error}</p>
       ) : groups === null ? (

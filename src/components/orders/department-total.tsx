@@ -5,11 +5,11 @@ import { ChevronRight, Layers, Loader2, PackageSearch } from 'lucide-react'
 import { Badge, EmptyState, TableWrap, Th, Td } from '@/components/ui/glass'
 import { Modal } from '@/components/ui/modal'
 import { gql, errorMessage } from '@/lib/graphql-client'
-import { cn, formatLongDate, formatQty } from '@/lib/utils'
+import { cn, formatPeriod, formatQty } from '@/lib/utils'
 
 const DAY_ARTICLES = /* GraphQL */ `
-  query DayArticles($departmentId: ID!, $day: Date) {
-    dayArticles(departmentId: $departmentId, day: $day) {
+  query DayArticles($departmentId: ID!, $day: Date, $dayTo: Date) {
+    dayArticles(departmentId: $departmentId, day: $day, dayTo: $dayTo) {
       productId
       productName
       productRef
@@ -48,7 +48,14 @@ export type DeptTotal = {
  * le département a commandé en tout — un même article revenant sur plusieurs
  * tickets y est cumulé.
  */
-export function DepartmentTotal({ group, day }: { group: DeptTotal; day: string }) {
+export function DepartmentTotal({
+  group, day, dayTo,
+}: {
+  group: DeptTotal
+  day: string
+  /** Borne de fin si l'écran affiche une période. */
+  dayTo?: string | null
+}) {
   const [open, setOpen] = React.useState(false)
 
   return (
@@ -96,17 +103,23 @@ export function DepartmentTotal({ group, day }: { group: DeptTotal; day: string 
       </button>
 
       {open ? (
-        <ArticlesDetail group={group} day={day} onClose={() => setOpen(false)} />
+        <ArticlesDetail
+          group={group}
+          day={day}
+          dayTo={dayTo}
+          onClose={() => setOpen(false)}
+        />
       ) : null}
     </>
   )
 }
 
 function ArticlesDetail({
-  group, day, onClose,
+  group, day, dayTo, onClose,
 }: {
   group: DeptTotal
   day: string
+  dayTo?: string | null
   onClose: () => void
 }) {
   const [lines, setLines] = React.useState<Line[] | null>(null)
@@ -114,7 +127,9 @@ function ArticlesDetail({
 
   React.useEffect(() => {
     let vivant = true
-    gql<{ dayArticles: Line[] }>(DAY_ARTICLES, { departmentId: group.department.id, day })
+    gql<{ dayArticles: Line[] }>(DAY_ARTICLES, {
+      departmentId: group.department.id, day, dayTo: dayTo ?? null,
+    })
       .then((d) => {
         if (vivant) setLines(d.dayArticles)
       })
@@ -124,13 +139,13 @@ function ArticlesDetail({
     return () => {
       vivant = false
     }
-  }, [group.department.id, day])
+  }, [group.department.id, day, dayTo])
 
   const totalAsked = (lines ?? []).reduce((s, l) => s + l.quantityAsked, 0)
   const totalServed = (lines ?? []).reduce((s, l) => s + l.quantityServed, 0)
 
   return (
-    <Modal title={`${group.department.name} — ${formatLongDate(day)}`} onClose={onClose} wide>
+    <Modal title={`${group.department.name} — ${formatPeriod(day, dayTo)}`} onClose={onClose} wide>
       {error ? (
         <p role="alert" className="text-[0.85rem] font-medium text-danger">{error}</p>
       ) : lines === null ? (

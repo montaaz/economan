@@ -33,9 +33,9 @@ export default async function NewOrderPage() {
       <PageHeader
         title="Nouvelle commande"
         actions={
-          <p className="flex items-baseline gap-2 text-[0.95rem] font-semibold tabular-nums text-fg sm:text-[1rem]">
+          <p className="flex items-baseline gap-2.5 text-[1.15rem] font-bold tabular-nums text-fg sm:text-[1.3rem]">
             <span className="capitalize">{formatLongDate(businessDay())}</span>
-            <LiveClock className="rounded-lg bg-accent/12 px-2 py-0.5 font-bold text-accent" />
+            <LiveClock />
           </p>
         }
       />

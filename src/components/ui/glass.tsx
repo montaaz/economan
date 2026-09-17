@@ -162,7 +162,9 @@ export function Badge({
     <span
       className={cn(
         'inline-flex items-center gap-1 whitespace-nowrap rounded-full border px-2 py-0.5',
-        'text-[0.72rem] font-medium leading-5 tracking-tight',
+        // Plus grand sur mobile : à 0,72rem les libellés d'état étaient
+        // difficiles à lire sur un téléphone.
+        'text-[0.8rem] font-medium leading-5 tracking-tight sm:text-[0.72rem]',
         TONES[tone],
         className,
       )}

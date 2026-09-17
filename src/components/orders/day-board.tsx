@@ -86,17 +86,17 @@ export function DayBoard({ board, basePath }: { board: Board; basePath: string }
                   <Icon name={g.department.icon ?? 'Building2'} className="size-5" />
                 </span>
                 <span className="min-w-0">
-                  <span className="block truncate text-[1.05rem] font-bold leading-tight tracking-tight text-fg">
+                  <span className="block truncate text-[1.15rem] font-bold leading-tight tracking-tight text-fg sm:text-[1.05rem]">
                     {g.department.name}
                   </span>
-                  <span className="block text-[0.75rem] tabular-nums text-fg-subtle">
+                  <span className="block text-[0.85rem] tabular-nums text-fg-muted sm:text-[0.78rem]">
                     {g.orderCount} ticket{g.orderCount > 1 ? 's' : ''} · {g.lineCount} ligne
                     {g.lineCount > 1 ? 's' : ''}
                   </span>
                 </span>
               </h2>
 
-              <p className="shrink-0 text-right text-[0.8rem] tabular-nums">
+              <p className="shrink-0 text-right text-[0.9rem] tabular-nums sm:text-[0.82rem]">
                 <span className="font-bold text-accent">{formatQty(g.totalAsked)}</span>
                 <span className="text-fg-subtle"> demandé</span>
                 {g.totalServed > 0 ? (
@@ -170,7 +170,7 @@ function TicketCard({
       <div className="min-w-0 flex-1 p-3">
         <div className="flex items-start gap-2.5">
           <span
-            className="grid size-9 shrink-0 place-items-center rounded-xl text-[0.9rem] font-bold tabular-nums text-white shadow-sm"
+            className="grid size-10 shrink-0 place-items-center rounded-xl text-[1rem] font-bold tabular-nums text-white shadow-sm sm:size-9 sm:text-[0.9rem]"
             style={{ background: `linear-gradient(140deg, ${color}, ${color}c4)` }}
           >
             {o.ticketNumber}
@@ -178,27 +178,32 @@ function TicketCard({
 
           <div className="min-w-0 flex-1">
             <div className="flex items-start justify-between gap-2">
-              <p className="min-w-0 truncate text-[0.9rem] font-bold leading-tight text-fg">
+              <p className="min-w-0 truncate text-[1rem] font-bold leading-tight text-fg sm:text-[0.92rem]">
                 {o.createdBy.fullName}
               </p>
               <StatusBadge status={o.status} />
             </div>
-            <p className="truncate text-[0.74rem] tabular-nums text-fg-subtle">
+            <p className="mt-0.5 truncate text-[0.85rem] tabular-nums text-fg-muted sm:text-[0.78rem]">
               {formatInstantDate(o.createdAt)} à {formatTime(o.createdAt)}
             </p>
-            <p className="truncate font-mono text-[0.7rem] text-fg-subtle">{o.reference}</p>
+            <p className="truncate font-mono text-[0.78rem] text-fg-subtle sm:text-[0.72rem]">{o.reference}</p>
           </div>
         </div>
 
-        <div className="mt-2.5 flex flex-wrap items-center gap-x-2.5 gap-y-1 border-t border-[rgb(var(--glass-edge)/0.16)] pt-2 text-[0.75rem] tabular-nums">
-          <span className={cn('font-bold', rien ? 'text-warn' : 'text-fg')}>
+        <div className="mt-2.5 flex flex-wrap items-center gap-x-2.5 gap-y-1.5 border-t border-[rgb(var(--glass-edge)/0.16)] pt-2.5 text-[0.85rem] tabular-nums sm:text-[0.78rem]">
+          <span className={cn('font-bold', rien ? 'text-warn' : 'text-ok')}>
             {part}
-            <span className={rien ? 'text-warn/70' : 'text-fg-subtle'}>%</span>
+            <span className={rien ? 'text-warn/70' : 'text-ok/70'}>%</span>
+            <span className="font-normal text-fg-subtle"> servi</span>
           </span>
           <span className="text-fg-subtle">
             {o.lineCount} article{o.lineCount > 1 ? 's' : ''}
           </span>
-          <span className="font-medium text-accent">{formatQty(o.totalAsked)}</span>
+          {/* Un nombre nu ne veut rien dire : il lui faut son libellé. */}
+          <span className="font-semibold text-accent">
+            {formatQty(o.totalAsked)}
+            <span className="font-normal text-fg-subtle"> demandé</span>
+          </span>
 
           {/* Ce qui cloche se signale ici, pas dans le détail. */}
           {o.rejectedCount > 0 ? (

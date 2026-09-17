@@ -75,29 +75,29 @@ export function DayTotals({ board }: { board: Board }) {
         />
         <div className="relative z-[1] flex flex-wrap items-center justify-between gap-4">
           <div>
-            <p className="text-[0.72rem] font-semibold uppercase tracking-[0.12em] text-white/45">
+            <p className="text-[0.8rem] font-semibold uppercase tracking-[0.12em] text-white/50 sm:text-[0.74rem]">
               Total de la journée
             </p>
-            <p className="mt-1 text-[0.85rem] tabular-nums text-white/60">
+            <p className="mt-1 text-[0.92rem] tabular-nums text-white/65 sm:text-[0.85rem]">
               {board.departments.length} département{board.departments.length > 1 ? 's' : ''} ·{' '}
               {board.orderCount} ticket{board.orderCount > 1 ? 's' : ''} · {board.lineCount} ligne
               {board.lineCount > 1 ? 's' : ''}
             </p>
-            <p className="mt-1.5 inline-flex items-center gap-1 text-[0.82rem] font-semibold text-[#8fc0f7]">
+            <p className="mt-2 inline-flex items-center gap-1 text-[0.92rem] font-semibold text-[#8fc0f7] sm:text-[0.85rem]">
               Voir tous les articles
               <ChevronRight className="size-4 transition-transform duration-200 group-hover:translate-x-0.5" />
             </p>
           </div>
           <div className="flex items-baseline gap-6">
             <div className="text-right">
-              <p className="text-[0.7rem] font-medium uppercase tracking-wide text-white/45">Demandé</p>
-              <p className="text-[1.8rem] font-bold leading-none tabular-nums text-white">
+              <p className="text-[0.76rem] font-medium uppercase tracking-wide text-white/50 sm:text-[0.72rem]">Demandé</p>
+              <p className="text-[2rem] font-bold leading-none tabular-nums text-white sm:text-[1.85rem]">
                 {formatQty(board.totalAsked)}
               </p>
             </div>
             <div className="text-right">
-              <p className="text-[0.7rem] font-medium uppercase tracking-wide text-white/45">Servi</p>
-              <p className="text-[1.8rem] font-bold leading-none tabular-nums text-[#6ee7b7]">
+              <p className="text-[0.76rem] font-medium uppercase tracking-wide text-white/50 sm:text-[0.72rem]">Servi</p>
+              <p className="text-[2rem] font-bold leading-none tabular-nums text-[#6ee7b7] sm:text-[1.85rem]">
                 {formatQty(board.totalServed)}
               </p>
             </div>

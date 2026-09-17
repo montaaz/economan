@@ -66,10 +66,10 @@ export function DepartmentTotal({ group, day }: { group: DeptTotal; day: string 
         aria-label={`Détail des articles de ${group.department.name}`}
       >
         <div className="min-w-0">
-          <p className="text-[0.72rem] font-semibold uppercase tracking-wide text-fg-subtle">
+          <p className="text-[0.8rem] font-semibold uppercase tracking-wide text-fg-muted sm:text-[0.74rem]">
             Total {group.department.name}
           </p>
-          <p className="mt-0.5 flex items-center gap-1 text-[0.8rem] font-medium text-accent">
+          <p className="mt-1 flex items-center gap-1 text-[0.9rem] font-semibold text-accent sm:text-[0.82rem]">
             Voir les articles cumulés
             <ChevronRight className="size-3.5" />
           </p>
@@ -77,18 +77,18 @@ export function DepartmentTotal({ group, day }: { group: DeptTotal; day: string 
 
         <div className="flex items-baseline gap-5">
           <div className="text-right">
-            <p className="text-[0.68rem] font-medium uppercase tracking-wide text-fg-subtle">
+            <p className="text-[0.74rem] font-medium uppercase tracking-wide text-fg-subtle sm:text-[0.7rem]">
               Demandé
             </p>
-            <p className="text-[1.25rem] font-bold leading-none tabular-nums text-accent">
+            <p className="text-[1.4rem] font-bold leading-none tabular-nums text-accent sm:text-[1.3rem]">
               {formatQty(group.totalAsked)}
             </p>
           </div>
           <div className="text-right">
-            <p className="text-[0.68rem] font-medium uppercase tracking-wide text-fg-subtle">
+            <p className="text-[0.74rem] font-medium uppercase tracking-wide text-fg-subtle sm:text-[0.7rem]">
               Servi
             </p>
-            <p className="text-[1.25rem] font-bold leading-none tabular-nums text-ok">
+            <p className="text-[1.4rem] font-bold leading-none tabular-nums text-ok sm:text-[1.3rem]">
               {formatQty(group.totalServed)}
             </p>
           </div>

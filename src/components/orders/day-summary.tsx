@@ -103,10 +103,10 @@ export function DaySummary({ board }: { board: Board }) {
         <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:gap-8">
           {/* Colonne gauche : la journée et son état. */}
           <div className="min-w-0 flex-1">
-            <p className="text-[0.7rem] font-semibold uppercase tracking-[0.14em] text-white/45">
+            <p className="text-[0.78rem] font-semibold uppercase tracking-[0.14em] text-white/50 sm:text-[0.72rem]">
               Journée de service
             </p>
-            <h2 className="mt-1 text-[1.4rem] font-bold capitalize leading-tight tracking-tight sm:text-[1.7rem]">
+            <h2 className="mt-1 text-[1.55rem] font-bold capitalize leading-tight tracking-tight sm:text-[1.7rem]">
               {formatLongDate(board.day)}
             </h2>
 
@@ -118,8 +118,8 @@ export function DaySummary({ board }: { board: Board }) {
             >
               <etat.icone className="size-5 shrink-0" />
               <span className="min-w-0">
-                <span className="block text-[0.92rem] font-bold leading-tight">{etat.titre}</span>
-                <span className="block text-[0.76rem] leading-snug opacity-75">{etat.detail}</span>
+                <span className="block text-[1.02rem] font-bold leading-tight sm:text-[0.95rem]">{etat.titre}</span>
+                <span className="block text-[0.86rem] leading-snug opacity-80 sm:text-[0.8rem]">{etat.detail}</span>
               </span>
             </div>
           </div>
@@ -128,14 +128,14 @@ export function DaySummary({ board }: { board: Board }) {
           {board.orderCount > 0 ? (
             <div className="w-full shrink-0 lg:w-[22rem]">
               <div className="flex items-end justify-between gap-3">
-                <span className="text-[0.7rem] font-semibold uppercase tracking-[0.12em] text-white/45">
+                <span className="text-[0.78rem] font-semibold uppercase tracking-[0.12em] text-white/50 sm:text-[0.72rem]">
                   Avancement du service
                 </span>
                 <span className="flex items-baseline gap-1 leading-none">
-                  <span className="text-[2.6rem] font-bold tabular-nums tracking-tighter text-[#6ee7b7]">
+                  <span className="text-[3rem] font-bold tabular-nums tracking-tighter text-[#6ee7b7] sm:text-[2.6rem]">
                     {part}
                   </span>
-                  <span className="text-[1rem] font-semibold text-white/40">%</span>
+                  <span className="text-[1.15rem] font-semibold text-white/45 sm:text-[1rem]">%</span>
                 </span>
               </div>
 
@@ -153,7 +153,7 @@ export function DaySummary({ board }: { board: Board }) {
                 />
               </div>
 
-              <p className="mt-2 text-[0.82rem] tabular-nums text-white/60">
+              <p className="mt-2.5 text-[0.95rem] tabular-nums text-white/70 sm:text-[0.85rem]">
                 <span className="font-bold text-[#6ee7b7]">{formatQty(board.totalServed)}</span> servi
                 <span className="mx-1.5 text-white/30">sur</span>
                 <span className="font-bold text-white/90">{formatQty(board.totalAsked)}</span> demandé
@@ -188,12 +188,12 @@ function Chiffre({
   libelle: string
 }) {
   return (
-    <div className="bg-[#0f2247]/70 px-3 py-2.5">
-      <p className="flex items-center gap-1.5 text-[0.68rem] font-medium uppercase tracking-wide text-white/40">
+    <div className="bg-[#0f2247]/70 px-3 py-3 sm:py-2.5">
+      <p className="flex items-center gap-1.5 text-[0.74rem] font-medium uppercase tracking-wide text-white/45 sm:text-[0.68rem]">
         <Icone className="size-3.5" />
         {libelle}
       </p>
-      <p className="mt-0.5 text-[1.1rem] font-bold tabular-nums leading-none text-white/95">
+      <p className="mt-1 text-[1.3rem] font-bold tabular-nums leading-none text-white sm:text-[1.15rem]">
         {valeur}
       </p>
     </div>

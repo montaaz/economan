@@ -20,7 +20,7 @@ export default async function UsersPage() {
     prisma.department.findMany({
       where: { isActive: true },
       orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
-      select: { id: true, name: true },
+      select: { id: true, name: true, color: true, icon: true },
     }),
   ])
 

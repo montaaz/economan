@@ -4,7 +4,8 @@ import * as React from 'react'
 import { useActionState } from 'react'
 import { useFormStatus } from 'react-dom'
 import { useRouter } from 'next/navigation'
-import { Plus, Pencil, Trash2, Eye, EyeOff, AlertCircle, Users, Fingerprint } from 'lucide-react'
+import { Plus, Pencil, Trash2, Eye, EyeOff, AlertCircle, Users, Fingerprint, Shield } from 'lucide-react'
+import { Icon } from '@/components/ui/icon'
 import { GlassCard, Button, Badge, Field, EmptyState, TableWrap, Th, Td } from '@/components/ui/glass'
 import { Modal } from '@/components/ui/modal'
 import { useToast } from '@/components/ui/toast'
@@ -33,12 +34,32 @@ export function UserManager({
   users, departments,
 }: {
   users: ManagedUser[]
-  departments: { id: number; name: string }[]
+  departments: { id: number; name: string; color: string; icon: string | null }[]
 }) {
   const router = useRouter()
   const { push } = useToast()
   const confirmer = useConfirm()
   const [editing, setEditing] = React.useState<ManagedUser | null | undefined>(undefined)
+
+  // Département filtré. 'sans' regroupe les comptes qui n'en ont pas —
+  // économat et administration — qu'aucun onglet de service ne montrerait.
+  const [filtre, setFiltre] = React.useState<number | 'sans' | null>(null)
+
+  const visibles = React.useMemo(() => {
+    if (filtre === null) return users
+    if (filtre === 'sans') return users.filter((u) => u.departmentId === null)
+    return users.filter((u) => u.departmentId === filtre)
+  }, [users, filtre])
+
+  // Compteurs par département, pour que chaque bouton annonce son effectif.
+  const parDept = React.useMemo(() => {
+    const m = new Map<number | 'sans', number>()
+    for (const u of users) {
+      const k = u.departmentId ?? 'sans'
+      m.set(k, (m.get(k) ?? 0) + 1)
+    }
+    return m
+  }, [users])
 
   const act = async (fn: () => Promise<ActionResult>, success: string) => {
     const r = await fn()
@@ -50,12 +71,70 @@ export function UserManager({
     }
   }
 
+  const sansDept = parDept.get('sans') ?? 0
+
   return (
     <>
+      {/* Filtre par département, même geste que sur le tableau de bord. */}
+      <div className="scroll-x -mx-1 mb-4 flex gap-2 px-1 pb-1">
+        <FiltreBouton
+          on={filtre === null}
+          onClick={() => setFiltre(null)}
+          count={users.length}
+        >
+          Tous
+        </FiltreBouton>
+
+        {departments.map((d) => {
+          const n = parDept.get(d.id) ?? 0
+          return (
+            <FiltreBouton
+              key={d.id}
+              on={filtre === d.id}
+              onClick={() => setFiltre(d.id)}
+              count={n}
+              // Un département sans agent reste cliquable : constater qu'il
+              // n'en a aucun est précisément ce qu'on vient vérifier ici.
+              dim={n === 0}
+              icon={
+                <span
+                  className="grid size-6 shrink-0 place-items-center rounded-lg text-white"
+                  style={{ background: d.color }}
+                >
+                  <Icon name={d.icon ?? 'Building2'} className="size-3.5" />
+                </span>
+              }
+            >
+              {d.name}
+            </FiltreBouton>
+          )
+        })}
+
+        {/* Économat et administration n'ont pas de département : sans cet
+            onglet, « Tous » serait le seul endroit où les voir. */}
+        {sansDept > 0 ? (
+          <FiltreBouton
+            on={filtre === 'sans'}
+            onClick={() => setFiltre('sans')}
+            count={sansDept}
+            icon={
+              <span className="grid size-6 shrink-0 place-items-center rounded-lg bg-[rgb(var(--glass-edge)/0.28)] text-fg-muted">
+                <Shield className="size-3.5" />
+              </span>
+            }
+          >
+            Sans département
+          </FiltreBouton>
+        ) : null}
+      </div>
+
       <GlassCard>
         <div className="flex items-center justify-between gap-3 border-b border-[rgb(var(--glass-edge)/0.16)] px-4 py-3 sm:px-5">
           <p className="text-[0.85rem] tabular-nums text-fg-muted">
-            {users.length} compte{users.length > 1 ? 's' : ''}
+            {visibles.length} compte{visibles.length > 1 ? 's' : ''}
+            {filtre !== null ? (
+              <span className="text-fg-subtle"> sur {users.length}</span>
+            ) : null}
           </p>
           <Button variant="primary" size="sm" onClick={() => setEditing(null)}>
             <Plus className="size-4" />
@@ -63,8 +142,16 @@ export function UserManager({
           </Button>
         </div>
 
-        {users.length === 0 ? (
-          <EmptyState icon={<Users className="size-6" />} title="Aucun utilisateur" />
+        {visibles.length === 0 ? (
+          <EmptyState
+            icon={<Users className="size-6" />}
+            title="Aucun utilisateur"
+            description={
+              filtre !== null
+                ? 'Aucun compte n’est rattaché à ce département.'
+                : undefined
+            }
+          />
         ) : (
           <TableWrap minWidth="44rem">
             <thead>
@@ -79,7 +166,7 @@ export function UserManager({
               </tr>
             </thead>
             <tbody className="divide-y divide-[rgb(var(--glass-edge)/0.12)]">
-              {users.map((u) => (
+              {visibles.map((u) => (
                 <tr key={u.id} className={cn(!u.isActive && 'opacity-55')}>
                   <Td>
                     <div className="flex items-center gap-2.5">
@@ -298,5 +385,36 @@ function SubmitButton() {
     <Button type="submit" variant="primary" loading={pending}>
       Enregistrer
     </Button>
+  )
+}
+
+/** Bouton d'onglet du filtre : même dessin que la barre du tableau de bord. */
+function FiltreBouton({
+  on, onClick, count, children, icon, dim,
+}: {
+  on: boolean
+  onClick: () => void
+  count: number
+  children: React.ReactNode
+  icon?: React.ReactNode
+  /** Grisé quand l'onglet ne contient aucun compte. */
+  dim?: boolean
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        'flex shrink-0 items-center gap-2 rounded-xl border px-3 py-2 text-[0.85rem] font-medium transition-colors sm:text-[0.83rem]',
+        on
+          ? 'border-accent/45 bg-accent/12 text-accent'
+          : 'border-[rgb(var(--glass-edge)/0.28)] bg-white/50 text-fg-muted hover:bg-white/80',
+        dim && !on && 'opacity-55',
+      )}
+    >
+      {icon}
+      {children}
+      <span className="tabular-nums opacity-70">({count})</span>
+    </button>
   )
 }

@@ -9,6 +9,7 @@ import { GlassCard, Button, Badge, Field, EmptyState, TableWrap, Th, Td } from '
 import { Icon } from '@/components/ui/icon'
 import { Modal } from '@/components/ui/modal'
 import { useToast } from '@/components/ui/toast'
+import { useConfirm } from '@/components/ui/confirm'
 import { cn } from '@/lib/utils'
 import { saveDepartment, toggleDepartment, deleteDepartment, type ActionResult } from '@/server/services/admin'
 
@@ -31,6 +32,7 @@ const ICONS = [
 export function DepartmentManager({ departments }: { departments: Dept[] }) {
   const router = useRouter()
   const { push } = useToast()
+  const confirmer = useConfirm()
   const [editing, setEditing] = React.useState<Dept | null | undefined>(undefined)
 
   const act = async (fn: () => Promise<ActionResult>, success: string) => {
@@ -120,8 +122,17 @@ export function DepartmentManager({ departments }: { departments: Dept[] }) {
                         size="icon"
                         aria-label="Supprimer"
                         className="text-danger hover:bg-danger/10"
-                        onClick={() => {
-                          if (!confirm(`Supprimer « ${d.name} » ?`)) return
+                        onClick={async () => {
+                          const ok = await confirmer({
+                            title: 'Supprimer le département',
+                            message: (
+                              <p>
+                                Vous êtes sûr de supprimer le département{' '}
+                                <strong className="text-fg">{d.name}</strong> ?
+                              </p>
+                            ),
+                          })
+                          if (!ok) return
                           act(() => deleteDepartment(d.id), 'Département supprimé.')
                         }}
                       >

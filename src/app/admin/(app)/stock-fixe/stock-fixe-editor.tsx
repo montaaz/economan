@@ -17,6 +17,7 @@ import {
   toggleDepartmentProduct, type ActionResult,
 } from '@/server/services/admin'
 import { InlineEdit } from '@/components/ui/inline-edit'
+import { useConfirm } from '@/components/ui/confirm'
 import { UnitPicker } from './unit-picker'
 import { EditProductModal } from './edit-product-modal'
 import { cn, formatQty, toNumber } from '@/lib/utils'
@@ -62,6 +63,7 @@ export function StockFixeEditor({
   const [removing, setRemoving] = React.useState<string | null>(null)
   const router = useRouter()
   const { push } = useToast()
+  const confirmer = useConfirm()
 
   const [search, setSearch] = React.useState('')
   const [activeCategory, setActiveCategory] = React.useState<string | null>(null)
@@ -139,10 +141,24 @@ export function StockFixeEditor({
    */
   const retirer = async (p: ParLine) => {
     const cible = current?.name ?? 'ce département'
-    if (!confirm(
-      `Retirer « ${p.name} » de la feuille de ${cible} ?\n\n`
-      + `L’article reste au catalogue et sur les autres départements.`
-    )) return
+    const ok = await confirmer({
+      title: 'Retirer l’article',
+      confirmLabel: 'Retirer',
+      message: (
+        <>
+          <p>
+            Vous êtes sûr de supprimer l’article{' '}
+            <strong className="text-fg">{p.name}</strong> de ce département —{' '}
+            <strong className="text-fg">{cible}</strong> ?
+          </p>
+          <p className="mt-2 text-[0.82rem] text-fg-subtle">
+            L’article reste au catalogue et sur les feuilles des autres départements.
+            Son stock fixe pour {cible} sera effacé.
+          </p>
+        </>
+      ),
+    })
+    if (!ok) return
 
     setRemoving(p.id)
     try {

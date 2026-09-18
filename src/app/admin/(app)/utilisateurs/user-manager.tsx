@@ -8,6 +8,7 @@ import { Plus, Pencil, Trash2, Eye, EyeOff, AlertCircle, Users, Fingerprint } fr
 import { GlassCard, Button, Badge, Field, EmptyState, TableWrap, Th, Td } from '@/components/ui/glass'
 import { Modal } from '@/components/ui/modal'
 import { useToast } from '@/components/ui/toast'
+import { useConfirm } from '@/components/ui/confirm'
 import { cn, formatDateTime, initials } from '@/lib/utils'
 import { ROLE_LABEL } from '@/lib/nav'
 import { saveUser, toggleUser, deleteUser, type ActionResult } from '@/server/services/admin'
@@ -36,6 +37,7 @@ export function UserManager({
 }) {
   const router = useRouter()
   const { push } = useToast()
+  const confirmer = useConfirm()
   const [editing, setEditing] = React.useState<ManagedUser | null | undefined>(undefined)
 
   const act = async (fn: () => Promise<ActionResult>, success: string) => {
@@ -139,8 +141,17 @@ export function UserManager({
                         size="icon"
                         aria-label="Supprimer"
                         className="text-danger hover:bg-danger/10"
-                        onClick={() => {
-                          if (!confirm(`Supprimer le compte de ${u.fullName} ?`)) return
+                        onClick={async () => {
+                          const ok = await confirmer({
+                            title: 'Supprimer le compte',
+                            message: (
+                              <p>
+                                Vous êtes sûr de supprimer le compte de{' '}
+                                <strong className="text-fg">{u.fullName}</strong> ?
+                              </p>
+                            ),
+                          })
+                          if (!ok) return
                           act(() => deleteUser(u.id), 'Compte supprimé.')
                         }}
                       >

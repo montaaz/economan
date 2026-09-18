@@ -8,6 +8,7 @@ import { Ruler, Plus, Pencil, Trash2, AlertCircle } from 'lucide-react'
 import { Button, Field, Badge } from '@/components/ui/glass'
 import { Modal } from '@/components/ui/modal'
 import { useToast } from '@/components/ui/toast'
+import { useConfirm } from '@/components/ui/confirm'
 import { listUnits, createUnit, updateUnit, deleteUnit, type ActionResult } from '@/server/services/admin'
 
 type Unit = {
@@ -35,6 +36,7 @@ export function UnitsButton() {
 function UnitsPanel({ onClose }: { onClose: () => void }) {
   const router = useRouter()
   const { push } = useToast()
+  const confirmer = useConfirm()
   const [units, setUnits] = React.useState<Unit[] | null>(null)
   const [editing, setEditing] = React.useState<Unit | null | undefined>(undefined)
   const [busy, setBusy] = React.useState(false)
@@ -48,7 +50,23 @@ function UnitsPanel({ onClose }: { onClose: () => void }) {
   }, [load])
 
   const remove = async (u: Unit) => {
-    if (!confirm(`Supprimer l’unité « ${u.name} » ?`)) return
+    const ok = await confirmer({
+      title: 'Supprimer l’unité',
+      message: (
+        <>
+          <p>
+            Vous êtes sûr de supprimer l’unité{' '}
+            <strong className="text-fg">{u.name} ({u.symbol})</strong> ?
+          </p>
+          {u._count.products > 0 ? (
+            <p className="mt-2 text-[0.82rem] text-warn">
+              Elle est utilisée par {u._count.products} article(s).
+            </p>
+          ) : null}
+        </>
+      ),
+    })
+    if (!ok) return
     setBusy(true)
     try {
       const r = await deleteUnit(u.id)

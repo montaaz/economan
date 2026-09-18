@@ -8,7 +8,6 @@ import { Search, PackageSearch, Target, Plus, AlertCircle, Pencil, Trash2, Check
 import { GlassCard, Button, Badge, EmptyState, TableWrap, Th, Td } from '@/components/ui/glass'
 import { Icon } from '@/components/ui/icon'
 import { useToast } from '@/components/ui/toast'
-import { usePagedRows, ShowMore } from '@/components/ui/paged-list'
 import { Modal } from '@/components/ui/modal'
 import { Field } from '@/components/ui/glass'
 import { gql, errorMessage } from '@/lib/graphql-client'
@@ -108,7 +107,6 @@ export function StockFixeEditor({
     })
   }, [products, search, activeCategory])
 
-  const paged = usePagedRows(visible)
 
   // Le numéro de ligne visible suit le filtre ; la position d'un article sur la
   // feuille, elle, est son rang dans la liste complète. Confondre les deux
@@ -337,191 +335,174 @@ export function StockFixeEditor({
             description="Ce département n’a aucune catégorie affectée, ou la recherche ne donne rien."
           />
         ) : (
-          <>
-            <TableWrap minWidth="0">
-              <thead>
-                <tr>
-                  <Th className="w-8 px-1 text-right sm:w-10 sm:px-3">#</Th>
-                  <Th className="w-full px-1 sm:px-3">Article</Th>
-                  {/* L'unité suit la valeur qu'elle qualifie : « 24 u » se lit
-                      d'un bloc, alors qu'une colonne séparée à gauche obligeait
-                      à faire l'aller-retour. */}
-                  <Th className="w-[7rem] px-1 text-right sm:w-40 sm:px-3">Stock fixe</Th>
-                  <Th className="px-1 text-left sm:px-3">Unité</Th>
-                  <Th className="w-10 px-1 sm:px-3"><span className="sr-only">Modifier</span></Th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-[rgb(var(--glass-edge)/0.12)]">
-                {paged.shown.map((p, i) => {
-                  const v = toNumber(values[p.id])
-                  const changed = v !== p.quantity
-                  const previous = i > 0 ? paged.shown[i - 1] : null
-                  const next = paged.shown[i + 1] ?? null
-                  const opensFamily = previous?.category.id !== p.category.id
-                  const closesFamily = next?.category.id !== p.category.id
-                  return (
-                    <React.Fragment key={p.id}>
-                      {opensFamily ? (
-                        <tr>
-                          <td
-                            colSpan={5}
-                            className="bg-ok/12 px-2 py-1.5 text-[0.72rem] font-bold uppercase tracking-[0.06em] text-ok sm:px-3 sm:text-[0.76rem]"
-                          >
-                            <span className="flex items-center gap-1.5">
-                              {p.category.icon ? (
-                                <Icon name={p.category.icon} className="size-3.5 shrink-0" />
-                              ) : null}
-                              {p.category.name}
-                            </span>
-                          </td>
-                        </tr>
-                      ) : null}
-                    <tr className={cn(changed && 'bg-warn/[0.07]')}>
-                      <Td className="px-1 text-right text-[0.72rem] tabular-nums text-fg-subtle sm:px-3 sm:text-[0.78rem]">
-                        {/* Le rang affiché suit le filtre ; on édite la position
-                            réelle sur la feuille, sinon filtrer une famille
-                            déplacerait l'article au mauvais endroit. */}
-                        <InlineEdit
-                          value={String(positionOf.get(p.id) ?? i + 1)}
-                          ariaLabel={`Position de ${p.name}`}
-                          align="right"
-                          className="tabular-nums"
-                          inputClassName="w-12 text-[0.78rem]"
-                          validate={(v) =>
-                            /^\d+$/.test(v) && Number(v) >= 1 ? null : 'Nombre ≥ 1'
-                          }
-                          onSave={async (v) => {
-                            const r = await moveProductInSheet(selectedId, Number(p.id), Number(v))
-                            if (!r.ok) return r.error ?? 'Déplacement impossible.'
-                            push('success', `« ${p.name} » déplacé en position ${v}.`)
-                            router.refresh()
-                          }}
-                        />
-                      </Td>
-                      <Td className="max-w-0 px-1 sm:px-3">
-                        <p className="text-[0.78rem] font-medium leading-snug text-fg sm:text-[0.85rem]">
-                          <InlineEdit
-                            value={p.name}
-                            ariaLabel={`Nom de ${p.name}`}
-                            inputClassName="text-[0.85rem]"
-                            validate={(v) => (v.length >= 2 ? null : 'Nom trop court')}
-                            onSave={async (v) => {
-                              const r = await renameProduct(Number(p.id), v)
-                              if (!r.ok) return r.error ?? 'Renommage impossible.'
-                              push('success', 'Article renommé.')
-                              router.refresh()
-                            }}
-                          />
-                        </p>
-                        <p className="truncate font-mono text-[0.68rem] text-fg-subtle sm:text-[0.7rem]">
-                          {p.reference}
-                        </p>
-                      </Td>
-                      <Td className="px-1 sm:px-3">
-                        <div className="flex items-center justify-end gap-1.5">
-                          <input
-                            inputMode="decimal"
-                            value={values[p.id] ?? ''}
-                            onChange={(e) => setValue(p.id, e.target.value)}
-                            onFocus={(e) => {
-                              // Un 0 qu'il faut effacer avant de taper est une
-                              // gêne sur 109 lignes : le champ se vide au clic
-                              // et retrouve son 0 si on le quitte sans saisir.
-                              if (toNumber(values[p.id]) === 0) {
-                                setValues((st) => ({ ...st, [p.id]: '' }))
-                              }
-                              e.currentTarget.select()
-                            }}
-                            onBlur={() => {
-                              if ((values[p.id] ?? '') === '') {
-                                setValues((st) => ({ ...st, [p.id]: String(p.quantity) }))
-                              }
-                            }}
-                            placeholder="0"
-                            aria-label={`Stock fixe pour ${p.name}`}
-                            className="field h-9 w-16 px-1.5 py-0 text-right text-[0.8rem] tabular-nums sm:w-24 sm:px-3 sm:text-[0.85rem]"
-                          />
-                        </div>
-                      </Td>
-                      <Td className="whitespace-nowrap px-1 text-left sm:px-3">
-                        {/* L'unité se choisit dans une liste : un champ libre
-                            laisserait écrire « kgs » et créerait des doublons
-                            que les commandes traîneraient ensuite. */}
-                        <button
-                          type="button"
-                          onClick={() => setPickingUnit(p)}
-                          title={`Changer l’unité de ${p.name}`}
-                          aria-label={`Unité de ${p.name} : ${p.unitSymbol} — cliquez pour changer`}
-                          className="rounded-lg px-1.5 py-1 text-[0.75rem] font-medium text-fg-muted transition-colors hover:bg-accent/12 hover:text-accent sm:text-[0.86rem]"
-                        >
-                          {p.unitSymbol}
-                        </button>
-                      </Td>
-                      <Td className="px-1 sm:px-3">
-                        <div className="flex items-center justify-end gap-0.5">
-                          <button
-                            type="button"
-                            onClick={() => setEditing(p)}
-                            aria-label={`Modifier ${p.name}`}
-                            className="grid size-8 place-items-center rounded-lg text-fg-subtle transition-colors hover:bg-accent/12 hover:text-accent"
-                          >
-                            <Pencil className="size-3.5" />
-                          </button>
-                          <button
-                            type="button"
-                            disabled={removing === p.id}
-                            onClick={() => void retirer(p)}
-                            aria-label={`Retirer ${p.name} de la feuille`}
-                            className="grid size-8 place-items-center rounded-lg text-fg-subtle transition-colors hover:bg-danger/12 hover:text-danger disabled:opacity-40"
-                          >
-                            {removing === p.id ? (
-                              <Loader2 className="size-3.5 animate-spin" />
-                            ) : (
-                              <Trash2 className="size-3.5" />
-                            )}
-                          </button>
-                        </div>
-                      </Td>
-                    </tr>
-                    {/* Sous la dernière ligne de la famille : l'ajout d'article. */}
-                    {closesFamily ? (
+          <TableWrap minWidth="0">
+            <thead>
+              <tr>
+                <Th className="w-8 px-1 text-right sm:w-10 sm:px-3">#</Th>
+                <Th className="w-full px-1 sm:px-3">Article</Th>
+                {/* L'unité suit la valeur qu'elle qualifie : « 24 u » se lit
+                    d'un bloc, alors qu'une colonne séparée à gauche obligeait
+                    à faire l'aller-retour. */}
+                <Th className="w-[7rem] px-1 text-right sm:w-40 sm:px-3">Stock fixe</Th>
+                <Th className="px-1 text-left sm:px-3">Unité</Th>
+                <Th className="w-10 px-1 sm:px-3"><span className="sr-only">Modifier</span></Th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-[rgb(var(--glass-edge)/0.12)]">
+              {visible.map((p, i) => {
+                const v = toNumber(values[p.id])
+                const changed = v !== p.quantity
+                const previous = i > 0 ? visible[i - 1] : null
+                const next = visible[i + 1] ?? null
+                const opensFamily = previous?.category.id !== p.category.id
+                const closesFamily = next?.category.id !== p.category.id
+                return (
+                  <React.Fragment key={p.id}>
+                    {opensFamily ? (
                       <tr>
-                        <td colSpan={5} className="px-2 py-1.5 sm:px-3">
-                          <button
-                            type="button"
-                            onClick={() => setAddingTo(p.category)}
-                            className="inline-flex items-center gap-1.5 rounded-lg border border-dashed border-ok/40 px-2.5 py-1.5 text-[0.75rem] font-medium text-ok transition-colors hover:bg-ok/10"
-                          >
-                            <Plus className="size-3.5" />
-                            Ajouter un article dans « {p.category.name} »
-                          </button>
+                        <td
+                          colSpan={5}
+                          className="bg-ok/12 px-2 py-1.5 text-[0.72rem] font-bold uppercase tracking-[0.06em] text-ok sm:px-3 sm:text-[0.76rem]"
+                        >
+                          <span className="flex items-center gap-1.5">
+                            {p.category.icon ? (
+                              <Icon name={p.category.icon} className="size-3.5 shrink-0" />
+                            ) : null}
+                            {p.category.name}
+                          </span>
                         </td>
                       </tr>
                     ) : null}
-                    </React.Fragment>
-                  )
-                })}
-              </tbody>
-            </TableWrap>
-
-            <ShowMore
-              remaining={paged.remaining}
-              onMore={paged.showMore}
-              onAll={paged.showAll}
-              shown={paged.shown.length}
-              total={paged.total}
-            />
-          </>
+                  <tr className={cn(changed && 'bg-warn/[0.07]')}>
+                    <Td className="px-1 text-right text-[0.72rem] tabular-nums text-fg-subtle sm:px-3 sm:text-[0.78rem]">
+                      {/* Le rang affiché suit le filtre ; on édite la position
+                          réelle sur la feuille, sinon filtrer une famille
+                          déplacerait l'article au mauvais endroit. */}
+                      <InlineEdit
+                        value={String(positionOf.get(p.id) ?? i + 1)}
+                        ariaLabel={`Position de ${p.name}`}
+                        align="right"
+                        className="tabular-nums"
+                        inputClassName="w-12 text-[0.78rem]"
+                        validate={(v) =>
+                          /^\d+$/.test(v) && Number(v) >= 1 ? null : 'Nombre ≥ 1'
+                        }
+                        onSave={async (v) => {
+                          const r = await moveProductInSheet(selectedId, Number(p.id), Number(v))
+                          if (!r.ok) return r.error ?? 'Déplacement impossible.'
+                          push('success', `« ${p.name} » déplacé en position ${v}.`)
+                          router.refresh()
+                        }}
+                      />
+                    </Td>
+                    <Td className="max-w-0 px-1 sm:px-3">
+                      <p className="text-[0.78rem] font-medium leading-snug text-fg sm:text-[0.85rem]">
+                        <InlineEdit
+                          value={p.name}
+                          ariaLabel={`Nom de ${p.name}`}
+                          inputClassName="text-[0.85rem]"
+                          validate={(v) => (v.length >= 2 ? null : 'Nom trop court')}
+                          onSave={async (v) => {
+                            const r = await renameProduct(Number(p.id), v)
+                            if (!r.ok) return r.error ?? 'Renommage impossible.'
+                            push('success', 'Article renommé.')
+                            router.refresh()
+                          }}
+                        />
+                      </p>
+                      <p className="truncate font-mono text-[0.68rem] text-fg-subtle sm:text-[0.7rem]">
+                        {p.reference}
+                      </p>
+                    </Td>
+                    <Td className="px-1 sm:px-3">
+                      <div className="flex items-center justify-end gap-1.5">
+                        <input
+                          inputMode="decimal"
+                          value={values[p.id] ?? ''}
+                          onChange={(e) => setValue(p.id, e.target.value)}
+                          onFocus={(e) => {
+                            // Un 0 qu'il faut effacer avant de taper est une
+                            // gêne sur 109 lignes : le champ se vide au clic
+                            // et retrouve son 0 si on le quitte sans saisir.
+                            if (toNumber(values[p.id]) === 0) {
+                              setValues((st) => ({ ...st, [p.id]: '' }))
+                            }
+                            e.currentTarget.select()
+                          }}
+                          onBlur={() => {
+                            if ((values[p.id] ?? '') === '') {
+                              setValues((st) => ({ ...st, [p.id]: String(p.quantity) }))
+                            }
+                          }}
+                          placeholder="0"
+                          aria-label={`Stock fixe pour ${p.name}`}
+                          className="field h-9 w-16 px-1.5 py-0 text-right text-[0.8rem] tabular-nums sm:w-24 sm:px-3 sm:text-[0.85rem]"
+                        />
+                      </div>
+                    </Td>
+                    <Td className="whitespace-nowrap px-1 text-left sm:px-3">
+                      {/* L'unité se choisit dans une liste : un champ libre
+                          laisserait écrire « kgs » et créerait des doublons
+                          que les commandes traîneraient ensuite. */}
+                      <button
+                        type="button"
+                        onClick={() => setPickingUnit(p)}
+                        title={`Changer l’unité de ${p.name}`}
+                        aria-label={`Unité de ${p.name} : ${p.unitSymbol} — cliquez pour changer`}
+                        className="rounded-lg px-1.5 py-1 text-[0.75rem] font-medium text-fg-muted transition-colors hover:bg-accent/12 hover:text-accent sm:text-[0.86rem]"
+                      >
+                        {p.unitSymbol}
+                      </button>
+                    </Td>
+                    <Td className="px-1 sm:px-3">
+                      <div className="flex items-center justify-end gap-0.5">
+                        <button
+                          type="button"
+                          onClick={() => setEditing(p)}
+                          aria-label={`Modifier ${p.name}`}
+                          className="grid size-8 place-items-center rounded-lg text-fg-subtle transition-colors hover:bg-accent/12 hover:text-accent"
+                        >
+                          <Pencil className="size-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          disabled={removing === p.id}
+                          onClick={() => void retirer(p)}
+                          aria-label={`Retirer ${p.name} de la feuille`}
+                          className="grid size-8 place-items-center rounded-lg text-fg-subtle transition-colors hover:bg-danger/12 hover:text-danger disabled:opacity-40"
+                        >
+                          {removing === p.id ? (
+                            <Loader2 className="size-3.5 animate-spin" />
+                          ) : (
+                            <Trash2 className="size-3.5" />
+                          )}
+                        </button>
+                      </div>
+                    </Td>
+                  </tr>
+                  {/* Sous la dernière ligne de la famille : l'ajout d'article. */}
+                  {closesFamily ? (
+                    <tr>
+                      <td colSpan={5} className="px-2 py-1.5 sm:px-3">
+                        <button
+                          type="button"
+                          onClick={() => setAddingTo(p.category)}
+                          className="inline-flex items-center gap-1.5 rounded-lg border border-dashed border-ok/40 px-2.5 py-1.5 text-[0.75rem] font-medium text-ok transition-colors hover:bg-ok/10"
+                        >
+                          <Plus className="size-3.5" />
+                          Ajouter un article dans « {p.category.name} »
+                        </button>
+                      </td>
+                    </tr>
+                  ) : null}
+                  </React.Fragment>
+                )
+              })}
+            </tbody>
+          </TableWrap>
         )}
 
-        <p className="border-t border-[rgb(var(--glass-edge)/0.14)] px-4 py-2.5 text-[0.78rem] text-fg-muted sm:px-5">
-          <strong className="text-fg">Double-cliquez</strong> sur un nom ou sur un numéro de ligne
-          pour le modifier directement, ou <strong className="text-fg">cliquez sur une unité</strong>
-          pour la changer. Entrée valide, Échap annule.
-          <br />
-          Un article laissé à <strong className="text-fg">0</strong> ne sera jamais commandé :
-          l’employé le verra, mais l’écart restera nul tant que vous n’aurez pas fixé de cible.
-        </p>
+   
       </GlassCard>
       {pickingUnit ? (
         <UnitPicker

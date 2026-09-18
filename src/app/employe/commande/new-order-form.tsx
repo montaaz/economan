@@ -8,7 +8,6 @@ import { Icon } from '@/components/ui/icon'
 import { useToast } from '@/components/ui/toast'
 import { gql, errorMessage } from '@/lib/graphql-client'
 import { cn, formatLongDate, formatQty, toNumber } from '@/lib/utils'
-import { usePagedRows, ShowMore } from '@/components/ui/paged-list'
 
 export type CatalogProduct = {
   id: string
@@ -77,7 +76,6 @@ export function NewOrderForm({
   // Le catalogue monte à ~550 articles : on ne rend qu'une tranche, mais le
   // contrôle de complétude ci-dessous porte sur toutes les lignes — rien ne
   // peut partir vide sous prétexte qu'on ne l'a jamais fait défiler.
-  const paged = usePagedRows(visible)
 
   /** Une ligne est renseignée dès qu'elle porte un nombre — zéro compris. */
   const isFilled = React.useCallback(
@@ -139,7 +137,7 @@ export function NewOrderForm({
   const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>, index: number) => {
     if (e.key !== 'Enter') return
     e.preventDefault()
-    const next = paged.shown[index + 1]
+    const next = visible[index + 1]
     if (next) inputRefs.current[next.id]?.focus()
   }
 
@@ -149,11 +147,10 @@ export function NewOrderForm({
     if (missing.length > 0) {
       setShowMissing(true)
       const first = missing[0]
-      // On lève les filtres et le plafond de lignes pour que la case fautive
-      // soit réellement rendue avant qu'on y saute.
+      // On lève les filtres pour que la case fautive soit réellement rendue
+      // avant qu'on y saute : toutes les lignes sont sinon déjà là.
       setSearch('')
       setActiveCategory(null)
-      paged.showAll()
       push('error', `${missing.length} ligne(s) non renseignée(s). Saisissez 0 si vous ne commandez rien.`)
       requestAnimationFrame(() =>
         requestAnimationFrame(() => {
@@ -282,157 +279,147 @@ export function NewOrderForm({
           description="Modifiez votre recherche ou changez de catégorie."
         />
       ) : (
-        <>
-          {/* Un seul tableau à toutes les tailles. Sur téléphone il défile
-              latéralement dans son conteneur plutôt que de perdre des colonnes. */}
-          <TableWrap minWidth="0">
-            <thead>
-              <tr className="[&_th:not(:last-child)]:border-r [&_th]:border-[rgb(var(--glass-edge)/0.12)]">
-                <Th className="w-6 px-1 text-right sm:w-10 sm:px-3">#</Th>
-                <Th className="w-full px-1 sm:px-3">Article</Th>
-                <Th className="px-1 text-right sm:px-3">
-                  <span className="sm:hidden">Fixe</span>
-                  <span className="hidden sm:inline">Stock fixe</span>
-                </Th>
-                <Th className="w-[5.5rem] px-1 text-right sm:w-32 sm:px-3">
-                  <span className="sm:hidden">En rayon</span>
-                  <span className="hidden sm:inline">Mon stock</span>
-                </Th>
-                <Th className="px-1 text-right sm:px-3">
-                  <span className="sm:hidden">Cmd.</span>
-                  <span className="hidden sm:inline">commande</span>
-                </Th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-[rgb(var(--glass-edge)/0.12)] [&_td:not(:last-child)]:border-r [&_td]:border-[rgb(var(--glass-edge)/0.12)]">
-              {paged.shown.map((p, i) => {
-                const previous = i > 0 ? paged.shown[i - 1] : null
-                const opensFamily = previous?.category.id !== p.category.id
-                const filled = isFilled(p.id)
-                const flagged = showMissing && !filled
-                const stock = toNumber(onHand[p.id])
-                const asked = filled ? toOrder(p.stockFixe, stock) : 0
-                const noPar = p.stockFixe <= 0
-                return (
-                  <React.Fragment key={p.id}>
-                    {opensFamily ? (
-                      <tr className="[&>td]:border-r-0">
-                        <td
-                          colSpan={5}
-                          className="bg-ok/12 px-2 py-1.5 text-[0.72rem] font-bold uppercase tracking-[0.06em] text-ok sm:px-3 sm:text-[0.76rem]"
-                        >
-                          <span className="flex items-center gap-1.5">
-                            {p.category.icon ? (
-                              <Icon name={p.category.icon} className="size-3.5 shrink-0" />
-                            ) : null}
-                            {p.category.name}
-                          </span>
-                        </td>
-                      </tr>
-                    ) : null}
-                  <tr
-                    className={cn(
-                      'transition-colors',
-                      flagged && 'bg-danger/[0.07]',
-                      !flagged && asked > 0 && 'bg-accent/[0.05]',
+        /* Un seul tableau à toutes les tailles. Sur téléphone il défile
+           latéralement dans son conteneur plutôt que de perdre des colonnes. */
+        <TableWrap minWidth="0">
+          <thead>
+            <tr className="[&_th:not(:last-child)]:border-r [&_th]:border-[rgb(var(--glass-edge)/0.12)]">
+              <Th className="w-6 px-1 text-right sm:w-10 sm:px-3">#</Th>
+              <Th className="w-full px-1 sm:px-3">Article</Th>
+              <Th className="px-1 text-right sm:px-3">
+                <span className="sm:hidden">Fixe</span>
+                <span className="hidden sm:inline">Stock fixe</span>
+              </Th>
+              <Th className="w-[5.5rem] px-1 text-right sm:w-32 sm:px-3">
+                <span className="sm:hidden">En rayon</span>
+                <span className="hidden sm:inline">Mon stock</span>
+              </Th>
+              <Th className="px-1 text-right sm:px-3">
+                <span className="sm:hidden">Cmd.</span>
+                <span className="hidden sm:inline">commande</span>
+              </Th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-[rgb(var(--glass-edge)/0.12)] [&_td:not(:last-child)]:border-r [&_td]:border-[rgb(var(--glass-edge)/0.12)]">
+            {visible.map((p, i) => {
+              const previous = i > 0 ? visible[i - 1] : null
+              const opensFamily = previous?.category.id !== p.category.id
+              const filled = isFilled(p.id)
+              const flagged = showMissing && !filled
+              const stock = toNumber(onHand[p.id])
+              const asked = filled ? toOrder(p.stockFixe, stock) : 0
+              const noPar = p.stockFixe <= 0
+              return (
+                <React.Fragment key={p.id}>
+                  {opensFamily ? (
+                    <tr className="[&>td]:border-r-0">
+                      <td
+                        colSpan={5}
+                        className="bg-ok/12 px-2 py-1.5 text-[0.72rem] font-bold uppercase tracking-[0.06em] text-ok sm:px-3 sm:text-[0.76rem]"
+                      >
+                        <span className="flex items-center gap-1.5">
+                          {p.category.icon ? (
+                            <Icon name={p.category.icon} className="size-3.5 shrink-0" />
+                          ) : null}
+                          {p.category.name}
+                        </span>
+                      </td>
+                    </tr>
+                  ) : null}
+                <tr
+                  className={cn(
+                    'transition-colors',
+                    flagged && 'bg-danger/[0.07]',
+                    !flagged && asked > 0 && 'bg-accent/[0.05]',
+                  )}
+                >
+                  <Td className="px-1 text-right text-[0.72rem] tabular-nums text-fg-subtle sm:px-3 sm:text-[0.78rem]">
+                    {i + 1}
+                  </Td>
+                  <Td className="max-w-0 px-1 sm:px-3">
+                    <p className="truncate text-[0.78rem] font-medium leading-snug text-fg sm:text-[0.85rem]">
+                      {p.name}
+                    </p>
+                    <p className="truncate font-mono text-[0.68rem] text-fg-subtle sm:text-[0.7rem]">
+                      {p.reference}
+                    </p>
+                  </Td>
+
+                  {/* Cible fixée par l'administration — lecture seule. */}
+                  <Td className="whitespace-nowrap px-1 text-right sm:px-3">
+                    {noPar ? (
+                      <span className="text-[0.72rem] text-fg-subtle sm:text-[0.78rem]">—</span>
+                    ) : (
+                      <span className="text-[0.75rem] font-medium tabular-nums text-fg-muted sm:text-[0.86rem]">
+                        {formatQty(p.stockFixe)}
+                        <span className="ml-1 text-[0.68rem] text-fg-subtle sm:text-[0.72rem]">
+                          {p.baseUnit.symbol}
+                        </span>
+                      </span>
                     )}
-                  >
-                    <Td className="px-1 text-right text-[0.72rem] tabular-nums text-fg-subtle sm:px-3 sm:text-[0.78rem]">
-                      {i + 1}
-                    </Td>
-                    <Td className="max-w-0 px-1 sm:px-3">
-                      <p className="truncate text-[0.78rem] font-medium leading-snug text-fg sm:text-[0.85rem]">
-                        {p.name}
-                      </p>
-                      <p className="truncate font-mono text-[0.68rem] text-fg-subtle sm:text-[0.7rem]">
-                        {p.reference}
-                      </p>
-                    </Td>
+                  </Td>
 
-                    {/* Cible fixée par l'administration — lecture seule. */}
-                    <Td className="whitespace-nowrap px-1 text-right sm:px-3">
-                      {noPar ? (
-                        <span className="text-[0.72rem] text-fg-subtle sm:text-[0.78rem]">—</span>
-                      ) : (
-                        <span className="text-[0.75rem] font-medium tabular-nums text-fg-muted sm:text-[0.86rem]">
-                          {formatQty(p.stockFixe)}
-                          <span className="ml-1 text-[0.68rem] text-fg-subtle sm:text-[0.72rem]">
-                            {p.baseUnit.symbol}
-                          </span>
+                  {/* La seule case saisissable : ce que l'employé a en rayon. */}
+                  <Td className="px-1 sm:px-3">
+                    <div className="flex items-center justify-end gap-1 sm:gap-1.5">
+                      <input
+                        ref={(el) => {
+                          inputRefs.current[p.id] = el
+                        }}
+                        inputMode="decimal"
+                        value={onHand[p.id] ?? ''}
+                        onChange={(e) => setStock(p.id, e.target.value)}
+                        onKeyDown={(e) => onKeyDown(e, i)}
+                        placeholder="—"
+                        aria-label={`Stock en rayon pour ${p.name}`}
+                        aria-invalid={flagged}
+                        className={cn(
+                          'field h-9 w-14 px-1.5 py-0 text-right text-[0.8rem] tabular-nums sm:w-24 sm:px-3 sm:text-[0.85rem]',
+                          flagged && 'border-danger/60 ring-1 ring-danger/30',
+                        )}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setStock(p.id, '0')}
+                        title="Rien en rayon"
+                        aria-label={`Rien en rayon pour ${p.name}`}
+                        className="h-9 shrink-0 rounded-lg border border-[rgb(var(--glass-edge)/0.3)] bg-white/60 px-2 text-[0.72rem] font-semibold tabular-nums text-fg-muted transition-colors hover:bg-white/90 hover:text-fg"
+                      >
+                        0
+                      </button>
+                    </div>
+                  </Td>
+
+                  {/* Résultat du calcul, mis à jour à la frappe. */}
+                  <Td className="whitespace-nowrap px-1 text-right sm:px-3">
+                    {!filled ? (
+                      <span className="text-[0.72rem] text-fg-subtle sm:text-[0.78rem]">—</span>
+                    ) : asked > 0 ? (
+                      <span className="text-[0.8rem] font-bold tabular-nums text-accent sm:text-[0.9rem]">
+                        {formatQty(asked)}
+                        <span className="ml-1 text-[0.68rem] font-medium text-accent/70 sm:text-[0.72rem]">
+                          {p.baseUnit.symbol}
                         </span>
-                      )}
-                    </Td>
-
-                    {/* La seule case saisissable : ce que l'employé a en rayon. */}
-                    <Td className="px-1 sm:px-3">
-                      <div className="flex items-center justify-end gap-1 sm:gap-1.5">
-                        <input
-                          ref={(el) => {
-                            inputRefs.current[p.id] = el
-                          }}
-                          inputMode="decimal"
-                          value={onHand[p.id] ?? ''}
-                          onChange={(e) => setStock(p.id, e.target.value)}
-                          onKeyDown={(e) => onKeyDown(e, i)}
-                          placeholder="—"
-                          aria-label={`Stock en rayon pour ${p.name}`}
-                          aria-invalid={flagged}
-                          className={cn(
-                            'field h-9 w-14 px-1.5 py-0 text-right text-[0.8rem] tabular-nums sm:w-24 sm:px-3 sm:text-[0.85rem]',
-                            flagged && 'border-danger/60 ring-1 ring-danger/30',
-                          )}
-                        />
-                        <button
-                          type="button"
-                          onClick={() => setStock(p.id, '0')}
-                          title="Rien en rayon"
-                          aria-label={`Rien en rayon pour ${p.name}`}
-                          className="h-9 shrink-0 rounded-lg border border-[rgb(var(--glass-edge)/0.3)] bg-white/60 px-2 text-[0.72rem] font-semibold tabular-nums text-fg-muted transition-colors hover:bg-white/90 hover:text-fg"
-                        >
-                          0
-                        </button>
-                      </div>
-                    </Td>
-
-                    {/* Résultat du calcul, mis à jour à la frappe. */}
-                    <Td className="whitespace-nowrap px-1 text-right sm:px-3">
-                      {!filled ? (
-                        <span className="text-[0.72rem] text-fg-subtle sm:text-[0.78rem]">—</span>
-                      ) : asked > 0 ? (
-                        <span className="text-[0.8rem] font-bold tabular-nums text-accent sm:text-[0.9rem]">
-                          {formatQty(asked)}
-                          <span className="ml-1 text-[0.68rem] font-medium text-accent/70 sm:text-[0.72rem]">
-                            {p.baseUnit.symbol}
-                          </span>
-                        </span>
-                      ) : (
-                        <span
-                          title={
-                            noPar
-                              ? 'Aucun stock fixe défini pour cet article'
-                              : 'Votre stock couvre déjà la cible'
-                          }
-                          className="text-[0.75rem] tabular-nums text-fg-subtle sm:text-[0.82rem]"
-                        >
-                          0
-                        </span>
-                      )}
-                    </Td>
-                  </tr>
-                  </React.Fragment>
-                )
-              })}
-            </tbody>
-          </TableWrap>
-
-          <ShowMore
-            remaining={paged.remaining}
-            onMore={paged.showMore}
-            onAll={paged.showAll}
-            shown={paged.shown.length}
-            total={paged.total}
-          />
-        </>
+                      </span>
+                    ) : (
+                      <span
+                        title={
+                          noPar
+                            ? 'Aucun stock fixe défini pour cet article'
+                            : 'Votre stock couvre déjà la cible'
+                        }
+                        className="text-[0.75rem] tabular-nums text-fg-subtle sm:text-[0.82rem]"
+                      >
+                        0
+                      </span>
+                    )}
+                  </Td>
+                </tr>
+                </React.Fragment>
+              )
+            })}
+          </tbody>
+        </TableWrap>
       )}
 
       {/* Pied : note et validation */}

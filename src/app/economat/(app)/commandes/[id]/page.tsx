@@ -4,7 +4,7 @@ import { notFound } from 'next/navigation'
 import { ArrowLeft } from 'lucide-react'
 import { executeGraphQL } from '@/server/graphql/execute'
 import { ORDER_QUERY } from '@/lib/queries'
-import { Ticket, type TicketOrder } from '@/components/ui/ticket'
+import { Ticket, ticketVariant, type TicketOrder } from '@/components/ui/ticket'
 import { OrderProcessor, type ProcessOrder } from './order-processor'
 
 export const metadata: Metadata = { title: 'Traitement de commande' }
@@ -31,7 +31,7 @@ export default async function EconomatOrderPage({ params }: { params: Promise<{ 
 
       {/* Sortie papier : ticket tant que rien n'est servi, bon de livraison ensuite. */}
       <div className="print-only">
-        <Ticket order={order} variant={order.status === 'PENDING' ? 'ticket' : 'bon'} />
+        <Ticket order={order} variant={ticketVariant(order.status)} />
       </div>
     </>
   )

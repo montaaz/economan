@@ -9,6 +9,7 @@ import { GlassCard, Button, Badge, TableWrap, Th, Td } from '@/components/ui/gla
 import { Icon } from '@/components/ui/icon'
 import { useToast } from '@/components/ui/toast'
 import { StatusBadge } from '@/components/ui/status'
+import { ticketVariant } from '@/components/ui/ticket'
 import { gql, errorMessage } from '@/lib/graphql-client'
 import { cn, formatLongDate, formatQty, formatTime, toNumber } from '@/lib/utils'
 import type { LineStatus, ProcessOrder } from '@/lib/order-types'
@@ -181,11 +182,15 @@ export function OrderProcessor({ order }: { order: ProcessOrder }) {
 
         {/* Actions */}
         <div className="flex flex-wrap items-center gap-2 border-t border-[rgb(var(--glass-edge)/0.16)] px-4 py-3 sm:px-5">
-          {/* La feuille imprimée devient un bon dès l'acceptation : le libellé
-              doit dire ce qui sort de l'imprimante, pas l'état d'avancement. */}
+          {/* Le libellé nomme ce qui sort de l'imprimante, et suit donc la
+              même règle que la feuille elle-même. */}
           <Button variant="secondary" size="sm" onClick={() => window.print()}>
             <Printer className="size-3.5" />
-            {order.status === 'PENDING' ? 'Imprimer le ticket' : 'Imprimer le bon'}
+            {{
+              ticket: 'Imprimer le ticket',
+              commande: 'Imprimer le bon de commande',
+              livraison: 'Imprimer le bon de livraison',
+            }[ticketVariant(order.status)]}
           </Button>
 
           {order.status === 'PENDING' ? (

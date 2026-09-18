@@ -5,7 +5,7 @@ import { ArrowLeft, Printer } from 'lucide-react'
 import { executeGraphQL } from '@/server/graphql/execute'
 import { GlassCard, Badge, TableWrap, Th, Td, Button } from '@/components/ui/glass'
 import { StatusBadge, statusSteps } from '@/components/ui/status'
-import { Ticket, type TicketOrder } from '@/components/ui/ticket'
+import { Ticket, ticketVariant, type TicketOrder } from '@/components/ui/ticket'
 import { formatLongDate, formatQty, formatTime, cn } from '@/lib/utils'
 import { ReceptionPanel } from './reception-panel'
 import { PrintButton } from '@/components/ui/print-button'
@@ -245,7 +245,7 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
 
       {/* Version papier */}
       <div className="print-only">
-        <Ticket order={order} variant={order.status === 'PENDING' ? 'ticket' : 'bon'} />
+        <Ticket order={order} variant={ticketVariant(order.status)} />
       </div>
     </>
   )

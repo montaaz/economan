@@ -5,7 +5,7 @@ import { ArrowLeft, Printer } from 'lucide-react'
 import { executeGraphQL } from '@/server/graphql/execute'
 import { ORDER_QUERY } from '@/lib/queries'
 import { OrderView } from '@/components/orders/order-view'
-import { Ticket, type TicketOrder } from '@/components/ui/ticket'
+import { Ticket, ticketVariant, type TicketOrder } from '@/components/ui/ticket'
 import { PrintButton } from '@/components/ui/print-button'
 import type { ProcessOrder } from '@/lib/order-types'
 
@@ -38,7 +38,7 @@ export default async function AdminOrderPage({ params }: { params: Promise<{ id:
       </div>
 
       <div className="print-only">
-        <Ticket order={order} variant={order.status === 'PENDING' ? 'ticket' : 'bon'} />
+        <Ticket order={order} variant={ticketVariant(order.status)} />
       </div>
     </>
   )

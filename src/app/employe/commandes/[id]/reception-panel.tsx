@@ -14,6 +14,7 @@ export type ReceptionLine = {
   productRef: string
   categoryName: string
   unitSymbol: string
+  stockFixe: number
   quantityAsked: number
   quantityServed: number | null
   status: 'PENDING' | 'VALIDATED' | 'ADJUSTED' | 'REJECTED'
@@ -108,11 +109,15 @@ export function ReceptionPanel({
         </div>
       </div>
 
-      <TableWrap minWidth="38rem">
+      <TableWrap minWidth="50rem">
         <thead>
           <tr>
             <Th className="w-10 text-right">#</Th>
             <Th className="w-full">Article</Th>
+            {/* La chaîne complète : la cible, ce qui a été commandé, ce que
+                l'économat a sorti. Un écart s'explique en lisant la ligne. */}
+            <Th className="text-right">Stock fixe</Th>
+            <Th className="text-right">Commande</Th>
             <Th className="text-right">Servi</Th>
             <Th className="w-32 text-right">Reçu</Th>
             <Th className="text-right">Écart</Th>
@@ -132,7 +137,13 @@ export function ReceptionPanel({
                     {l.categoryName}
                   </p>
                 </Td>
-                <Td className="whitespace-nowrap text-right tabular-nums text-fg-muted">
+                <Td className="whitespace-nowrap text-right tabular-nums text-fg-subtle">
+                  {formatQty(l.stockFixe)} {l.unitSymbol}
+                </Td>
+                <Td className="whitespace-nowrap text-right tabular-nums text-fg-subtle">
+                  {formatQty(l.quantityAsked)} {l.unitSymbol}
+                </Td>
+                <Td className="whitespace-nowrap text-right font-medium tabular-nums text-fg">
                   {formatQty(l.quantityServed ?? 0)} {l.unitSymbol}
                 </Td>
                 <Td className="text-right">

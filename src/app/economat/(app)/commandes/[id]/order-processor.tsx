@@ -287,7 +287,7 @@ export function OrderProcessor({ order }: { order: ProcessOrder }) {
                   bouton reste fermé plutôt que de laisser découvrir le refus
                   après le clic. */}
               <Button
-                variant={counts.pending > 0 ? 'secondary' : 'success'}
+                variant="success"
                 loading={busy === 'deliver'}
                 onClick={deliver}
                 className="ml-auto"

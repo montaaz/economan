@@ -8,6 +8,7 @@ import {
 import { GlassCard, Button, Badge, TableWrap, Th, Td } from '@/components/ui/glass'
 import { Icon } from '@/components/ui/icon'
 import { useToast } from '@/components/ui/toast'
+import { useConfirm } from '@/components/ui/confirm'
 import { StatusBadge } from '@/components/ui/status'
 import { ticketVariant } from '@/components/ui/ticket'
 import { gql, errorMessage } from '@/lib/graphql-client'
@@ -29,22 +30,30 @@ type Draft = { status: LineStatus; served: string; reason: string }
 export function OrderProcessor({ order }: { order: ProcessOrder }) {
   const router = useRouter()
   const { push } = useToast()
+  const confirmer = useConfirm()
   const [busy, setBusy] = React.useState<string | null>(null)
+
+  // L'état tel qu'il est en base. Sert au démarrage et au retour en arrière :
+  // « réinitialiser » rend ce qui est enregistré, pas une feuille vierge —
+  // sinon on effacerait un travail déjà sauvegardé sans le dire.
+  const initial = React.useCallback(
+    (): Record<string, Draft> =>
+      Object.fromEntries(
+        order.lines.map((l) => [
+          l.id,
+          {
+            status: l.status,
+            served: l.quantityServed === null ? String(l.quantityAsked) : String(l.quantityServed),
+            reason: l.rejectReason ?? '',
+          },
+        ]),
+      ),
+    [order.lines],
+  )
 
   // État local des lignes : l'économe coche au fur et à mesure, on n'envoie
   // au serveur qu'à l'enregistrement ou à la livraison.
-  const [draft, setDraft] = React.useState<Record<string, Draft>>(() =>
-    Object.fromEntries(
-      order.lines.map((l) => [
-        l.id,
-        {
-          status: l.status,
-          served: l.quantityServed === null ? String(l.quantityAsked) : String(l.quantityServed),
-          reason: l.rejectReason ?? '',
-        },
-      ]),
-    ),
-  )
+  const [draft, setDraft] = React.useState<Record<string, Draft>>(initial)
 
   const open = order.status === 'ACCEPTED'
   const closed = order.status === 'DELIVERED' || order.status === 'RECEIVED'
@@ -126,6 +135,43 @@ export function OrderProcessor({ order }: { order: ProcessOrder }) {
     }
   }
 
+  /**
+   * Rend toutes les lignes à leur état enregistré.
+   *
+   * Utile après avoir coché de travers sur 72 lignes : les reprendre une à une
+   * avec le bouton de chaque ligne serait interminable.
+   */
+  const resetAll = async () => {
+    const touchees = order.lines.filter((l) => {
+      const d = draft[l.id]
+      const ref = l.quantityServed === null ? String(l.quantityAsked) : String(l.quantityServed)
+      return d?.status !== l.status || d?.served !== ref || d?.reason !== (l.rejectReason ?? '')
+    }).length
+
+    if (touchees === 0) return
+
+    const ok = await confirmer({
+      title: 'Tout réinitialiser',
+      confirmLabel: 'Réinitialiser',
+      tone: 'warn',
+      message: (
+        <>
+          <p>
+            Annuler vos {touchees} modification{touchees > 1 ? 's' : ''} en cours et revenir
+            à l’état enregistré ?
+          </p>
+          <p className="mt-2 text-[0.82rem] text-fg-subtle">
+            Ce qui a déjà été enregistré est conservé.
+          </p>
+        </>
+      ),
+    })
+    if (!ok) return
+
+    setDraft(initial())
+    push('success', 'Lignes réinitialisées.')
+  }
+
   /** Tout valider d'un coup : le cas d'une commande servie telle quelle. */
   const validateAll = () =>
     setDraft((d) =>
@@ -205,6 +251,10 @@ export function OrderProcessor({ order }: { order: ProcessOrder }) {
               <Button variant="ghost" size="sm" onClick={validateAll}>
                 <Check className="size-3.5" />
                 Tout valider
+              </Button>
+              <Button variant="ghost" size="sm" onClick={() => void resetAll()}>
+                <RotateCcw className="size-3.5" />
+                Tout réinitialiser
               </Button>
               <Button variant="secondary" size="sm" loading={busy === 'save'} onClick={save}>
                 {busy !== 'save' ? <Save className="size-3.5" /> : null}

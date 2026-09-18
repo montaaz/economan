@@ -183,11 +183,16 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
         ) : null}
 
         <GlassCard>
-          <TableWrap minWidth="34rem">
+          <TableWrap minWidth="46rem">
             <thead>
               <tr>
                 <Th className="w-10 text-right">#</Th>
                 <Th className="w-full">Article</Th>
+                {/* Les deux valeurs d'où sort la quantité commandée : la cible
+                    du département moins ce qui restait en rayon. Sans elles,
+                    un chiffre inattendu reste inexplicable. */}
+                <Th className="text-right">Stock fixe</Th>
+                <Th className="text-right">Mon stock</Th>
                 <Th className="text-right">Demandé</Th>
                 <Th className="text-right">Servi</Th>
                 {order.status === 'RECEIVED' ? (
@@ -208,7 +213,13 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
                       {l.categoryName}
                     </p>
                   </Td>
-                  <Td className="whitespace-nowrap text-right tabular-nums text-fg-muted">
+                  <Td className="whitespace-nowrap text-right tabular-nums text-fg-subtle">
+                    {formatQty(l.stockFixe)} {l.unitSymbol}
+                  </Td>
+                  <Td className="whitespace-nowrap text-right tabular-nums text-fg-subtle">
+                    {formatQty(l.quantityOnHand)} {l.unitSymbol}
+                  </Td>
+                  <Td className="whitespace-nowrap text-right font-semibold tabular-nums text-fg">
                     {formatQty(l.quantityAsked)} {l.unitSymbol}
                   </Td>
                   <Td className="whitespace-nowrap text-right font-medium tabular-nums text-fg">

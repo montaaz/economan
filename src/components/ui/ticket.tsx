@@ -1,5 +1,5 @@
 import * as React from 'react'
-import { formatLongDate, formatQty, formatTime } from '@/lib/utils'
+import { cn, formatLongDate, formatQty, formatTime } from '@/lib/utils'
 
 export type TicketLine = {
   id: string
@@ -67,7 +67,10 @@ export function Ticket({
   const isBon = variant !== 'ticket'
   // Seul le bon de livraison connaît ce qui est réellement sorti.
   const livre = variant === 'livraison'
-  const retenues = isBon ? order.lines.filter((l) => l.status !== 'REJECTED') : order.lines
+  // Les ruptures gardent leur place. Les sortir du tableau obligeait à
+  // chercher un article en bas de page pour comprendre pourquoi il manquait,
+  // et la numérotation ne correspondait plus à la feuille de l'employé.
+  const retenues = order.lines
 
   // Les lignes d'une commande sont figées à l'envoi : celles passées avant que
   // les feuilles soient regroupées gardent leurs familles éparpillées. On les
@@ -156,7 +159,14 @@ export function Ticket({
                     </td>
                   </tr>
                 ) : null}
-                <tr className="border-b border-[#d5dfee]">
+                <tr
+                  className={cn(
+                    'border-b border-[#d5dfee]',
+                    // Une rupture doit sauter aux yeux sur le papier comme à
+                    // l'écran : c'est l'information qu'on cherche en relisant.
+                    l.status === 'REJECTED' && 'bg-[#fdeaee]',
+                  )}
+                >
                   {/* La numérotation reste continue à travers les bandeaux :
                       c'est elle qui sert à pointer une ligne à voix haute. */}
                   <td className="px-2 py-1 text-right tabular-nums text-[#4a5f7d]">{i + 1}</td>
@@ -177,7 +187,9 @@ export function Ticket({
                       au stylo pendant la distribution. */}
                   {isBon ? (
                     <td className="px-2 py-1 text-right font-semibold tabular-nums">
-                      {livre ? (
+                      {l.status === 'REJECTED' ? (
+                        <span className="font-semibold text-[#d63f5a]">Rupture</span>
+                      ) : livre ? (
                         <>
                           {formatQty(l.quantityServed ?? 0)}
                           <span className="ml-1 text-[0.72rem] font-normal text-[#4a5f7d]">
@@ -194,20 +206,17 @@ export function Ticket({
         </tbody>
       </table>
 
-      {isBon && rejected.length > 0 ? (
-        <div className="mt-4 border border-[#d63f5a] p-2.5">
-          <p className="mb-1.5 text-[0.82rem] font-bold text-[#d63f5a]">
-            Non servi — rupture ({rejected.length})
-          </p>
-          <ul className="space-y-0.5 text-[0.78rem]">
-            {rejected.map((l) => (
-              <li key={l.id}>
-                {l.productName} — {formatQty(l.quantityAsked)} {l.unitSymbol}
-                {l.rejectReason ? ` (${l.rejectReason})` : ''}
-              </li>
-            ))}
-          </ul>
-        </div>
+      {/* Les motifs de rupture, lorsqu'ils ont été saisis. La ligne du tableau
+          dit qu'il y a rupture ; ce rappel dit pourquoi, sans alourdir chaque
+          ligne d'une colonne de texte. */}
+      {isBon && rejected.some((l) => l.rejectReason) ? (
+        <p className="mt-3 text-[0.76rem] text-[#4a5f7d]">
+          <span className="font-semibold text-[#d63f5a]">Ruptures :</span>{' '}
+          {rejected
+            .filter((l) => l.rejectReason)
+            .map((l) => `${l.productName} (${l.rejectReason})`)
+            .join(' · ')}
+        </p>
       ) : null}
 
       {order.note ? (

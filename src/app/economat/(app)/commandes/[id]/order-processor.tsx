@@ -181,9 +181,11 @@ export function OrderProcessor({ order }: { order: ProcessOrder }) {
 
         {/* Actions */}
         <div className="flex flex-wrap items-center gap-2 border-t border-[rgb(var(--glass-edge)/0.16)] px-4 py-3 sm:px-5">
+          {/* La feuille imprimée devient un bon dès l'acceptation : le libellé
+              doit dire ce qui sort de l'imprimante, pas l'état d'avancement. */}
           <Button variant="secondary" size="sm" onClick={() => window.print()}>
             <Printer className="size-3.5" />
-            {closed ? 'Imprimer le bon' : 'Imprimer le ticket'}
+            {order.status === 'PENDING' ? 'Imprimer le ticket' : 'Imprimer le bon'}
           </Button>
 
           {order.status === 'PENDING' ? (

@@ -61,22 +61,27 @@ export function Ticket({
         </div>
       </header>
 
+      {/* Le département est ce qu'on lit en premier à la distribution : il
+          passe au centre, en grand, avant le reste des informations. */}
+      <p className="mb-3 text-center text-[1.6rem] font-bold uppercase leading-tight tracking-wide">
+        {order.department.name}
+        <span className="ml-2 text-[1rem] font-semibold text-[#4a5f7d]">
+          ({order.department.code})
+        </span>
+      </p>
+
       <div className="mb-4 grid grid-cols-2 gap-x-6 gap-y-1 text-[0.85rem]">
         <p>
-          <span className="font-semibold">Département :</span> {order.department.name} (
-          {order.department.code})
-        </p>
-        <p>
           <span className="font-semibold">Demandeur :</span> {order.createdBy.fullName}
-        </p>
-        <p>
-          <span className="font-semibold">Heure :</span> {formatTime(order.createdAt)}
         </p>
         {order.processedBy ? (
           <p>
             <span className="font-semibold">Traité par :</span> {order.processedBy.fullName}
           </p>
         ) : null}
+        <p>
+          <span className="font-semibold">Heure :</span> {formatTime(order.createdAt)}
+        </p>
       </div>
 
       <table className="w-full border-collapse text-[0.82rem]">
@@ -84,11 +89,12 @@ export function Ticket({
           <tr className="border-y border-[#0f1e33] bg-[#f0f4fa]">
             <th className="w-8 px-2 py-1.5 text-right font-semibold">#</th>
             <th className="px-2 py-1.5 text-left font-semibold">Article</th>
-            <th className="w-16 px-2 py-1.5 text-left font-semibold">Unité</th>
             <th className="w-16 px-2 py-1.5 text-right font-semibold">Fixe</th>
-            <th className="w-16 px-2 py-1.5 text-right font-semibold">En rayon</th>
-            <th className="w-20 px-2 py-1.5 text-right font-semibold">Demandé</th>
-            {isBon ? <th className="w-20 px-2 py-1.5 text-right font-semibold">Servi</th> : null}
+            {/* L'unité rejoint la quantité qu'elle qualifie : « 5 u » se lit
+                d'un bloc, et la colonne « En rayon » disparaît — le stock
+                compté par l'employé ne sert pas à celui qui distribue. */}
+            <th className="w-24 px-2 py-1.5 text-right font-semibold">Demandé</th>
+            {isBon ? <th className="w-24 px-2 py-1.5 text-right font-semibold">Servi</th> : null}
           </tr>
         </thead>
         <tbody>
@@ -99,45 +105,35 @@ export function Ticket({
                 <span className="font-medium">{l.productName}</span>
                 <span className="ml-1.5 font-mono text-[0.7rem] text-[#4a5f7d]">{l.productRef}</span>
               </td>
-              <td className="px-2 py-1">{l.unitSymbol}</td>
               <td className="px-2 py-1 text-right tabular-nums text-[#4a5f7d]">
                 {formatQty(l.stockFixe)}
               </td>
-              <td className="px-2 py-1 text-right tabular-nums text-[#4a5f7d]">
-                {formatQty(l.quantityOnHand)}
+              <td className="px-2 py-1 text-right font-semibold tabular-nums">
+                {formatQty(l.quantityAsked)}
+                <span className="ml-1 text-[0.72rem] font-normal text-[#4a5f7d]">
+                  {l.unitSymbol}
+                </span>
               </td>
-              <td className="px-2 py-1 text-right tabular-nums">{formatQty(l.quantityAsked)}</td>
-              {isBon ? (
-                <td className="px-2 py-1 text-right font-semibold tabular-nums">
-                  {formatQty(l.quantityServed ?? 0)}
-                  {l.status === 'ADJUSTED' ? ' *' : ''}
-                </td>
-              ) : null}
+              {/* Case laissée vide : la quantité servie s'écrit au stylo au
+                  moment de la distribution. */}
+              {isBon ? <td className="px-2 py-1" /> : null}
             </tr>
           ))}
         </tbody>
         <tfoot>
           <tr className="border-t-2 border-[#0f1e33] font-bold">
-            <td colSpan={5} className="px-2 py-1.5 text-right">
+            <td colSpan={3} className="px-2 py-1.5 text-right">
               Total ({lines.length} lignes)
             </td>
             <td className="px-2 py-1.5 text-right tabular-nums">
               {formatQty(lines.reduce((s, l) => s + l.quantityAsked, 0))}
             </td>
-            {isBon ? (
-              <td className="px-2 py-1.5 text-right tabular-nums">
-                {formatQty(lines.reduce((s, l) => s + (l.quantityServed ?? 0), 0))}
-              </td>
-            ) : null}
+            {/* Le total servi se calcule à la main, une fois les cases
+                remplies : l'imprimer à 0 serait faux. */}
+            {isBon ? <td className="px-2 py-1.5" /> : null}
           </tr>
         </tfoot>
       </table>
-
-      {isBon && order.lines.some((l) => l.status === 'ADJUSTED') ? (
-        <p className="mt-2 text-[0.74rem] italic text-[#4a5f7d]">
-          * quantité servie différente de la quantité demandée.
-        </p>
-      ) : null}
 
       {isBon && rejected.length > 0 ? (
         <div className="mt-4 border border-[#d63f5a] p-2.5">

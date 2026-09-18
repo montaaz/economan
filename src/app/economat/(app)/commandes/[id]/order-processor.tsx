@@ -383,9 +383,27 @@ export function OrderProcessor({ order }: { order: ProcessOrder }) {
                       {open ? (
                         <div className="flex items-center gap-1">
                           <LineAction
-                            active={status === 'VALIDATED' || (status === 'ADJUSTED' && ecart)}
-                            tone="ok"
-                            label="Valider"
+                            // Une ligne traitée garde sa coche allumée, que la
+                            // quantité corresponde ou non : l'éteindre en
+                            // revenant à la valeur commandée ferait croire que
+                            // la ligne n'est plus traitée.
+                            active={conforme || ecart || status === 'REJECTED'}
+                            // La coche prend la couleur de l'état confirmé :
+                            // verte si conforme, orange si la quantité diffère,
+                            // rouge en rupture. Une coche verte au-dessus d'une
+                            // ligne orange ou rouge disait deux choses opposées.
+                            tone={status === 'REJECTED' ? 'danger' : ecart ? 'warn' : 'ok'}
+                            // En rupture, rien n'est servi : valider n'a pas de
+                            // sens. Le bouton reste visible pour ne pas faire
+                            // sauter la colonne, mais ne fait rien.
+                            disabled={status === 'REJECTED'}
+                            label={
+                              status === 'REJECTED'
+                                ? 'Article en rupture — rien à valider'
+                                : ecart
+                                  ? 'Confirmer la quantité ajustée'
+                                  : 'Valider'
+                            }
                             onClick={() => {
                               // Valider confirme ce qui est saisi. Écraser la
                               // valeur par la quantité commandée effacerait le
@@ -471,18 +489,21 @@ const ACTION_TONES = {
 } as const
 
 function LineAction({
-  active, tone, label, onClick, children,
+  active, tone, label, onClick, children, disabled,
 }: {
   active: boolean
   tone: keyof typeof ACTION_TONES
   label: string
   onClick: () => void
   children: React.ReactNode
+  /** Bouton montré mais sans effet : l'état l'exclut déjà. */
+  disabled?: boolean
 }) {
   return (
     <button
       type="button"
-      onClick={onClick}
+      onClick={disabled ? undefined : onClick}
+      disabled={disabled}
       title={label}
       aria-label={label}
       aria-pressed={active}
@@ -491,6 +512,9 @@ function LineAction({
         active
           ? ACTION_TONES[tone]
           : 'border-[rgb(var(--glass-edge)/0.3)] bg-white/50 text-fg-subtle hover:bg-white/90 hover:text-fg',
+        // Reste lisible : il porte la couleur de l'état, pas celle d'un
+        // bouton éteint, mais n'invite plus au clic.
+        disabled && 'cursor-not-allowed',
       )}
     >
       {children}

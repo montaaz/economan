@@ -61,6 +61,10 @@ export function OrderProcessor({ order }: { order: ProcessOrder }) {
   const setLine = (id: string, patch: Partial<Draft>) =>
     setDraft((d) => ({ ...d, [id]: { ...d[id], ...patch } }))
 
+  // Repères de ligne : sur 72 articles, dire « 3 lignes manquent » sans
+  // montrer lesquelles obligerait à tout reparcourir.
+  const rowRefs = React.useRef<Record<string, HTMLTableRowElement | null>>({})
+
   const counts = React.useMemo(() => {
     let validated = 0
     let adjusted = 0
@@ -119,6 +123,24 @@ export function OrderProcessor({ order }: { order: ProcessOrder }) {
     call('save', () => gql(SET_LINES, { id: order.id, lines: payload() }), 'Lignes enregistrées.')
 
   const deliver = async () => {
+    // Rien ne part tant qu'une ligne n'a pas été vue. Plutôt que de refuser en
+    // silence, on conduit à la première ligne restante : sur 72 articles,
+    // chercher soi-même celles qui manquent prendrait plus de temps que de les
+    // traiter.
+    const premiere = order.lines.find((l) => (draft[l.id]?.status ?? 'PENDING') === 'PENDING')
+    if (premiere) {
+      push('error', `${counts.pending} ligne(s) à traiter — la première est mise en évidence.`)
+      const el = rowRefs.current[premiere.id]
+      el?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      // Un surlignage bref : après un défilement, retrouver la bonne ligne
+      // parmi ses voisines demande encore un effort.
+      el?.animate(
+        [{ background: 'rgb(var(--glass-edge) / 0.35)' }, { background: 'transparent' }],
+        { duration: 1600, easing: 'ease-out' },
+      )
+      return
+    }
+
     // On pousse les lignes travaillées avant de livrer : sinon le bon partirait
     // sans les ajustements saisis à l'écran.
     setBusy('deliver')
@@ -260,7 +282,21 @@ export function OrderProcessor({ order }: { order: ProcessOrder }) {
                 {busy !== 'save' ? <Save className="size-3.5" /> : null}
                 Enregistrer
               </Button>
-              <Button variant="success" loading={busy === 'deliver'} onClick={deliver} className="ml-auto">
+              {/* Émettre engage : le bon part au département et la commande
+                  n'est plus modifiable. Tant qu'une ligne n'a pas été vue, le
+                  bouton reste fermé plutôt que de laisser découvrir le refus
+                  après le clic. */}
+              <Button
+                variant={counts.pending > 0 ? 'secondary' : 'success'}
+                loading={busy === 'deliver'}
+                onClick={deliver}
+                className="ml-auto"
+                title={
+                  counts.pending > 0
+                    ? `${counts.pending} ligne(s) restent à traiter`
+                    : undefined
+                }
+              >
                 {busy !== 'deliver' ? <Truck className="size-4" /> : null}
                 Émettre le bon de livraison
               </Button>
@@ -272,11 +308,13 @@ export function OrderProcessor({ order }: { order: ProcessOrder }) {
           <p className="border-t border-[rgb(var(--glass-edge)/0.14)] bg-accent/[0.06] px-4 py-2.5 text-[0.79rem] text-fg-muted sm:px-5">
             {counts.pending > 0 ? (
               <>
-                <strong className="text-fg">{counts.pending}</strong> ligne(s) non traitée(s) — elles
-                seront servies telles que demandées à l’émission du bon.
+                <strong className="text-fg">{counts.pending}</strong> ligne(s) non traitée(s) —
+                validez-les, ajustez-les ou marquez-les en rupture avant d’émettre le bon.
+                <strong className="text-fg"> Tout valider</strong> traite d’un coup une commande
+                servie telle que demandée.
               </>
             ) : (
-              <>Toutes les lignes sont traitées.</>
+              <>Toutes les lignes sont traitées — vous pouvez émettre le bon.</>
             )}
           </p>
         ) : null}
@@ -318,6 +356,7 @@ export function OrderProcessor({ order }: { order: ProcessOrder }) {
               return (
                 <React.Fragment key={l.id}>
                   <tr
+                    ref={(el) => { rowRefs.current[l.id] = el }}
                     className={cn(
                       'transition-colors',
                       // À 6 % d'opacité, la couleur ne se voyait pas : sur 72

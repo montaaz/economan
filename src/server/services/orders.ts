@@ -217,14 +217,16 @@ export async function deliverOrder(orderId: number, actorId: number) {
       throw new WorkflowError('Acceptez la commande avant de la livrer.')
     }
 
-    // Les lignes jamais touchées sont réputées servies telles que demandées :
-    // l'économat n'a pas à cliquer 500 fois pour valider une commande conforme.
-    const untouched = order.lines.filter((l) => l.status === 'PENDING')
-    for (const l of untouched) {
-      await tx.orderLine.update({
-        where: { id: l.id },
-        data: { status: 'VALIDATED', quantityServed: l.quantityAsked },
-      })
+    // Chaque ligne doit avoir été examinée. Valider en silence ce qui n'a pas
+    // été touché ferait signer un bon pour des articles que personne n'a
+    // vérifiés en rayon — et masquerait une rupture jamais constatée.
+    // « Tout valider » reste là pour traiter une commande conforme d'un clic.
+    const pending = order.lines.filter((l) => l.status === 'PENDING').length
+    if (pending > 0) {
+      throw new WorkflowError(
+        `${pending} ligne(s) non traitée(s). Validez-les, ajustez-les ou marquez-les `
+        + `en rupture avant d’émettre le bon.`,
+      )
     }
 
     return tx.order.update({

@@ -259,9 +259,13 @@ export function OrderProcessor({ order }: { order: ProcessOrder }) {
                   <tr
                     className={cn(
                       'transition-colors',
-                      status === 'VALIDATED' && 'bg-ok/[0.06]',
-                      status === 'ADJUSTED' && 'bg-warn/[0.07]',
-                      status === 'REJECTED' && 'bg-danger/[0.07]',
+                      // À 6 % d'opacité, la couleur ne se voyait pas : sur 72
+                      // lignes, repérer ce qui est traité passe d'abord par le
+                      // fond, pas par la lecture de chaque ligne. Un liseré
+                      // gauche double le signal.
+                      status === 'VALIDATED' && 'bg-ok/[0.16] shadow-[inset_3px_0_0_0_var(--ok)]',
+                      status === 'ADJUSTED' && 'bg-warn/[0.2] shadow-[inset_3px_0_0_0_var(--warn)]',
+                      status === 'REJECTED' && 'bg-danger/[0.16] shadow-[inset_3px_0_0_0_var(--danger)]',
                     )}
                   >
                     <Td className="text-right text-[0.78rem] tabular-nums text-fg-subtle">{i + 1}</Td>
@@ -297,16 +301,20 @@ export function OrderProcessor({ order }: { order: ProcessOrder }) {
                         <span
                           className={cn(
                             'whitespace-nowrap text-[0.85rem] tabular-nums',
-                            status === 'REJECTED' ? 'font-medium text-danger' : 'text-fg-muted',
+                            status === 'REJECTED' && 'font-semibold text-danger',
+                            status === 'VALIDATED' && 'font-semibold text-ok',
+                            status === 'ADJUSTED' && 'font-semibold text-warn',
+                            // Non traitée : on montre déjà ce qui sera servi —
+                            // les lignes non touchées partent telles quelles —
+                            // mais en gris, car rien n'est encore décidé.
+                            status === 'PENDING' && 'text-fg-subtle',
                           )}
                         >
                           {status === 'REJECTED'
                             ? 'Rupture'
-                            : status === 'PENDING' && !closed
-                              ? '—'
-                              : `${formatQty(
-                                  status === 'VALIDATED' ? l.quantityAsked : toNumber(d?.served),
-                                )} ${l.unitSymbol}`}
+                            : `${formatQty(
+                                status === 'ADJUSTED' ? toNumber(d?.served) : l.quantityAsked,
+                              )} ${l.unitSymbol}`}
                         </span>
                       )}
                     </Td>

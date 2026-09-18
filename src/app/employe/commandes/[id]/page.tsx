@@ -161,8 +161,13 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
           </div>
 
           <div className="flex flex-wrap gap-1.5 border-t border-[rgb(var(--glass-edge)/0.16)] px-4 py-3 sm:px-5">
-            <Badge tone="neutral">{order.lineCount} article{order.lineCount > 1 ? 's' : ''}</Badge>
-            <Badge tone="accent">{formatQty(order.totalAsked)} commandé</Badge>
+            {/* Le nombre d'articles suffit : cumuler des unités, des kilos et
+                des litres en un seul total ne désignait aucune grandeur
+                réelle. Le détail par article est dans le tableau. */}
+            <Badge tone="accent">
+              {order.lineCount} article{order.lineCount > 1 ? 's' : ''} commandé
+              {order.lineCount > 1 ? 's' : ''}
+            </Badge>
             {order.status === 'DELIVERED' || order.status === 'RECEIVED' ? (
               <Badge tone="ok">{formatQty(order.totalServed)} servi</Badge>
             ) : null}

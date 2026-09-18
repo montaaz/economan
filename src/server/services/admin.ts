@@ -300,12 +300,13 @@ async function attachToSheet(
     select: { productId: true, sortOrder: true, product: { select: { categoryId: true } } },
   })
 
-  const first = sheet.findIndex((r) => r.product.categoryId === categoryId)
+  // On vise la DERNIÈRE ligne de la famille, pas la fin de son premier bloc.
+  // S'arrêter au premier bloc créait un nouveau bloc à chaque ajout dès que la
+  // famille apparaissait déjà plusieurs fois : le Bar comptait 14 familles
+  // réparties sur 32 blocs.
   let after: number | null = null
-  if (first !== -1) {
-    let i = first
-    while (i + 1 < sheet.length && sheet[i + 1].product.categoryId === categoryId) i += 1
-    after = sheet[i].sortOrder
+  for (const row of sheet) {
+    if (row.product.categoryId === categoryId) after = row.sortOrder
   }
 
   if (after !== null) {

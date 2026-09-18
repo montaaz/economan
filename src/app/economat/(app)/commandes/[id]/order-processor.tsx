@@ -242,7 +242,10 @@ export function OrderProcessor({ order }: { order: ProcessOrder }) {
               {/* La cible du département, pour juger une demande inhabituelle
                   sans avoir à ouvrir l'écran Stock fixe. */}
               <Th className="text-right">Stock fixe</Th>
-              <Th className="text-right">Demandé</Th>
+              {/* « Commande » plutôt que « Demandé » : sur cet écran l'économat
+                  prépare une commande, il ne juge pas une demande. Les autres
+                  tableaux gardent leur intitulé. */}
+              <Th className="text-right">Commande</Th>
               <Th className="w-32 text-right">Servi</Th>
               <Th className="w-44">Action</Th>
             </tr>

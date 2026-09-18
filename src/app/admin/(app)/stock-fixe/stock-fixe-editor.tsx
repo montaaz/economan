@@ -13,9 +13,11 @@ import { Modal } from '@/components/ui/modal'
 import { Field } from '@/components/ui/glass'
 import { gql, errorMessage } from '@/lib/graphql-client'
 import {
-  createProductForDepartment, renameProduct, moveProductInSheet, type ActionResult,
+  createProductForDepartment, renameProduct, moveProductInSheet, setProductUnit,
+  type ActionResult,
 } from '@/server/services/admin'
 import { InlineEdit } from '@/components/ui/inline-edit'
+import { UnitPicker } from './unit-picker'
 import { EditProductModal } from './edit-product-modal'
 import { cn, formatQty, toNumber } from '@/lib/utils'
 
@@ -54,6 +56,8 @@ export function StockFixeEditor({
   >(null)
   // Article en cours de modification ; null quand la modale est fermée.
   const [editing, setEditing] = React.useState<ParLine | null>(null)
+  // Article dont on choisit l'unité.
+  const [pickingUnit, setPickingUnit] = React.useState<ParLine | null>(null)
   const router = useRouter()
   const { push } = useToast()
 
@@ -370,8 +374,19 @@ export function StockFixeEditor({
                           />
                         </div>
                       </Td>
-                      <Td className="whitespace-nowrap px-1 text-left text-[0.75rem] font-medium text-fg-muted sm:px-3 sm:text-[0.86rem]">
-                        {p.unitSymbol}
+                      <Td className="whitespace-nowrap px-1 text-left sm:px-3">
+                        {/* L'unité se choisit dans une liste : un champ libre
+                            laisserait écrire « kgs » et créerait des doublons
+                            que les commandes traîneraient ensuite. */}
+                        <button
+                          type="button"
+                          onClick={() => setPickingUnit(p)}
+                          title={`Changer l’unité de ${p.name}`}
+                          aria-label={`Unité de ${p.name} : ${p.unitSymbol} — cliquez pour changer`}
+                          className="rounded-lg px-1.5 py-1 text-[0.75rem] font-medium text-fg-muted transition-colors hover:bg-accent/12 hover:text-accent sm:text-[0.86rem]"
+                        >
+                          {p.unitSymbol}
+                        </button>
                       </Td>
                       <Td className="px-1 sm:px-3">
                         <button
@@ -417,12 +432,27 @@ export function StockFixeEditor({
 
         <p className="border-t border-[rgb(var(--glass-edge)/0.14)] px-4 py-2.5 text-[0.78rem] text-fg-muted sm:px-5">
           <strong className="text-fg">Double-cliquez</strong> sur un nom ou sur un numéro de ligne
-          pour le modifier directement. Entrée valide, Échap annule.
+          pour le modifier directement, ou <strong className="text-fg">cliquez sur une unité</strong>
+          pour la changer. Entrée valide, Échap annule.
           <br />
           Un article laissé à <strong className="text-fg">0</strong> ne sera jamais commandé :
           l’employé le verra, mais l’écart restera nul tant que vous n’aurez pas fixé de cible.
         </p>
       </GlassCard>
+      {pickingUnit ? (
+        <UnitPicker
+          article={pickingUnit.name}
+          currentUnitId={pickingUnit.unitId}
+          units={units}
+          onClose={() => setPickingUnit(null)}
+          onPick={async (unitId) => {
+            const r = await setProductUnit(Number(pickingUnit.id), Number(unitId))
+            if (!r.ok) return r.error ?? 'Changement impossible.'
+            push('success', 'Unité modifiée.')
+            router.refresh()
+          }}
+        />
+      ) : null}
       {editing ? (
         <EditProductModal
           product={{

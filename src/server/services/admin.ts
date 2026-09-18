@@ -901,3 +901,25 @@ export async function renameProduct(id: number, name: string): Promise<ActionRes
   revalidatePath('/employe/commande')
   return { ok: true }
 }
+
+/**
+ * Change l'unité d'un article, sans toucher au reste.
+ *
+ * L'unité n'est pas figée dans les commandes passées : chaque ligne garde la
+ * sienne au moment de l'envoi, donc modifier l'article ici ne réécrit aucun
+ * historique.
+ */
+export async function setProductUnit(id: number, unitId: number): Promise<ActionResult> {
+  await requireRole(['ADMIN'], '/admin/login')
+
+  const unit = await prisma.unit.findUnique({ where: { id: unitId }, select: { id: true } })
+  if (!unit) return { ok: false, error: 'Unité inconnue.' }
+
+  const done = await prisma.product.updateMany({ where: { id }, data: { baseUnitId: unitId } })
+  if (done.count === 0) return { ok: false, error: 'Article introuvable.' }
+
+  revalidatePath('/admin/stock-fixe')
+  revalidatePath('/admin/affectations')
+  revalidatePath('/employe/commande')
+  return { ok: true }
+}

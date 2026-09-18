@@ -17,13 +17,15 @@ import { formatLongDate } from '@/lib/utils'
  * un champ date libre laisserait choisir un jour sans aucune commande.
  */
 export function DayPicker({
-  days, current, currentTo, basePath,
+  days, current, currentTo, basePath, keep,
 }: {
   days: string[]
   current: string
   /** Borne de fin si une période est active. */
   currentTo?: string | null
   basePath: string
+  /** Département filtré, à conserver d'une date à l'autre. */
+  keep?: string | null
 }) {
   const router = useRouter()
 
@@ -41,6 +43,9 @@ export function DayPicker({
   function go(from: string, to?: string | null) {
     const p = new URLSearchParams({ jour: from })
     if (to) p.set('jusquau', to)
+    // Changer de date ne doit pas annuler le filtre par département : on
+    // consulte souvent le même service sur plusieurs journées.
+    if (keep) p.set('dep', keep)
     router.push(`${basePath}?${p}`)
   }
 

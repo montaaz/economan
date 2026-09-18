@@ -254,6 +254,17 @@ export function OrderProcessor({ order }: { order: ProcessOrder }) {
             {order.lines.map((l, i) => {
               const d = draft[l.id]
               const status = d?.status ?? 'PENDING'
+
+              // Ouvrir le champ de saisie n'est pas ajuster. Tant que la valeur
+              // reste celle commandée, la ligne est conforme : l'orange doit
+              // signaler un écart réel, sinon il crie sans rien dire.
+              const ecart = status === 'ADJUSTED' && (d?.served ?? '') !== ''
+                && toNumber(d.served) !== l.quantityAsked
+
+              // Une saisie en cours, encore vide ou identique à la commande,
+              // se lit comme une ligne conforme.
+              const conforme = status === 'VALIDATED' || (status === 'ADJUSTED' && !ecart)
+
               return (
                 <React.Fragment key={l.id}>
                   <tr
@@ -263,8 +274,8 @@ export function OrderProcessor({ order }: { order: ProcessOrder }) {
                       // lignes, repérer ce qui est traité passe d'abord par le
                       // fond, pas par la lecture de chaque ligne. Un liseré
                       // gauche double le signal.
-                      status === 'VALIDATED' && 'bg-ok/[0.16] shadow-[inset_3px_0_0_0_var(--ok)]',
-                      status === 'ADJUSTED' && 'bg-warn/[0.2] shadow-[inset_3px_0_0_0_var(--warn)]',
+                      conforme && 'bg-ok/[0.16] shadow-[inset_3px_0_0_0_var(--ok)]',
+                      ecart && 'bg-warn/[0.2] shadow-[inset_3px_0_0_0_var(--warn)]',
                       status === 'REJECTED' && 'bg-danger/[0.16] shadow-[inset_3px_0_0_0_var(--danger)]',
                     )}
                   >
@@ -302,8 +313,8 @@ export function OrderProcessor({ order }: { order: ProcessOrder }) {
                           className={cn(
                             'whitespace-nowrap text-[0.85rem] tabular-nums',
                             status === 'REJECTED' && 'font-semibold text-danger',
-                            status === 'VALIDATED' && 'font-semibold text-ok',
-                            status === 'ADJUSTED' && 'font-semibold text-warn',
+                            conforme && 'font-semibold text-ok',
+                            ecart && 'font-semibold text-warn',
                             // Non traitée : on montre déjà ce qui sera servi —
                             // les lignes non touchées partent telles quelles —
                             // mais en gris, car rien n'est encore décidé.

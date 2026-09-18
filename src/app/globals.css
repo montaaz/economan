@@ -292,9 +292,10 @@ body::before {
 /* ----------------------------------------------------------- impression */
 
 @media print {
-  /* `margin` vide les en-têtes et pieds que le navigateur ajoute — titre de
-     l'onglet, URL, date, pagination. Un bon de livraison n'a pas à porter
-     « Traitement de commande · Economan » ni l'heure d'impression. */
+  /* Les en-têtes et pieds du navigateur — titre de l'onglet, URL, date,
+     pagination — ne se suppriment PAS en CSS : ils dépendent de la case
+     « En-têtes et pieds de page » de la boîte d'impression. Il faut la
+     décocher, ou passer par « Enregistrer au format PDF ». */
   @page { margin: 12mm; size: A4; }
 
   body::before { display: none; }

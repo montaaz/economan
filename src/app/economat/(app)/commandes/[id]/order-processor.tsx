@@ -266,7 +266,14 @@ export function OrderProcessor({ order }: { order: ProcessOrder }) {
         <div className="flex flex-wrap items-center gap-2 border-t border-[rgb(var(--glass-edge)/0.16)] px-4 py-3 sm:px-5">
           {/* Le libellé nomme ce qui sort de l'imprimante, et suit donc la
               même règle que la feuille elle-même. */}
-          <Button variant="secondary" size="sm" onClick={() => window.print()}>
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => window.print()}
+            // L'URL et le titre d'onglet imprimés viennent du navigateur, pas
+            // de la page : aucun CSS ne les retire. On dit où les couper.
+            title="Dans la boîte d’impression, décochez « En-têtes et pieds de page » pour retirer l’URL"
+          >
             <Printer className="size-3.5" />
             {{
               ticket: 'Imprimer le ticket',

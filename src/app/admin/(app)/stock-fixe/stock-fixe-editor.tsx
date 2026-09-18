@@ -4,7 +4,7 @@ import * as React from 'react'
 import { useActionState } from 'react'
 import { useFormStatus } from 'react-dom'
 import { useRouter } from 'next/navigation'
-import { Save, Search, PackageSearch, Target, RotateCcw, Plus, AlertCircle, Pencil } from 'lucide-react'
+import { Search, PackageSearch, Target, Plus, AlertCircle, Pencil, Trash2, Check, Loader2 } from 'lucide-react'
 import { GlassCard, Button, Badge, EmptyState, TableWrap, Th, Td } from '@/components/ui/glass'
 import { Icon } from '@/components/ui/icon'
 import { useToast } from '@/components/ui/toast'
@@ -14,7 +14,7 @@ import { Field } from '@/components/ui/glass'
 import { gql, errorMessage } from '@/lib/graphql-client'
 import {
   createProductForDepartment, renameProduct, moveProductInSheet, setProductUnit,
-  type ActionResult,
+  toggleDepartmentProduct, type ActionResult,
 } from '@/server/services/admin'
 import { InlineEdit } from '@/components/ui/inline-edit'
 import { UnitPicker } from './unit-picker'
@@ -58,12 +58,15 @@ export function StockFixeEditor({
   const [editing, setEditing] = React.useState<ParLine | null>(null)
   // Article dont on choisit l'unité.
   const [pickingUnit, setPickingUnit] = React.useState<ParLine | null>(null)
+  // Article en cours de retrait, pour désactiver son bouton pendant l'appel.
+  const [removing, setRemoving] = React.useState<string | null>(null)
   const router = useRouter()
   const { push } = useToast()
 
   const [search, setSearch] = React.useState('')
   const [activeCategory, setActiveCategory] = React.useState<string | null>(null)
-  const [saving, setSaving] = React.useState(false)
+  // État de l'enregistrement automatique, affiché en en-tête.
+  const [sync, setSync] = React.useState<'repos' | 'attente' | 'envoi' | 'ok' | 'erreur'>('repos')
 
   // Valeurs éditées, indexées par article. On part des valeurs en base.
   const initial = React.useMemo(
@@ -72,8 +75,21 @@ export function StockFixeEditor({
   )
   const [values, setValues] = React.useState<Record<string, string>>(initial)
 
+  // Ce que la base contient, de notre point de vue. Mis à jour après chaque
+  // envoi réussi pour ne pas réexpédier indéfiniment la même valeur.
+  const enregistre = React.useRef<Record<string, string>>(initial)
+
   // Changer de département recharge la page : on repart des nouvelles valeurs.
-  React.useEffect(() => setValues(initial), [initial])
+  // `router.refresh()` rejoue aussi cet effet ; reprendre `initial` écraserait
+  // alors la ligne en cours de frappe, d'où la comparaison avant remplacement.
+  React.useEffect(() => {
+    enregistre.current = initial
+    setValues((courant) => {
+      const memes = Object.keys(initial).length === Object.keys(courant).length
+        && Object.keys(initial).every((k) => courant[k] !== undefined)
+      return memes ? courant : initial
+    })
+  }, [initial])
 
   const categories = React.useMemo(() => {
     const map = new Map<string, { id: string; name: string; icon: string | null }>()
@@ -111,32 +127,85 @@ export function StockFixeEditor({
     [products, values],
   )
 
+  const current = departments.find((d) => d.id === selectedId)
+
+  /**
+   * Retire un article de la feuille de CE département.
+   *
+   * L'article reste au catalogue et sur les feuilles des autres services : on
+   * retire le sucre glace du Bar sans le faire disparaître de la Pâtisserie.
+   * Son stock fixe pour ce département part avec lui, sans quoi il
+   * réapparaîtrait avec une cible fantôme si on le remettait plus tard.
+   */
+  const retirer = async (p: ParLine) => {
+    const cible = current?.name ?? 'ce département'
+    if (!confirm(
+      `Retirer « ${p.name} » de la feuille de ${cible} ?\n\n`
+      + `L’article reste au catalogue et sur les autres départements.`
+    )) return
+
+    setRemoving(p.id)
+    try {
+      const r = await toggleDepartmentProduct(selectedId, Number(p.id), false)
+      if (!r.ok) {
+        push('error', r.error ?? 'Retrait impossible.')
+        return
+      }
+      push('success', `« ${p.name} » retiré de ${cible}.`)
+      router.refresh()
+    } finally {
+      setRemoving(null)
+    }
+  }
+
   const setValue = (id: string, raw: string) => {
     const v = raw.replace(',', '.')
     if (v !== '' && !/^\d*\.?\d*$/.test(v)) return
     setValues((s) => ({ ...s, [id]: v }))
+    planifier()
   }
 
-  const save = async () => {
-    if (dirty.length === 0) return
-    setSaving(true)
-    try {
-      // On n'envoie que ce qui a bougé : régler 550 articles d'un coup pour
-      // trois modifications serait du gaspillage.
-      await gql(SET_PAR, {
-        departmentId: String(selectedId),
-        lines: dirty.map((p) => ({ productId: p.id, quantity: toNumber(values[p.id]) })),
-      })
-      push('success', `Stock fixe enregistré — ${dirty.length} article(s) mis à jour.`)
-      router.refresh()
-    } catch (e) {
-      push('error', errorMessage(e))
-    } finally {
-      setSaving(false)
-    }
-  }
+  /**
+   * Enregistrement automatique, différé d'une seconde après la dernière frappe.
+   *
+   * Envoyer à chaque caractère produirait une écriture par chiffre tapé ; on
+   * attend donc une pause. Seules les valeurs qui diffèrent de ce qui est en
+   * base partent, et le rafraîchissement n'a lieu qu'après succès.
+   */
+  const enAttente = React.useRef<number | null>(null)
 
-  const current = departments.find((d) => d.id === selectedId)
+  // Les valeurs lues dans le minuteur doivent être les plus récentes, pas
+  // celles capturées au moment où il a été armé.
+  const valuesRef = React.useRef(values)
+  React.useEffect(() => { valuesRef.current = values }, [values])
+
+  const planifier = React.useCallback(() => {
+    if (enAttente.current) window.clearTimeout(enAttente.current)
+    setSync('attente')
+    enAttente.current = window.setTimeout(async () => {
+      const aEnvoyer = Object.entries(valuesRef.current)
+        .filter(([id, v]) => v !== '' && v !== enregistre.current[id])
+        .map(([id, v]) => ({ productId: id, quantity: toNumber(v) }))
+
+      if (aEnvoyer.length === 0) return setSync('repos')
+
+      setSync('envoi')
+      try {
+        await gql(SET_PAR, { departmentId: String(selectedId), lines: aEnvoyer })
+        for (const l of aEnvoyer) enregistre.current[l.productId] = valuesRef.current[l.productId]
+        setSync('ok')
+        router.refresh()
+      } catch (e) {
+        setSync('erreur')
+        push('error', errorMessage(e))
+      }
+    }, 1000)
+  }, [selectedId, router, push])
+
+  // Une saisie laissée en attente au moment de quitter serait perdue.
+  React.useEffect(() => () => {
+    if (enAttente.current) window.clearTimeout(enAttente.current)
+  }, [])
 
   return (
     <div className="space-y-4">
@@ -195,26 +264,10 @@ export function StockFixeEditor({
                 Nouvel article
               </Button>
             ) : null}
-            {dirty.length > 0 ? <Badge tone="warn">{dirty.length} modifié(s)</Badge> : null}
-            {dirty.length > 0 ? (
-              <Button
-                size="sm"
-                variant="ghost"
-                aria-label="Annuler les modifications"
-                onClick={() => setValues(initial)}
-              >
-                <RotateCcw className="size-3.5" />
-              </Button>
-            ) : null}
-            <Button
-              variant={dirty.length > 0 ? 'primary' : 'secondary'}
-              disabled={dirty.length === 0}
-              loading={saving}
-              onClick={save}
-            >
-              {!saving ? <Save className="size-4" /> : null}
-              Enregistrer
-            </Button>
+            {/* Plus de bouton : les valeurs partent seules. L'indicateur dit
+                où en est l'envoi, sinon rien ne distinguerait « enregistré »
+                de « pas encore parti ». */}
+            <SyncStatus etat={sync} />
           </div>
         </div>
 
@@ -389,14 +442,29 @@ export function StockFixeEditor({
                         </button>
                       </Td>
                       <Td className="px-1 sm:px-3">
-                        <button
-                          type="button"
-                          onClick={() => setEditing(p)}
-                          aria-label={`Modifier ${p.name}`}
-                          className="grid size-8 place-items-center rounded-lg text-fg-subtle transition-colors hover:bg-accent/12 hover:text-accent"
-                        >
-                          <Pencil className="size-3.5" />
-                        </button>
+                        <div className="flex items-center justify-end gap-0.5">
+                          <button
+                            type="button"
+                            onClick={() => setEditing(p)}
+                            aria-label={`Modifier ${p.name}`}
+                            className="grid size-8 place-items-center rounded-lg text-fg-subtle transition-colors hover:bg-accent/12 hover:text-accent"
+                          >
+                            <Pencil className="size-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            disabled={removing === p.id}
+                            onClick={() => void retirer(p)}
+                            aria-label={`Retirer ${p.name} de la feuille`}
+                            className="grid size-8 place-items-center rounded-lg text-fg-subtle transition-colors hover:bg-danger/12 hover:text-danger disabled:opacity-40"
+                          >
+                            {removing === p.id ? (
+                              <Loader2 className="size-3.5 animate-spin" />
+                            ) : (
+                              <Trash2 className="size-3.5" />
+                            )}
+                          </button>
+                        </div>
                       </Td>
                     </tr>
                     {/* Sous la dernière ligne de la famille : l'ajout d'article. */}
@@ -585,5 +653,39 @@ function SubmitButton() {
     <Button type="submit" variant="primary" loading={pending}>
       Créer l’article
     </Button>
+  )
+}
+
+/** Où en est l'enregistrement automatique. */
+function SyncStatus({ etat }: { etat: 'repos' | 'attente' | 'envoi' | 'ok' | 'erreur' }) {
+  if (etat === 'repos') {
+    return (
+      <span className="flex items-center gap-1.5 text-[0.78rem] text-fg-subtle">
+        <Check className="size-3.5" />
+        À jour
+      </span>
+    )
+  }
+  if (etat === 'erreur') {
+    return (
+      <span role="alert" className="flex items-center gap-1.5 text-[0.78rem] font-semibold text-danger">
+        <AlertCircle className="size-3.5" />
+        Non enregistré
+      </span>
+    )
+  }
+  if (etat === 'ok') {
+    return (
+      <span className="flex items-center gap-1.5 text-[0.78rem] font-semibold text-ok">
+        <Check className="size-3.5" />
+        Enregistré
+      </span>
+    )
+  }
+  return (
+    <span className="flex items-center gap-1.5 text-[0.78rem] font-medium text-accent">
+      <Loader2 className="size-3.5 animate-spin" />
+      {etat === 'envoi' ? 'Enregistrement…' : 'Modification…'}
+    </span>
   )
 }

@@ -383,12 +383,22 @@ export function OrderProcessor({ order }: { order: ProcessOrder }) {
                       {open ? (
                         <div className="flex items-center gap-1">
                           <LineAction
-                            active={status === 'VALIDATED'}
+                            active={status === 'VALIDATED' || (status === 'ADJUSTED' && ecart)}
                             tone="ok"
                             label="Valider"
-                            onClick={() =>
-                              setLine(l.id, { status: 'VALIDATED', served: String(l.quantityAsked) })
-                            }
+                            onClick={() => {
+                              // Valider confirme ce qui est saisi. Écraser la
+                              // valeur par la quantité commandée effacerait le
+                              // comptage que l'économat vient de faire.
+                              const saisi = (d?.served ?? '').trim()
+                              const garde = saisi !== '' && toNumber(saisi) !== l.quantityAsked
+                              setLine(l.id, garde
+                                // Une quantité différente reste « ajustée » :
+                                // c'est ce statut qui fait enregistrer la
+                                // valeur servie plutôt que celle demandée.
+                                ? { status: 'ADJUSTED', served: saisi }
+                                : { status: 'VALIDATED', served: String(l.quantityAsked) })
+                            }}
                           >
                             <Check className="size-4" />
                           </LineAction>

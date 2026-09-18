@@ -162,7 +162,7 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
 
           <div className="flex flex-wrap gap-1.5 border-t border-[rgb(var(--glass-edge)/0.16)] px-4 py-3 sm:px-5">
             <Badge tone="neutral">{order.lineCount} article{order.lineCount > 1 ? 's' : ''}</Badge>
-            <Badge tone="accent">{formatQty(order.totalAsked)} demandé</Badge>
+            <Badge tone="accent">{formatQty(order.totalAsked)} commandé</Badge>
             {order.status === 'DELIVERED' || order.status === 'RECEIVED' ? (
               <Badge tone="ok">{formatQty(order.totalServed)} servi</Badge>
             ) : null}
@@ -193,7 +193,9 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
                     un chiffre inattendu reste inexplicable. */}
                 <Th className="text-right">Stock fixe</Th>
                 <Th className="text-right">Mon stock</Th>
-                <Th className="text-right">Demandé</Th>
+                {/* Même intitulé que l'écran de l'économat et la feuille
+                    papier : une seule notion, un seul mot. */}
+                <Th className="text-right">Commande</Th>
                 <Th className="text-right">Servi</Th>
                 {order.status === 'RECEIVED' ? (
                   <Th className="text-right">Reçu</Th>

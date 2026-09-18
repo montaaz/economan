@@ -2,7 +2,7 @@
 
 import { useRouter } from 'next/navigation'
 import { Icon } from '@/components/ui/icon'
-import { cn, formatQty } from '@/lib/utils'
+import { cn } from '@/lib/utils'
 import type { BoardGroup } from './day-board'
 
 /**
@@ -12,12 +12,15 @@ import type { BoardGroup } from './day-board'
  * département reste ainsi partageable et survit à un rechargement, comme le
  * choix de la journée juste au-dessus.
  *
- * Seuls les départements ayant commandé sont proposés — un onglet qui ne
- * mènerait qu'à un écran vide n'aide personne.
+ * Tous les départements actifs sont proposés, avec leur nombre de tickets.
+ * Masquer ceux qui n'ont pas commandé ferait disparaître la barre les jours
+ * creux, au moment précis où l'on cherche qui n'a rien passé.
  */
 export function DepartmentFilter({
-  groups, current, basePath, day, dayTo,
+  departments, groups, current, basePath, day, dayTo,
 }: {
+  /** Tous les départements actifs, qu'ils aient commandé ou non. */
+  departments: { id: string; name: string; color: string; icon: string | null }[]
   groups: BoardGroup[]
   /** Identifiant du département filtré, null pour « tous ». */
   current: string | null
@@ -27,8 +30,8 @@ export function DepartmentFilter({
 }) {
   const router = useRouter()
 
-  // Un seul département : l'onglet « Tous » et lui-même diraient la même chose.
-  if (groups.length < 2) return null
+  // Compteur de tickets par département, 0 pour ceux qui n'ont rien commandé.
+  const ticketsBy = new Map(groups.map((g) => [g.department.id, g.orderCount]))
 
   function go(dep: string | null) {
     const p = new URLSearchParams({ jour: day })
@@ -55,29 +58,32 @@ export function DepartmentFilter({
         <span className="tabular-nums opacity-70">({totalTickets})</span>
       </button>
 
-      {groups.map((g) => {
-        const on = g.department.id === current
+      {departments.map((d) => {
+        const on = d.id === current
+        const tickets = ticketsBy.get(d.id) ?? 0
         return (
           <button
-            key={g.department.id}
+            key={d.id}
             type="button"
-            onClick={() => go(g.department.id)}
+            onClick={() => go(d.id)}
             className={cn(
               'flex shrink-0 items-center gap-2 rounded-xl border px-3 py-2 text-[0.85rem] font-medium transition-colors sm:text-[0.83rem]',
               on
                 ? 'border-accent/45 bg-accent/12 text-accent'
                 : 'border-[rgb(var(--glass-edge)/0.28)] bg-white/50 text-fg-muted hover:bg-white/80',
+              // Un département sans ticket reste cliquable — il faut pouvoir
+              // constater qu'il n'a rien commandé — mais s'efface.
+              tickets === 0 && !on && 'opacity-55',
             )}
-            title={`${formatQty(g.totalAsked)} demandé`}
           >
             <span
               className="grid size-6 shrink-0 place-items-center rounded-lg text-white"
-              style={{ background: g.department.color }}
+              style={{ background: d.color }}
             >
-              <Icon name={g.department.icon ?? 'Building2'} className="size-3.5" />
+              <Icon name={d.icon ?? 'Building2'} className="size-3.5" />
             </span>
-            {g.department.name}
-            <span className="tabular-nums opacity-70">({g.orderCount})</span>
+            {d.name}
+            <span className="tabular-nums opacity-70">({tickets})</span>
           </button>
         )
       })}

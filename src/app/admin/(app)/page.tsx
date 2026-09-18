@@ -1,4 +1,5 @@
 import type { Metadata } from 'next'
+import { prisma } from '@/server/db'
 import { executeGraphQL } from '@/server/graphql/execute'
 import { PageHeader } from '@/components/ui/stat'
 import { DayBoard, DayTotals, type Board } from '@/components/orders/day-board'
@@ -16,16 +17,25 @@ export default async function AdminPage({
   searchParams: Promise<{ jour?: string; jusquau?: string; dep?: string }>
 }) {
   const { jour, jusquau, dep } = await searchParams
-  const data = await executeGraphQL<{ dayBoard: Board; activeDays: string[] }>(DAY_BOARD_QUERY, {
-    day: jour ?? null,
-    dayTo: jusquau ?? null,
-  })
+  const [data, allDepartments] = await Promise.all([
+    executeGraphQL<{ dayBoard: Board; activeDays: string[] }>(DAY_BOARD_QUERY, {
+      day: jour ?? null,
+      dayTo: jusquau ?? null,
+    }),
+    // La barre liste tous les services actifs, pas seulement ceux qui ont
+    // commandé : sinon elle disparaîtrait les jours creux.
+    prisma.department.findMany({
+      where: { isActive: true },
+      orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
+      select: { id: true, name: true, color: true, icon: true },
+    }),
+  ])
   const board = data.dayBoard
 
-  // Un département demandé mais sans commande ce jour-là ne doit pas vider
-  // l'écran en silence : on retombe sur la vue complète.
   const groups = board.departments
-  const selected = dep && groups.some((g) => g.department.id === dep) ? dep : null
+  // Un département actif reste sélectionnable même sans commande du jour :
+  // constater qu'un service n'a rien passé fait partie du pilotage.
+  const selected = dep && allDepartments.some((d) => String(d.id) === dep) ? dep : null
   const shown = selected ? groups.filter((g) => g.department.id === selected) : groups
 
   // Les totaux suivent le filtre. Garder ceux de la journée entière ferait
@@ -65,6 +75,9 @@ export default async function AdminPage({
       />
 
       <DepartmentFilter
+        departments={allDepartments.map((d) => ({
+          id: String(d.id), name: d.name, color: d.color, icon: d.icon,
+        }))}
         groups={groups}
         current={selected}
         basePath="/admin"

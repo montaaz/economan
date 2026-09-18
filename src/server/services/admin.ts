@@ -873,3 +873,31 @@ export async function moveProductInSheet(
   revalidatePath('/employe/commande')
   return { ok: true }
 }
+
+/**
+ * Renomme un article, sans toucher à sa famille ni à son unité.
+ *
+ * `updateProduct` exige un formulaire complet ; l'édition en place ne connaît
+ * que le nom, et reconstruire les autres champs côté client risquerait de les
+ * réécrire avec des valeurs périmées.
+ */
+export async function renameProduct(id: number, name: string): Promise<ActionResult> {
+  await requireRole(['ADMIN'], '/admin/login')
+
+  const clean = name.trim()
+  if (clean.length < 2) return { ok: false, error: 'Nom trop court.' }
+
+  const clash = await prisma.product.findFirst({
+    where: { name: { equals: clean, mode: 'insensitive' }, NOT: { id } },
+    select: { name: true },
+  })
+  if (clash) return { ok: false, error: `« ${clash.name} » existe déjà.` }
+
+  const done = await prisma.product.updateMany({ where: { id }, data: { name: clean } })
+  if (done.count === 0) return { ok: false, error: 'Article introuvable.' }
+
+  revalidatePath('/admin/stock-fixe')
+  revalidatePath('/admin/affectations')
+  revalidatePath('/employe/commande')
+  return { ok: true }
+}

@@ -12,7 +12,10 @@ import { usePagedRows, ShowMore } from '@/components/ui/paged-list'
 import { Modal } from '@/components/ui/modal'
 import { Field } from '@/components/ui/glass'
 import { gql, errorMessage } from '@/lib/graphql-client'
-import { createProductForDepartment, type ActionResult } from '@/server/services/admin'
+import {
+  createProductForDepartment, renameProduct, moveProductInSheet, type ActionResult,
+} from '@/server/services/admin'
+import { InlineEdit } from '@/components/ui/inline-edit'
 import { EditProductModal } from './edit-product-modal'
 import { cn, formatQty, toNumber } from '@/lib/utils'
 
@@ -302,11 +305,40 @@ export function StockFixeEditor({
                       ) : null}
                     <tr className={cn(changed && 'bg-warn/[0.07]')}>
                       <Td className="px-1 text-right text-[0.72rem] tabular-nums text-fg-subtle sm:px-3 sm:text-[0.78rem]">
-                        {i + 1}
+                        {/* Le rang affiché suit le filtre ; on édite la position
+                            réelle sur la feuille, sinon filtrer une famille
+                            déplacerait l'article au mauvais endroit. */}
+                        <InlineEdit
+                          value={String(positionOf.get(p.id) ?? i + 1)}
+                          ariaLabel={`Position de ${p.name}`}
+                          align="right"
+                          className="tabular-nums"
+                          inputClassName="w-12 text-[0.78rem]"
+                          validate={(v) =>
+                            /^\d+$/.test(v) && Number(v) >= 1 ? null : 'Nombre ≥ 1'
+                          }
+                          onSave={async (v) => {
+                            const r = await moveProductInSheet(selectedId, Number(p.id), Number(v))
+                            if (!r.ok) return r.error ?? 'Déplacement impossible.'
+                            push('success', `« ${p.name} » déplacé en position ${v}.`)
+                            router.refresh()
+                          }}
+                        />
                       </Td>
                       <Td className="max-w-0 px-1 sm:px-3">
-                        <p className="truncate text-[0.78rem] font-medium leading-snug text-fg sm:text-[0.85rem]">
-                          {p.name}
+                        <p className="text-[0.78rem] font-medium leading-snug text-fg sm:text-[0.85rem]">
+                          <InlineEdit
+                            value={p.name}
+                            ariaLabel={`Nom de ${p.name}`}
+                            inputClassName="text-[0.85rem]"
+                            validate={(v) => (v.length >= 2 ? null : 'Nom trop court')}
+                            onSave={async (v) => {
+                              const r = await renameProduct(Number(p.id), v)
+                              if (!r.ok) return r.error ?? 'Renommage impossible.'
+                              push('success', 'Article renommé.')
+                              router.refresh()
+                            }}
+                          />
                         </p>
                         <p className="truncate font-mono text-[0.68rem] text-fg-subtle sm:text-[0.7rem]">
                           {p.reference}
@@ -384,6 +416,9 @@ export function StockFixeEditor({
         )}
 
         <p className="border-t border-[rgb(var(--glass-edge)/0.14)] px-4 py-2.5 text-[0.78rem] text-fg-muted sm:px-5">
+          <strong className="text-fg">Double-cliquez</strong> sur un nom ou sur un numéro de ligne
+          pour le modifier directement. Entrée valide, Échap annule.
+          <br />
           Un article laissé à <strong className="text-fg">0</strong> ne sera jamais commandé :
           l’employé le verra, mais l’écart restera nul tant que vous n’aurez pas fixé de cible.
         </p>

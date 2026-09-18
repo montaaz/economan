@@ -2,12 +2,13 @@
 
 import * as React from 'react'
 import { useRouter } from 'next/navigation'
-import { Search, Send, Trash2, PackageSearch, ListChecks } from 'lucide-react'
+import { Search, Send, Trash2, PackageSearch, ListChecks, Save } from 'lucide-react'
 import { GlassCard, Button, EmptyState, TableWrap, Th, Td } from '@/components/ui/glass'
 import { Icon } from '@/components/ui/icon'
 import { useToast } from '@/components/ui/toast'
 import { gql, errorMessage } from '@/lib/graphql-client'
 import { cn, formatLongDate, formatQty, toNumber } from '@/lib/utils'
+import { useDraft } from './use-draft'
 
 export type CatalogProduct = {
   id: string
@@ -55,6 +56,30 @@ export function NewOrderForm({
   // Passe à true seulement quand l'employé tente d'envoyer une feuille
   // incomplète : une feuille neuve ne doit pas s'ouvrir en mur rouge.
   const [showMissing, setShowMissing] = React.useState(false)
+
+  // Reprise d'une saisie interrompue : compter 109 articles prend du temps,
+  // une session expirée ou un téléphone verrouillé ne doit pas tout effacer.
+  const draft = useDraft({ userName, departmentName, businessDay })
+
+  React.useEffect(() => {
+    if (draft.restored) {
+      setOnHand(draft.restored.onHand)
+      setNote(draft.restored.note ?? '')
+    }
+  }, [draft.restored])
+
+  // Enregistrement différé : écrire à chaque frappe sérialiserait 109 lignes
+  // par caractère tapé.
+  const etat = React.useRef({ onHand, note })
+  React.useEffect(() => { etat.current = { onHand, note } }, [onHand, note])
+
+  React.useEffect(() => {
+    // Tant que la lecture initiale n'a pas eu lieu, écrire écraserait le
+    // brouillon existant avec l'état vide du premier rendu.
+    if (!draft.checked) return
+    const t = window.setTimeout(() => draft.save(etat.current.onHand, etat.current.note), 600)
+    return () => window.clearTimeout(t)
+  }, [onHand, note, draft])
 
   const inputRefs = React.useRef<Record<string, HTMLInputElement | null>>({})
 
@@ -183,6 +208,9 @@ export function NewOrderForm({
       })
 
       const o = data.submitOrder
+      // La commande est partie : garder le brouillon la ferait revenir sur la
+      // feuille suivante.
+      draft.clear()
       push('success', `Commande ${o.reference} envoyée — ticket n°${o.ticketNumber}, ${o.lineCount} article(s).`)
       router.push(`/employe/commandes/${o.id}`)
       router.refresh()
@@ -208,6 +236,15 @@ export function NewOrderForm({
             <span className="font-medium text-fg-muted">{userName}</span>
           </p>
         </div>
+        {/* La saisie est conservée : sans le dire, l'employé qui revient
+            croirait avoir eu de la chance. */}
+        {filledCount > 0 ? (
+          <p className="no-print flex shrink-0 items-center gap-1.5 rounded-lg bg-ok/10 px-2.5 py-1 text-[0.78rem] font-medium text-ok">
+            <Save className="size-3.5" />
+            {filledCount} ligne{filledCount > 1 ? 's' : ''} conservée{filledCount > 1 ? 's' : ''}
+          </p>
+        ) : null}
+
         <p className="print-only shrink-0 text-right text-[0.85rem] font-medium capitalize tabular-nums text-fg-muted">
           {formatLongDate(businessDay)}
         </p>

@@ -149,10 +149,7 @@ export function StockFixeEditor({
             <strong className="text-fg">{p.name}</strong> de ce département —{' '}
             <strong className="text-fg">{cible}</strong> ?
           </p>
-          <p className="mt-2 text-[0.82rem] text-fg-subtle">
-            L’article reste au catalogue et sur les feuilles des autres départements.
-            Son stock fixe pour {cible} sera effacé.
-          </p>
+        
         </>
       ),
     })

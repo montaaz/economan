@@ -61,6 +61,18 @@ export function OrderProcessor({ order }: { order: ProcessOrder }) {
   const setLine = (id: string, patch: Partial<Draft>) =>
     setDraft((d) => ({ ...d, [id]: { ...d[id], ...patch } }))
 
+  // Les lignes d'une commande sont figées à l'envoi : celles passées avant que
+  // les feuilles soient regroupées gardent leurs familles éparpillées. On les
+  // rassemble pour l'affichage, en conservant l'ordre d'apparition de chaque
+  // famille et celui des articles à l'intérieur.
+  const lignes = React.useMemo(() => {
+    const ordre: string[] = []
+    for (const l of order.lines) {
+      if (!ordre.includes(l.categoryName)) ordre.push(l.categoryName)
+    }
+    return ordre.flatMap((c) => order.lines.filter((l) => l.categoryName === c))
+  }, [order.lines])
+
   // Repères de ligne : sur 72 articles, dire « 3 lignes manquent » sans
   // montrer lesquelles obligerait à tout reparcourir.
   const rowRefs = React.useRef<Record<string, HTMLTableRowElement | null>>({})
@@ -127,7 +139,9 @@ export function OrderProcessor({ order }: { order: ProcessOrder }) {
     // silence, on conduit à la première ligne restante : sur 72 articles,
     // chercher soi-même celles qui manquent prendrait plus de temps que de les
     // traiter.
-    const premiere = order.lines.find((l) => (draft[l.id]?.status ?? 'PENDING') === 'PENDING')
+    // On cherche dans l'ordre affiché, pas dans l'ordre d'enregistrement :
+    // sinon on conduirait à une ligne qui n'est pas la première à l'écran.
+    const premiere = lignes.find((l) => (draft[l.id]?.status ?? 'PENDING') === 'PENDING')
     if (premiere) {
       push('error', `${counts.pending} ligne(s) à traiter — la première est mise en évidence.`)
       const el = rowRefs.current[premiere.id]
@@ -339,7 +353,10 @@ export function OrderProcessor({ order }: { order: ProcessOrder }) {
             </tr>
           </thead>
           <tbody className="divide-y divide-[rgb(var(--glass-edge)/0.12)]">
-            {order.lines.map((l, i) => {
+            {lignes.map((l, i) => {
+              // Un bandeau ouvre chaque famille : on sert le rayon d'un bloc,
+              // pas article par article dans le désordre.
+              const ouvreFamille = i === 0 || lignes[i - 1].categoryName !== l.categoryName
               const d = draft[l.id]
               const status = d?.status ?? 'PENDING'
 
@@ -355,6 +372,16 @@ export function OrderProcessor({ order }: { order: ProcessOrder }) {
 
               return (
                 <React.Fragment key={l.id}>
+                  {ouvreFamille ? (
+                    <tr>
+                      <td
+                        colSpan={6}
+                        className="bg-ok/12 px-2 py-1.5 text-[0.72rem] font-bold uppercase tracking-[0.06em] text-ok sm:px-3 sm:text-[0.76rem]"
+                      >
+                        {l.categoryName}
+                      </td>
+                    </tr>
+                  ) : null}
                   <tr
                     ref={(el) => { rowRefs.current[l.id] = el }}
                     className={cn(
@@ -371,10 +398,10 @@ export function OrderProcessor({ order }: { order: ProcessOrder }) {
                     <Td className="text-right text-[0.78rem] tabular-nums text-fg-subtle">{i + 1}</Td>
                     <Td className="max-w-0">
                       <p className="truncate text-[0.85rem] font-medium text-fg">{l.productName}</p>
-                      <p className="truncate text-[0.7rem] text-fg-subtle">
-                        <span className="font-mono">{l.productRef}</span>
-                        <span className="mx-1.5">·</span>
-                        {l.categoryName}
+                      {/* La famille est portée par le bandeau : la répéter à
+                          chaque ligne allongeait sans rien apprendre. */}
+                      <p className="truncate font-mono text-[0.7rem] text-fg-subtle">
+                        {l.productRef}
                       </p>
                     </Td>
                     <Td className="whitespace-nowrap text-right tabular-nums text-fg-muted">

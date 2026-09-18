@@ -239,6 +239,9 @@ export function OrderProcessor({ order }: { order: ProcessOrder }) {
             <tr>
               <Th className="w-10 text-right">#</Th>
               <Th className="w-full">Article</Th>
+              {/* La cible du département, pour juger une demande inhabituelle
+                  sans avoir à ouvrir l'écran Stock fixe. */}
+              <Th className="text-right">Stock fixe</Th>
               <Th className="text-right">Demandé</Th>
               <Th className="w-32 text-right">Servi</Th>
               <Th className="w-44">Action</Th>
@@ -266,6 +269,9 @@ export function OrderProcessor({ order }: { order: ProcessOrder }) {
                         <span className="mx-1.5">·</span>
                         {l.categoryName}
                       </p>
+                    </Td>
+                    <Td className="whitespace-nowrap text-right tabular-nums text-fg-muted">
+                      {formatQty(l.stockFixe)} {l.unitSymbol}
                     </Td>
                     <Td className="whitespace-nowrap text-right font-medium tabular-nums text-fg">
                       {formatQty(l.quantityAsked)} {l.unitSymbol}
@@ -350,7 +356,7 @@ export function OrderProcessor({ order }: { order: ProcessOrder }) {
                   {status === 'REJECTED' && open ? (
                     <tr className="bg-danger/[0.04]">
                       <Td />
-                      <Td colSpan={4} className="pb-3 pt-0">
+                      <Td colSpan={5} className="pb-3 pt-0">
                         <input
                           value={d.reason}
                           onChange={(e) => setLine(l.id, { reason: e.target.value })}

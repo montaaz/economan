@@ -1,3 +1,4 @@
+import * as React from 'react'
 import { formatLongDate, formatQty, formatTime } from '@/lib/utils'
 
 export type TicketLine = {
@@ -64,7 +65,19 @@ export function Ticket({
   variant?: 'ticket' | 'commande' | 'livraison'
 }) {
   const isBon = variant !== 'ticket'
-  const lines = isBon ? order.lines.filter((l) => l.status !== 'REJECTED') : order.lines
+  // Seul le bon de livraison connaît ce qui est réellement sorti.
+  const livre = variant === 'livraison'
+  const retenues = isBon ? order.lines.filter((l) => l.status !== 'REJECTED') : order.lines
+
+  // Les lignes d'une commande sont figées à l'envoi : celles passées avant que
+  // les feuilles soient regroupées gardent leurs familles éparpillées. On les
+  // rassemble ici, sans toucher au ticket enregistré, en conservant l'ordre
+  // d'apparition de chaque famille et celui des articles à l'intérieur.
+  const ordreFamilles: string[] = []
+  for (const l of retenues) {
+    if (!ordreFamilles.includes(l.categoryName)) ordreFamilles.push(l.categoryName)
+  }
+  const lines = ordreFamilles.flatMap((c) => retenues.filter((l) => l.categoryName === c))
   const rejected = order.lines.filter((l) => l.status === 'REJECTED')
 
   return (
@@ -120,31 +133,64 @@ export function Ticket({
             {/* L'unité rejoint la quantité qu'elle qualifie : « 5 u » se lit
                 d'un bloc, et la colonne « En rayon » disparaît — le stock
                 compté par l'employé ne sert pas à celui qui distribue. */}
-            <th className="w-24 px-2 py-1.5 text-right font-semibold">Demandé</th>
+            {/* Même intitulé que l'écran de l'économat : la feuille papier et
+                la feuille à l'écran doivent nommer la même colonne pareil. */}
+            <th className="w-24 px-2 py-1.5 text-right font-semibold">Commande</th>
             {isBon ? <th className="w-24 px-2 py-1.5 text-right font-semibold">Servi</th> : null}
           </tr>
         </thead>
         <tbody>
-          {lines.map((l, i) => (
-            <tr key={l.id} className="border-b border-[#d5dfee]">
-              <td className="px-2 py-1 text-right tabular-nums text-[#4a5f7d]">{i + 1}</td>
-              {/* La référence catalogue n'aide pas à sortir la marchandise :
-                  le nom suffit, et la ligne reste lisible en rayon. */}
-              <td className="px-2 py-1 font-medium">{l.productName}</td>
-              <td className="px-2 py-1 text-right tabular-nums text-[#4a5f7d]">
-                {formatQty(l.stockFixe)}
-              </td>
-              <td className="px-2 py-1 text-right font-semibold tabular-nums">
-                {formatQty(l.quantityAsked)}
-                <span className="ml-1 text-[0.72rem] font-normal text-[#4a5f7d]">
-                  {l.unitSymbol}
-                </span>
-              </td>
-              {/* Case laissée vide : la quantité servie s'écrit au stylo au
-                  moment de la distribution. */}
-              {isBon ? <td className="px-2 py-1" /> : null}
-            </tr>
-          ))}
+          {lines.map((l, i) => {
+            // Un bandeau ouvre chaque famille : on sort la marchandise rayon
+            // par rayon, pas article par article dans le désordre.
+            const ouvre = i === 0 || lines[i - 1].categoryName !== l.categoryName
+            return (
+              <React.Fragment key={l.id}>
+                {ouvre ? (
+                  <tr>
+                    <td
+                      colSpan={livre ? 5 : 4}
+                      className="border-y border-[#b9c8e0] bg-[#e8eefa] px-2 py-1 text-[0.76rem] font-bold uppercase tracking-[0.06em]"
+                    >
+                      {l.categoryName}
+                    </td>
+                  </tr>
+                ) : null}
+                <tr className="border-b border-[#d5dfee]">
+                  {/* La numérotation reste continue à travers les bandeaux :
+                      c'est elle qui sert à pointer une ligne à voix haute. */}
+                  <td className="px-2 py-1 text-right tabular-nums text-[#4a5f7d]">{i + 1}</td>
+                  {/* La référence catalogue n'aide pas à sortir la marchandise :
+                      le nom suffit, et la ligne reste lisible en rayon. */}
+                  <td className="px-2 py-1 font-medium">{l.productName}</td>
+                  <td className="px-2 py-1 text-right tabular-nums text-[#4a5f7d]">
+                    {formatQty(l.stockFixe)}
+                  </td>
+                  <td className="px-2 py-1 text-right font-semibold tabular-nums">
+                    {formatQty(l.quantityAsked)}
+                    <span className="ml-1 text-[0.72rem] font-normal text-[#4a5f7d]">
+                      {l.unitSymbol}
+                    </span>
+                  </td>
+                  {/* Sur un bon de livraison, la quantité sortie est connue :
+                      on l'imprime. Sur un bon de commande elle reste à écrire
+                      au stylo pendant la distribution. */}
+                  {isBon ? (
+                    <td className="px-2 py-1 text-right font-semibold tabular-nums">
+                      {livre ? (
+                        <>
+                          {formatQty(l.quantityServed ?? 0)}
+                          <span className="ml-1 text-[0.72rem] font-normal text-[#4a5f7d]">
+                            {l.unitSymbol}
+                          </span>
+                        </>
+                      ) : null}
+                    </td>
+                  ) : null}
+                </tr>
+              </React.Fragment>
+            )
+          })}
         </tbody>
         <tfoot>
           <tr className="border-t-2 border-[#0f1e33] font-bold">
@@ -154,9 +200,13 @@ export function Ticket({
             <td className="px-2 py-1.5 text-right tabular-nums">
               {formatQty(lines.reduce((s, l) => s + l.quantityAsked, 0))}
             </td>
-            {/* Le total servi se calcule à la main, une fois les cases
-                remplies : l'imprimer à 0 serait faux. */}
-            {isBon ? <td className="px-2 py-1.5" /> : null}
+            {/* Sur un bon de commande, le total servi se calcule à la main une
+                fois les cases remplies : l'imprimer à 0 serait faux. */}
+            {isBon ? (
+              <td className="px-2 py-1.5 text-right tabular-nums">
+                {livre ? formatQty(lines.reduce((s, l) => s + (l.quantityServed ?? 0), 0)) : null}
+              </td>
+            ) : null}
           </tr>
         </tfoot>
       </table>

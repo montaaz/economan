@@ -3,7 +3,7 @@
 import * as React from 'react'
 import { useRouter } from 'next/navigation'
 import {
-  Check, X, Pencil, Printer, Truck, PackageOpen, Save, RotateCcw,
+  Check, Ban, Pencil, Printer, Truck, PackageOpen, Save, RotateCcw,
 } from 'lucide-react'
 import { GlassCard, Button, Badge, TableWrap, Th, Td } from '@/components/ui/glass'
 import { Icon } from '@/components/ui/icon'
@@ -345,7 +345,11 @@ export function OrderProcessor({ order }: { order: ProcessOrder }) {
                             label="Rupture"
                             onClick={() => setLine(l.id, { status: 'REJECTED' })}
                           >
-                            <X className="size-4" />
+                            {/* Cercle barré plutôt qu'une croix : une croix se
+                                lit « fermer », le panneau d'interdiction dit
+                                « on ne sert pas ». C'est déjà l'icône d'une
+                                commande annulée ailleurs dans l'application. */}
+                            <Ban className="size-4" />
                           </LineAction>
                           {status !== 'PENDING' ? (
                             <LineAction

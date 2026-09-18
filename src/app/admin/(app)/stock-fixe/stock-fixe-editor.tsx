@@ -4,7 +4,7 @@ import * as React from 'react'
 import { useActionState } from 'react'
 import { useFormStatus } from 'react-dom'
 import { useRouter } from 'next/navigation'
-import { Save, Search, PackageSearch, Target, RotateCcw, Plus, AlertCircle } from 'lucide-react'
+import { Save, Search, PackageSearch, Target, RotateCcw, Plus, AlertCircle, Pencil } from 'lucide-react'
 import { GlassCard, Button, Badge, EmptyState, TableWrap, Th, Td } from '@/components/ui/glass'
 import { Icon } from '@/components/ui/icon'
 import { useToast } from '@/components/ui/toast'
@@ -13,6 +13,7 @@ import { Modal } from '@/components/ui/modal'
 import { Field } from '@/components/ui/glass'
 import { gql, errorMessage } from '@/lib/graphql-client'
 import { createProductForDepartment, type ActionResult } from '@/server/services/admin'
+import { EditProductModal } from './edit-product-modal'
 import { cn, formatQty, toNumber } from '@/lib/utils'
 
 type Dept = { id: number; name: string; code: string; color: string; icon: string | null }
@@ -22,6 +23,7 @@ export type ParLine = {
   name: string
   reference: string
   unitSymbol: string
+  unitId: string
   category: { id: string; name: string; icon: string | null }
   quantity: number
 }
@@ -47,6 +49,8 @@ export function StockFixeEditor({
   const [addingTo, setAddingTo] = React.useState<
     { id: string; name: string; preset?: boolean } | null
   >(null)
+  // Article en cours de modification ; null quand la modale est fermée.
+  const [editing, setEditing] = React.useState<ParLine | null>(null)
   const router = useRouter()
   const { push } = useToast()
 
@@ -80,6 +84,15 @@ export function StockFixeEditor({
   }, [products, search, activeCategory])
 
   const paged = usePagedRows(visible)
+
+  // Le numéro de ligne visible suit le filtre ; la position d'un article sur la
+  // feuille, elle, est son rang dans la liste complète. Confondre les deux
+  // déplacerait l'article au mauvais endroit dès qu'une famille est filtrée.
+  const positionOf = React.useMemo(() => {
+    const m = new Map<string, number>()
+    products.forEach((p, i) => m.set(p.id, i + 1))
+    return m
+  }, [products])
 
   const dirty = React.useMemo(
     () => products.filter((p) => toNumber(values[p.id]) !== p.quantity),
@@ -254,8 +267,12 @@ export function StockFixeEditor({
                 <tr>
                   <Th className="w-8 px-1 text-right sm:w-10 sm:px-3">#</Th>
                   <Th className="w-full px-1 sm:px-3">Article</Th>
-                  <Th className="px-1 text-right sm:px-3">Unité</Th>
+                  {/* L'unité suit la valeur qu'elle qualifie : « 24 u » se lit
+                      d'un bloc, alors qu'une colonne séparée à gauche obligeait
+                      à faire l'aller-retour. */}
                   <Th className="w-[7rem] px-1 text-right sm:w-40 sm:px-3">Stock fixe</Th>
+                  <Th className="px-1 text-left sm:px-3">Unité</Th>
+                  <Th className="w-10 px-1 sm:px-3"><span className="sr-only">Modifier</span></Th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-[rgb(var(--glass-edge)/0.12)]">
@@ -271,7 +288,7 @@ export function StockFixeEditor({
                       {opensFamily ? (
                         <tr>
                           <td
-                            colSpan={4}
+                            colSpan={5}
                             className="bg-ok/12 px-2 py-1.5 text-[0.72rem] font-bold uppercase tracking-[0.06em] text-ok sm:px-3 sm:text-[0.76rem]"
                           >
                             <span className="flex items-center gap-1.5">
@@ -295,26 +312,50 @@ export function StockFixeEditor({
                           {p.reference}
                         </p>
                       </Td>
-                      <Td className="whitespace-nowrap px-1 text-right text-[0.75rem] text-fg-muted sm:px-3 sm:text-[0.86rem]">
-                        {p.unitSymbol}
-                      </Td>
                       <Td className="px-1 sm:px-3">
                         <div className="flex items-center justify-end gap-1.5">
                           <input
                             inputMode="decimal"
                             value={values[p.id] ?? ''}
                             onChange={(e) => setValue(p.id, e.target.value)}
+                            onFocus={(e) => {
+                              // Un 0 qu'il faut effacer avant de taper est une
+                              // gêne sur 109 lignes : le champ se vide au clic
+                              // et retrouve son 0 si on le quitte sans saisir.
+                              if (toNumber(values[p.id]) === 0) {
+                                setValues((st) => ({ ...st, [p.id]: '' }))
+                              }
+                              e.currentTarget.select()
+                            }}
+                            onBlur={() => {
+                              if ((values[p.id] ?? '') === '') {
+                                setValues((st) => ({ ...st, [p.id]: String(p.quantity) }))
+                              }
+                            }}
                             placeholder="0"
                             aria-label={`Stock fixe pour ${p.name}`}
                             className="field h-9 w-16 px-1.5 py-0 text-right text-[0.8rem] tabular-nums sm:w-24 sm:px-3 sm:text-[0.85rem]"
                           />
                         </div>
                       </Td>
+                      <Td className="whitespace-nowrap px-1 text-left text-[0.75rem] font-medium text-fg-muted sm:px-3 sm:text-[0.86rem]">
+                        {p.unitSymbol}
+                      </Td>
+                      <Td className="px-1 sm:px-3">
+                        <button
+                          type="button"
+                          onClick={() => setEditing(p)}
+                          aria-label={`Modifier ${p.name}`}
+                          className="grid size-8 place-items-center rounded-lg text-fg-subtle transition-colors hover:bg-accent/12 hover:text-accent"
+                        >
+                          <Pencil className="size-3.5" />
+                        </button>
+                      </Td>
                     </tr>
                     {/* Sous la dernière ligne de la famille : l'ajout d'article. */}
                     {closesFamily ? (
                       <tr>
-                        <td colSpan={4} className="px-2 py-1.5 sm:px-3">
+                        <td colSpan={5} className="px-2 py-1.5 sm:px-3">
                           <button
                             type="button"
                             onClick={() => setAddingTo(p.category)}
@@ -347,6 +388,28 @@ export function StockFixeEditor({
           l’employé le verra, mais l’écart restera nul tant que vous n’aurez pas fixé de cible.
         </p>
       </GlassCard>
+      {editing ? (
+        <EditProductModal
+          product={{
+            id: editing.id,
+            name: editing.name,
+            reference: editing.reference,
+            categoryId: editing.category.id,
+            unitId: editing.unitId,
+            position: positionOf.get(editing.id) ?? 1,
+          }}
+          departmentId={selectedId}
+          categories={allCategories}
+          units={units}
+          total={products.length}
+          onClose={() => setEditing(null)}
+          onSaved={() => {
+            setEditing(null)
+            push('success', 'Article modifié.')
+            router.refresh()
+          }}
+        />
+      ) : null}
       {addingTo ? (
         <AddProductForm
           departmentId={selectedId}

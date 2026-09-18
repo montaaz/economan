@@ -53,7 +53,7 @@ export default async function StockFixePage({
           select: {
             id: true, name: true, reference: true,
             category: { select: { id: true, name: true, icon: true } },
-            baseUnit: { select: { symbol: true } },
+            baseUnit: { select: { id: true, symbol: true } },
           },
         },
       },
@@ -80,7 +80,7 @@ export default async function StockFixePage({
         select: {
           id: true, name: true, reference: true,
           category: { select: { id: true, name: true, icon: true } },
-          baseUnit: { select: { symbol: true } },
+          baseUnit: { select: { id: true, symbol: true } },
         },
       })
 
@@ -114,6 +114,7 @@ export default async function StockFixePage({
           name: p.name,
           reference: p.reference,
           unitSymbol: p.baseUnit.symbol,
+          unitId: String(p.baseUnit.id),
           category: { id: String(p.category.id), name: p.category.name, icon: p.category.icon },
           quantity: parBy.get(p.id) ?? 0,
         }))}

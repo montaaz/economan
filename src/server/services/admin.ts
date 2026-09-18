@@ -810,3 +810,66 @@ export async function toggleDepartmentProduct(
   revalidatePath('/employe/commande')
   return { ok: true }
 }
+
+/* ------------------------------------------------- position sur la feuille */
+
+/**
+ * Déplace un article à une position donnée de la feuille d'un département.
+ *
+ * La position affichée est le rang dans la feuille, pas le `sortOrder` brut :
+ * celui-ci avance par pas de 10 et comporte des trous après chaque insertion.
+ * On renumérote donc toute la feuille d'un coup — quelques centaines de lignes
+ * au plus, et l'écriture reste atomique.
+ *
+ * Renuméroter évite aussi que les trous se referment peu à peu, ce qui finirait
+ * par rendre l'insertion entre deux lignes impossible.
+ */
+export async function moveProductInSheet(
+  departmentId: number,
+  productId: number,
+  /** Position voulue, à partir de 1. */
+  position: number,
+): Promise<ActionResult> {
+  await requireRole(['ADMIN'], '/admin/login')
+
+  if (!Number.isInteger(position) || position < 1) {
+    return { ok: false, error: 'La position doit être un entier supérieur à 0.' }
+  }
+
+  try {
+    await prisma.$transaction(async (tx) => {
+      const sheet = await tx.departmentProduct.findMany({
+        where: { departmentId, product: { isActive: true } },
+        orderBy: { sortOrder: 'asc' },
+        select: { productId: true },
+      })
+
+      const from = sheet.findIndex((r) => r.productId === productId)
+      if (from === -1) throw new Error('INTROUVABLE')
+
+      // Une position au-delà de la fin place l'article en dernier plutôt que
+      // de refuser : c'est ce que veut dire « tout en bas ».
+      const to = Math.min(position - 1, sheet.length - 1)
+      if (to === from) return
+
+      const ordered = sheet.map((r) => r.productId)
+      ordered.splice(to, 0, ordered.splice(from, 1)[0])
+
+      for (const [i, id] of ordered.entries()) {
+        await tx.departmentProduct.update({
+          where: { departmentId_productId: { departmentId, productId: id } },
+          data: { sortOrder: (i + 1) * 10 },
+        })
+      }
+    })
+  } catch (e) {
+    if (e instanceof Error && e.message === 'INTROUVABLE') {
+      return { ok: false, error: 'Cet article ne figure pas sur la feuille de ce département.' }
+    }
+    throw e
+  }
+
+  revalidatePath('/admin/stock-fixe')
+  revalidatePath('/employe/commande')
+  return { ok: true }
+}

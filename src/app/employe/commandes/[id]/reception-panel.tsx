@@ -118,7 +118,7 @@ export function ReceptionPanel({
         </div>
       </div>
 
-      <TableWrap minWidth="50rem">
+      <TableWrap minWidth="58rem">
         <thead>
           <tr>
             <Th className="w-10 text-right">#</Th>
@@ -130,26 +130,43 @@ export function ReceptionPanel({
             <Th className="text-right">Servi</Th>
             <Th className="w-32 text-right">Reçu</Th>
             <Th className="text-right">Écart</Th>
+            {/* L'état de la ligne telle que l'économat l'a traitée : le fond
+                le suggère, le badge le nomme. */}
+            <Th>État</Th>
           </tr>
         </thead>
         <tbody className="divide-y divide-[rgb(var(--glass-edge)/0.12)]">
           {affichees.map((l, i) => {
             const rupture = l.status === 'REJECTED'
             const gap = rupture ? 0 : toNumber(counted[l.id]) - (l.quantityServed ?? 0)
+
+            // Deux écarts différents sur la même ligne : ce que l'économat a
+            // servi par rapport à la commande, et ce que l'employé compte par
+            // rapport au servi. Le premier explique le second — sans lui, une
+            // ligne servie 10 sur 24 se lit comme conforme.
+            const ajuste = !rupture && (l.quantityServed ?? 0) !== l.quantityAsked
             const ouvre = i === 0 || affichees[i - 1].categoryName !== l.categoryName
             return (
               <React.Fragment key={l.id}>
                 {ouvre ? (
                   <tr>
                     <td
-                      colSpan={7}
+                      colSpan={8}
                       className="bg-ok/12 px-2 py-1.5 text-[0.72rem] font-bold uppercase tracking-[0.06em] text-ok sm:px-3 sm:text-[0.76rem]"
                     >
                       {l.categoryName}
                     </td>
                   </tr>
                 ) : null}
-              <tr className={cn(gap !== 0 && 'bg-warn/[0.07]', rupture && 'bg-danger/[0.06]')}>
+              <tr
+                className={cn(
+                  ajuste && 'bg-warn/[0.09]',
+                  // Un écart de comptage prime sur l'ajustement : c'est lui
+                  // que l'employé doit trancher avant de confirmer.
+                  gap !== 0 && 'bg-warn/[0.16]',
+                  rupture && 'bg-danger/[0.08]',
+                )}
+              >
                 <Td className="text-right text-[0.78rem] tabular-nums text-fg-subtle">{i + 1}</Td>
                 <Td className="max-w-0">
                   <p className="truncate text-[0.85rem] font-medium text-fg">{l.productName}</p>
@@ -164,11 +181,13 @@ export function ReceptionPanel({
                 <Td className="whitespace-nowrap text-right tabular-nums text-fg-subtle">
                   {formatQty(l.quantityAsked)} {l.unitSymbol}
                 </Td>
-                <Td className="whitespace-nowrap text-right font-medium tabular-nums text-fg">
+                <Td className="whitespace-nowrap text-right tabular-nums">
                   {rupture ? (
                     <span className="font-semibold text-danger">Rupture</span>
                   ) : (
-                    <>{formatQty(l.quantityServed ?? 0)} {l.unitSymbol}</>
+                    <span className={cn('font-medium', ajuste ? 'font-semibold text-warn' : 'text-fg')}>
+                      {formatQty(l.quantityServed ?? 0)} {l.unitSymbol}
+                    </span>
                   )}
                 </Td>
                 <Td className="text-right">
@@ -199,6 +218,11 @@ export function ReceptionPanel({
                       {gap > 0 ? '+' : ''}{formatQty(gap)}
                     </span>
                   )}
+                </Td>
+                <Td>
+                  <Badge tone={rupture ? 'danger' : ajuste ? 'warn' : 'ok'}>
+                    {rupture ? 'Rupture' : ajuste ? 'Ajusté' : 'Servi'}
+                  </Badge>
                 </Td>
               </tr>
               </React.Fragment>

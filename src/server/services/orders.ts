@@ -136,6 +136,122 @@ export async function createOrder(params: {
   })
 }
 
+/**
+ * L'employé corrige une commande que l'économat n'a pas encore prise en main.
+ *
+ * Les lignes sont remplacées, pas fusionnées : l'employé recompte toute sa
+ * feuille, donc un article absent du nouvel envoi est un article qu'il ne veut
+ * plus. Le ticket garde son numéro et sa référence — l'économat a pu
+ * l'imprimer, et renuméroter ferait circuler deux papiers pour une commande.
+ *
+ * La garde est ici, pas seulement à l'écran : le statut peut changer entre le
+ * moment où la page s'affiche et celui où l'employé valide.
+ */
+export async function updateOrder(params: {
+  orderId: number
+  actor: SessionUser & { departmentId: number }
+  lines: OrderLineInput[]
+  note?: string | null
+}) {
+  const { orderId, actor } = params
+  const departmentId = actor.departmentId
+
+  const seen = new Set<number>()
+  for (const l of params.lines) {
+    if (seen.has(l.productId)) {
+      throw new WorkflowError('Un même article figure deux fois dans la commande.')
+    }
+    if (!Number.isFinite(l.quantityOnHand) || l.quantityOnHand < 0) {
+      throw new WorkflowError('Stock saisi invalide.')
+    }
+    seen.add(l.productId)
+  }
+  if (seen.size === 0) throw new WorkflowError('Aucune ligne saisie.')
+
+  return prisma.$transaction(async (tx) => {
+    const order = await tx.order.findUnique({
+      where: { id: orderId },
+      select: { status: true, departmentId: true, createdById: true },
+    })
+    if (!order) throw new WorkflowError('Commande introuvable.')
+
+    // Sa commande, son département : un employé ne corrige pas celle d'un autre.
+    if (order.createdById !== actor.id || order.departmentId !== departmentId) {
+      throw new WorkflowError('Cette commande n’est pas la vôtre.')
+    }
+    if (order.status !== 'PENDING') {
+      throw new WorkflowError(
+        'L’économat a déjà pris cette commande en charge : elle n’est plus modifiable.',
+      )
+    }
+
+    const hasSheet = (await tx.departmentProduct.count({ where: { departmentId } })) > 0
+    const allowed = await tx.product.findMany({
+      where: {
+        id: { in: [...seen] },
+        isActive: true,
+        ...(hasSheet
+          ? { departments: { some: { departmentId } } }
+          : { category: { departments: { some: { departmentId } } } }),
+      },
+      select: {
+        id: true, name: true, reference: true, baseUnitId: true, sortOrder: true,
+        category: { select: { name: true } },
+      },
+    })
+    if (allowed.length !== seen.size) {
+      throw new WorkflowError('Un des articles n’est pas disponible pour votre département.')
+    }
+    const byId = new Map(allowed.map((p) => [p.id, p]))
+
+    const pars = await tx.stockFixe.findMany({
+      where: { departmentId, productId: { in: [...seen] } },
+      select: { productId: true, quantity: true },
+    })
+    const parBy = new Map(pars.map((p) => [p.productId, Number(p.quantity)]))
+
+    // Même calcul qu'à la création : la quantité se déduit du stock fixe lu en
+    // base, jamais de ce que le client envoie.
+    const computed = params.lines
+      .map((l) => {
+        const target = parBy.get(l.productId) ?? 0
+        return { ...l, target, asked: Math.max(target - l.quantityOnHand, 0) }
+      })
+      .filter((l) => l.asked > 0)
+
+    if (computed.length === 0) {
+      throw new WorkflowError(
+        'Vos stocks couvrent déjà le stock fixe — il n’y a rien à commander.',
+      )
+    }
+
+    await tx.orderLine.deleteMany({ where: { orderId } })
+    await tx.order.update({
+      where: { id: orderId },
+      data: {
+        note: params.note?.trim() || null,
+        lines: {
+          create: computed.map((l) => {
+            const p = byId.get(l.productId)!
+            return {
+              productId: p.id,
+              unitId: p.baseUnitId,
+              productName: p.name,
+              productRef: p.reference,
+              categoryName: p.category.name,
+              stockFixe: l.target,
+              quantityOnHand: l.quantityOnHand,
+              quantityAsked: l.asked,
+              sortOrder: p.sortOrder,
+            }
+          }),
+        },
+      },
+    })
+    return { id: orderId }
+  })
+}
+
 /** L'économat ouvre la commande et commence à la servir. */
 export async function acceptOrder(orderId: number, actorId: number) {
   const order = await prisma.order.findUnique({ where: { id: orderId }, select: { status: true } })

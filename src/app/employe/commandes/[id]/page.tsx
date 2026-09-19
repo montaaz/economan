@@ -1,7 +1,7 @@
 import type { Metadata } from 'next'
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
-import { ArrowLeft, Printer } from 'lucide-react'
+import { ArrowLeft, Printer, Pencil } from 'lucide-react'
 import { executeGraphQL } from '@/server/graphql/execute'
 import { GlassCard, Badge, TableWrap, Th, Td, Button } from '@/components/ui/glass'
 import { StatusBadge, statusSteps } from '@/components/ui/status'
@@ -92,6 +92,17 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
           Mes commandes
         </Link>
         <div className="flex items-center gap-2">
+          {/* Corriger reste possible tant que l'économat n'a pas pris la
+              commande en main. Passé ce point le bouton disparaît : la
+              marchandise est peut-être déjà sortie du magasin. */}
+          {order.status === 'PENDING' ? (
+            <Link href={`/employe/commandes/${order.id}/modifier`}>
+              <Button variant="primary" size="sm">
+                <Pencil className="size-3.5" />
+                Modifier
+              </Button>
+            </Link>
+          ) : null}
           <PrintButton variant="secondary" size="sm">
             <Printer className="size-3.5" />
             Imprimer

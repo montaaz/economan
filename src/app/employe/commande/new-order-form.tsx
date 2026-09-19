@@ -25,6 +25,17 @@ function toOrder(stockFixe: number, onHand: number): number {
   return Math.max(stockFixe - onHand, 0)
 }
 
+const UPDATE = /* GraphQL */ `
+  mutation UpdateOrder($id: ID!, $lines: [OrderLineInput!]!, $note: String) {
+    updateOrder(id: $id, lines: $lines, note: $note) {
+      id
+      reference
+      ticketNumber
+      lineCount
+    }
+  }
+`
+
 const SUBMIT = /* GraphQL */ `
   mutation Submit($lines: [OrderLineInput!]!, $note: String) {
     submitOrder(lines: $lines, note: $note) {
@@ -37,12 +48,24 @@ const SUBMIT = /* GraphQL */ `
 `
 
 export function NewOrderForm({
-  products, departmentName, userName, businessDay,
+  products, departmentName, userName, businessDay, editing,
 }: {
   products: CatalogProduct[]
   departmentName: string
   userName: string
   businessDay: string
+  /**
+   * Commande en cours de correction. Le même formulaire sert aux deux cas :
+   * l'employé recompte toute sa feuille, la seule différence est la mutation
+   * appelée et le brouillon, qui n'a pas lieu d'être ici.
+   */
+  editing?: {
+    id: string
+    reference: string
+    note: string | null
+    /** Stock compté à l'envoi, par article. */
+    onHand: Record<string, string>
+  }
 }) {
   const router = useRouter()
   const { push } = useToast()
@@ -50,8 +73,8 @@ export function NewOrderForm({
   const [search, setSearch] = React.useState('')
   const [activeCategory, setActiveCategory] = React.useState<string | null>(null)
   // Ce que l'employé saisit : son stock en rayon, pas la quantité à commander.
-  const [onHand, setOnHand] = React.useState<Record<string, string>>({})
-  const [note, setNote] = React.useState('')
+  const [onHand, setOnHand] = React.useState<Record<string, string>>(editing?.onHand ?? {})
+  const [note, setNote] = React.useState(editing?.note ?? '')
   const [submitting, setSubmitting] = React.useState(false)
   // Passe à true seulement quand l'employé tente d'envoyer une feuille
   // incomplète : une feuille neuve ne doit pas s'ouvrir en mur rouge.
@@ -62,11 +85,13 @@ export function NewOrderForm({
   const draft = useDraft({ userName, departmentName, businessDay })
 
   React.useEffect(() => {
-    if (draft.restored) {
+    // En correction, les valeurs viennent de la commande enregistrée : un
+    // brouillon d'une autre saisie les écraserait.
+    if (!editing && draft.restored) {
       setOnHand(draft.restored.onHand)
       setNote(draft.restored.note ?? '')
     }
-  }, [draft.restored])
+  }, [draft.restored, editing])
 
   // Enregistrement différé : écrire à chaque frappe sérialiserait 109 lignes
   // par caractère tapé.
@@ -76,10 +101,10 @@ export function NewOrderForm({
   React.useEffect(() => {
     // Tant que la lecture initiale n'a pas eu lieu, écrire écraserait le
     // brouillon existant avec l'état vide du premier rendu.
-    if (!draft.checked) return
+    if (!draft.checked || editing) return
     const t = window.setTimeout(() => draft.save(etat.current.onHand, etat.current.note), 600)
     return () => window.clearTimeout(t)
-  }, [onHand, note, draft])
+  }, [onHand, note, draft, editing])
 
   const inputRefs = React.useRef<Record<string, HTMLInputElement | null>>({})
 
@@ -197,21 +222,29 @@ export function NewOrderForm({
 
     setSubmitting(true)
     try {
-      const data = await gql<{
-        submitOrder: { id: string; reference: string; ticketNumber: number; lineCount: number }
-      }>(SUBMIT, {
-        // On envoie le stock compté ; le serveur recalcule l'écart lui-même.
-        lines: products
-          .filter((p) => isFilled(p.id))
-          .map((p) => ({ productId: p.id, quantityOnHand: toNumber(onHand[p.id]) })),
-        note: note.trim() || null,
-      })
+      // On envoie le stock compté ; le serveur recalcule l'écart lui-même.
+      const lines = products
+        .filter((p) => isFilled(p.id))
+        .map((p) => ({ productId: p.id, quantityOnHand: toNumber(onHand[p.id]) }))
 
-      const o = data.submitOrder
+      type Resultat = { id: string; reference: string; ticketNumber: number; lineCount: number }
+      const o = editing
+        ? (await gql<{ updateOrder: Resultat }>(UPDATE, {
+            id: editing.id, lines, note: note.trim() || null,
+          })).updateOrder
+        : (await gql<{ submitOrder: Resultat }>(SUBMIT, {
+            lines, note: note.trim() || null,
+          })).submitOrder
+
       // La commande est partie : garder le brouillon la ferait revenir sur la
       // feuille suivante.
       draft.clear()
-      push('success', `Commande ${o.reference} envoyée — ticket n°${o.ticketNumber}, ${o.lineCount} article(s).`)
+      push(
+        'success',
+        editing
+          ? `Commande ${o.reference} modifiée — ${o.lineCount} article(s).`
+          : `Commande ${o.reference} envoyée — ticket n°${o.ticketNumber}, ${o.lineCount} article(s).`,
+      )
       router.push(`/employe/commandes/${o.id}`)
       router.refresh()
     } catch (error) {
@@ -500,7 +533,9 @@ export function NewOrderForm({
             className="min-w-[13rem]"
           >
             {!submitting ? <Send className="size-4" /> : null}
-            {submitting ? 'Envoi…' : 'Envoyer la commande'}
+            {submitting
+              ? 'Envoi…'
+              : editing ? 'Enregistrer les modifications' : 'Envoyer la commande'}
           </Button>
         </div>
       </div>

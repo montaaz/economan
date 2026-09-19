@@ -5,7 +5,7 @@ import { prisma } from '@/server/db'
 import { businessDay, addDays } from '@/lib/utils'
 import type { SessionUser } from '@/server/auth/session'
 import {
-  createOrder, acceptOrder, setServedLines, deliverOrder, receiveOrder, WorkflowError,
+  createOrder, updateOrder, acceptOrder, setServedLines, deliverOrder, receiveOrder, WorkflowError,
 } from '@/server/services/orders'
 
 export type Ctx = { user: SessionUser | null }
@@ -189,6 +189,8 @@ const typeDefs = /* GraphQL */ `
 
   type Mutation {
     submitOrder(lines: [OrderLineInput!]!, note: String): Order!
+    "Corrige une commande encore en attente. Refusée dès que l'économat l'a acceptée."
+    updateOrder(id: ID!, lines: [OrderLineInput!]!, note: String): Order!
     acceptOrder(id: ID!): Order!
     setServedLines(id: ID!, lines: [ServedLineInput!]!): Order!
     deliverOrder(id: ID!): Order!
@@ -623,6 +625,26 @@ const resolvers = {
         }),
       )
       return prisma.order.findUniqueOrThrow({ where: { id: created.id }, include: ORDER_INCLUDE })
+    },
+
+    updateOrder: async (
+      _p: unknown,
+      a: { id: string; lines: { productId: string; quantityOnHand: number }[]; note?: string },
+      ctx: Ctx,
+    ) => {
+      const u = requireEmployee(ctx)
+      const done = await run(() =>
+        updateOrder({
+          orderId: Number(a.id),
+          actor: u,
+          lines: a.lines.map((l) => ({
+            productId: Number(l.productId),
+            quantityOnHand: l.quantityOnHand,
+          })),
+          note: a.note,
+        }),
+      )
+      return prisma.order.findUniqueOrThrow({ where: { id: done.id }, include: ORDER_INCLUDE })
     },
 
     acceptOrder: async (_p: unknown, a: { id: string }, ctx: Ctx) => {

@@ -200,13 +200,14 @@ export function Ticket({
                         <span className="font-semibold text-[#d63f5a]">Rupture</span>
                       ) : livre ? (
                         <>
-                          {/* Le sens de l'écart d'abord : « ▼ » se voit avant
-                              qu'on ait comparé deux nombres de colonne à
-                              colonne. */}
+                          {/* Le symbole seul : accoler l'écart à la quantité
+                              servie mettait deux nombres côte à côte, et on ne
+                              savait plus lequel était la quantité. Le sens
+                              suffit, l'écart se lit en regardant la colonne
+                              « Commande » juste à gauche. */}
                           {ecart !== 0 ? (
-                            <span className="mr-1 font-bold text-[#b4630f]">
-                              {ecart < 0 ? '▼' : '▲'} {ecart > 0 ? '+' : '−'}
-                              {formatQty(Math.abs(ecart))}
+                            <span className="mr-1.5 font-bold text-[#b4630f]">
+                              {ecart < 0 ? '▼' : '▲'}
                             </span>
                           ) : null}
                           {formatQty(l.quantityServed ?? 0)}

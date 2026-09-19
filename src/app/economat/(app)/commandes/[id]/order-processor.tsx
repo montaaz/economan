@@ -269,7 +269,7 @@ export function OrderProcessor({ order }: { order: ProcessOrder }) {
               même règle que la feuille elle-même. */}
           {/* PrintButton vide le titre de l'onglet le temps de l'impression :
               l'en-tête haut reste blanc. */}
-          <PrintButton variant="secondary" size="sm">
+          <PrintButton orderId={order.id} variant="secondary" size="sm">
             <Printer className="size-3.5" />
             {{
               ticket: 'Imprimer le ticket',

@@ -27,7 +27,7 @@ export default async function AdminOrderPage({ params }: { params: Promise<{ id:
           <ArrowLeft className="size-4" />
           Tableau de bord
         </Link>
-        <PrintButton variant="secondary" size="sm">
+        <PrintButton orderId={order.id} variant="secondary" size="sm">
           <Printer className="size-3.5" />
           Imprimer
         </PrintButton>

@@ -7,7 +7,7 @@ import { GlassCard, Button, EmptyState, Badge } from '@/components/ui/glass'
 import { StatusBadge } from '@/components/ui/status'
 import { formatInstantDate, formatLongDate, formatTime, formatQty } from '@/lib/utils'
 
-export const metadata: Metadata = { title: 'Mes commandes' }
+export const metadata: Metadata = { title: 'Commandes du département' }
 export const dynamic = 'force-dynamic'
 
 const QUERY = /* GraphQL */ `
@@ -58,8 +58,8 @@ export default async function MyOrdersPage() {
   return (
     <>
       <PageHeader
-        title="Mes commandes"
-        description="Vos commandes des 3 derniers jours."
+        title="Commandes du département"
+        description="Les commandes de votre service sur les 3 derniers jours, la vôtre comme celles de vos collègues."
         actions={
           <Link href="/employe/commande">
             <Button variant="primary">

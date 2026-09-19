@@ -18,7 +18,7 @@ const EMPLOYEE: NavGroup[] = [
     title: 'Mon département',
     items: [
       { href: '/employe/commande', label: 'Nouvelle commande', shortLabel: 'Commander', icon: 'PlusCircle', primary: true },
-      { href: '/employe', label: 'Mes commandes', shortLabel: 'Commandes', icon: 'ClipboardList', primary: true },
+      { href: '/employe', label: 'Commandes du service', shortLabel: 'Commandes', icon: 'ClipboardList', primary: true },
     ],
   },
   {

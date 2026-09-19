@@ -457,7 +457,12 @@ const resolvers = {
       // « les 3 derniers jours » = aujourd'hui plus les deux précédents.
       const since = addDays(businessDay(), -((a.days ?? 3) - 1))
       return prisma.order.findMany({
-        where: { createdById: u.id, businessDay: { gte: since } },
+        // Toutes les commandes du département, pas seulement les siennes : un
+        // service se relaie, et savoir si un collègue a déjà commandé évite de
+        // passer deux tickets pour les mêmes articles. La liste affiche
+        // l'auteur de chacune, et corriger reste réservé à celui qui l'a
+        // passée — voir n'est pas modifier.
+        where: { departmentId: u.departmentId, businessDay: { gte: since } },
         include: ORDER_INCLUDE,
         orderBy: [{ businessDay: 'desc' }, { ticketNumber: 'desc' }],
       })

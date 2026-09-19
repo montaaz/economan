@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { ArrowLeft, Printer, Pencil } from 'lucide-react'
 import { executeGraphQL } from '@/server/graphql/execute'
+import { requireEmployeeDepartment } from '@/server/auth/guards'
 import { GlassCard, Badge, TableWrap, Th, Td, Button } from '@/components/ui/glass'
 import { StatusBadge, statusSteps } from '@/components/ui/status'
 import { Ticket, ticketVariant, type TicketOrder } from '@/components/ui/ticket'
@@ -31,7 +32,7 @@ const QUERY = /* GraphQL */ `
       totalAsked
       totalServed
       department { name code color }
-      createdBy { fullName }
+      createdBy { id fullName }
       processedBy { fullName }
       lines {
         id
@@ -52,8 +53,9 @@ const QUERY = /* GraphQL */ `
   }
 `
 
-type Order = TicketOrder & {
+type Order = Omit<TicketOrder, 'createdBy'> & {
   id: string
+  createdBy: { id: string; fullName: string }
   status: 'PENDING' | 'ACCEPTED' | 'DELIVERED' | 'RECEIVED' | 'CANCELLED'
   lineCount: number
   totalAsked: number
@@ -77,7 +79,10 @@ const LINE_LABEL = {
 
 export default async function OrderDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
-  const { order } = await executeGraphQL<{ order: Order | null }>(QUERY, { id })
+  const [user, { order }] = await Promise.all([
+    requireEmployeeDepartment(),
+    executeGraphQL<{ order: Order | null }>(QUERY, { id }),
+  ])
   if (!order) notFound()
 
   // Les lignes d'une commande sont figées à l'envoi : celles passées avant que
@@ -99,13 +104,15 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
           className="inline-flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-[0.83rem] font-medium text-fg-muted transition-colors hover:bg-[rgb(var(--glass-edge)/0.14)] hover:text-fg"
         >
           <ArrowLeft className="size-4" />
-          Mes commandes
+          Commandes du service
         </Link>
         <div className="flex items-center gap-2">
           {/* Corriger reste possible tant que l'économat n'a pas pris la
               commande en main. Passé ce point le bouton disparaît : la
               marchandise est peut-être déjà sortie du magasin. */}
-          {order.status === 'PENDING' ? (
+          {/* Un collègue voit la commande — le service se relaie — mais ne la
+              corrige pas : le serveur refuserait, autant ne pas proposer. */}
+          {order.status === 'PENDING' && order.createdBy.id === String(user.id) ? (
             <Link href={`/employe/commandes/${order.id}/modifier`}>
               <Button variant="primary" size="sm">
                 <Pencil className="size-3.5" />

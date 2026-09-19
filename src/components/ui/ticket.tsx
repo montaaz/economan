@@ -147,6 +147,12 @@ export function Ticket({
             // Un bandeau ouvre chaque famille : on sort la marchandise rayon
             // par rayon, pas article par article dans le désordre.
             const ouvre = i === 0 || lines[i - 1].categoryName !== l.categoryName
+
+            // Écart entre ce qui est sorti et ce qui était commandé. Nul sur un
+            // bon de commande : rien n'est encore servi.
+            const ecart = livre && l.status !== 'REJECTED'
+              ? (l.quantityServed ?? 0) - l.quantityAsked
+              : 0
             return (
               <React.Fragment key={l.id}>
                 {ouvre ? (
@@ -165,6 +171,9 @@ export function Ticket({
                     // Une rupture doit sauter aux yeux sur le papier comme à
                     // l'écran : c'est l'information qu'on cherche en relisant.
                     l.status === 'REJECTED' && 'bg-[#fdeaee]',
+                    // Une quantité différente de la commande se signale aussi :
+                    // sans marque, un bon servi à moitié se relit comme conforme.
+                    ecart !== 0 && 'bg-[#fdf1e3]',
                   )}
                 >
                   {/* La numérotation reste continue à travers les bandeaux :
@@ -186,11 +195,20 @@ export function Ticket({
                       on l'imprime. Sur un bon de commande elle reste à écrire
                       au stylo pendant la distribution. */}
                   {isBon ? (
-                    <td className="px-2 py-1 text-right font-semibold tabular-nums">
+                    <td className="whitespace-nowrap px-2 py-1 text-right font-semibold tabular-nums">
                       {l.status === 'REJECTED' ? (
                         <span className="font-semibold text-[#d63f5a]">Rupture</span>
                       ) : livre ? (
                         <>
+                          {/* Le sens de l'écart d'abord : « ▼ » se voit avant
+                              qu'on ait comparé deux nombres de colonne à
+                              colonne. */}
+                          {ecart !== 0 ? (
+                            <span className="mr-1 font-bold text-[#b4630f]">
+                              {ecart < 0 ? '▼' : '▲'} {ecart > 0 ? '+' : '−'}
+                              {formatQty(Math.abs(ecart))}
+                            </span>
+                          ) : null}
                           {formatQty(l.quantityServed ?? 0)}
                           <span className="ml-1 text-[0.72rem] font-normal text-[#4a5f7d]">
                             {l.unitSymbol}
@@ -205,6 +223,16 @@ export function Ticket({
           })}
         </tbody>
       </table>
+
+      {/* Légende : le signe seul ne suffit pas à qui reçoit le bon sans
+          explication. Affichée uniquement s'il y a un écart à lire. */}
+      {livre && lines.some((l) => l.status !== 'REJECTED'
+        && (l.quantityServed ?? 0) !== l.quantityAsked) ? (
+        <p className="mt-3 text-[0.76rem] text-[#4a5f7d]">
+          <span className="font-bold text-[#b4630f]">▼</span> servi en moins que commandé ·{' '}
+          <span className="font-bold text-[#b4630f]">▲</span> servi en plus
+        </p>
+      ) : null}
 
       {/* Les motifs de rupture, lorsqu'ils ont été saisis. La ligne du tableau
           dit qu'il y a rupture ; ce rappel dit pourquoi, sans alourdir chaque

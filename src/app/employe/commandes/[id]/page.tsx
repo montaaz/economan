@@ -204,10 +204,12 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
           ) : null}
         </GlassCard>
 
+        {/* À la réception, le panneau de vérification liste déjà tous les
+            articles avec les mêmes colonnes : afficher le tableau de détail
+            en dessous doublait la feuille sur 109 lignes. */}
         {order.status === 'DELIVERED' ? (
           <ReceptionPanel orderId={order.id} lines={order.lines} />
-        ) : null}
-
+        ) : (
         <GlassCard>
           <TableWrap minWidth="46rem">
             <thead>
@@ -292,6 +294,7 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
             </tbody>
           </TableWrap>
         </GlassCard>
+        )}
       </div>
 
       {/* Version papier */}

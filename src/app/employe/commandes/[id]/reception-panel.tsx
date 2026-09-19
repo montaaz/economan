@@ -45,6 +45,15 @@ export function ReceptionPanel({
   // Les lignes en rupture n'ont rien à compter : elles sortent de la vérification.
   const toCheck = React.useMemo(() => lines.filter((l) => l.status !== 'REJECTED'), [lines])
 
+  // Toutes les lignes sont montrées, ruptures comprises : ce tableau est le
+  // seul affiché à la réception, et l'employé doit voir ce qui n'a pas été
+  // livré. Elles restent regroupées par famille, comme partout ailleurs.
+  const affichees = React.useMemo(() => {
+    const ordre: string[] = []
+    for (const l of lines) if (!ordre.includes(l.categoryName)) ordre.push(l.categoryName)
+    return ordre.flatMap((c) => lines.filter((l) => l.categoryName === c))
+  }, [lines])
+
   const [counted, setCounted] = React.useState<Record<string, string>>(() =>
     Object.fromEntries(toCheck.map((l) => [l.id, String(l.quantityServed ?? 0)])),
   )
@@ -124,17 +133,29 @@ export function ReceptionPanel({
           </tr>
         </thead>
         <tbody className="divide-y divide-[rgb(var(--glass-edge)/0.12)]">
-          {toCheck.map((l, i) => {
-            const gap = toNumber(counted[l.id]) - (l.quantityServed ?? 0)
+          {affichees.map((l, i) => {
+            const rupture = l.status === 'REJECTED'
+            const gap = rupture ? 0 : toNumber(counted[l.id]) - (l.quantityServed ?? 0)
+            const ouvre = i === 0 || affichees[i - 1].categoryName !== l.categoryName
             return (
-              <tr key={l.id} className={cn(gap !== 0 && 'bg-warn/[0.07]')}>
+              <React.Fragment key={l.id}>
+                {ouvre ? (
+                  <tr>
+                    <td
+                      colSpan={7}
+                      className="bg-ok/12 px-2 py-1.5 text-[0.72rem] font-bold uppercase tracking-[0.06em] text-ok sm:px-3 sm:text-[0.76rem]"
+                    >
+                      {l.categoryName}
+                    </td>
+                  </tr>
+                ) : null}
+              <tr className={cn(gap !== 0 && 'bg-warn/[0.07]', rupture && 'bg-danger/[0.06]')}>
                 <Td className="text-right text-[0.78rem] tabular-nums text-fg-subtle">{i + 1}</Td>
                 <Td className="max-w-0">
                   <p className="truncate text-[0.85rem] font-medium text-fg">{l.productName}</p>
-                  <p className="truncate text-[0.7rem] text-fg-subtle">
-                    <span className="font-mono">{l.productRef}</span>
-                    <span className="mx-1.5">·</span>
-                    {l.categoryName}
+                  {/* La famille est portée par le bandeau. */}
+                  <p className="truncate font-mono text-[0.7rem] text-fg-subtle">
+                    {l.productRef}
                   </p>
                 </Td>
                 <Td className="whitespace-nowrap text-right tabular-nums text-fg-subtle">
@@ -144,19 +165,29 @@ export function ReceptionPanel({
                   {formatQty(l.quantityAsked)} {l.unitSymbol}
                 </Td>
                 <Td className="whitespace-nowrap text-right font-medium tabular-nums text-fg">
-                  {formatQty(l.quantityServed ?? 0)} {l.unitSymbol}
+                  {rupture ? (
+                    <span className="font-semibold text-danger">Rupture</span>
+                  ) : (
+                    <>{formatQty(l.quantityServed ?? 0)} {l.unitSymbol}</>
+                  )}
                 </Td>
                 <Td className="text-right">
-                  <input
-                    inputMode="decimal"
-                    value={counted[l.id] ?? ''}
-                    onChange={(e) => setValue(l.id, e.target.value)}
-                    aria-label={`Quantité reçue pour ${l.productName}`}
-                    className="field h-9 w-24 px-2 py-0 text-right text-[0.85rem] tabular-nums"
-                  />
+                  {/* Rien n'a été livré : il n'y a rien à compter. Le champ
+                      disparaît plutôt que d'inviter à saisir un zéro. */}
+                  {rupture ? (
+                    <span className="text-[0.8rem] text-fg-subtle">—</span>
+                  ) : (
+                    <input
+                      inputMode="decimal"
+                      value={counted[l.id] ?? ''}
+                      onChange={(e) => setValue(l.id, e.target.value)}
+                      aria-label={`Quantité reçue pour ${l.productName}`}
+                      className="field h-9 w-24 px-2 py-0 text-right text-[0.85rem] tabular-nums"
+                    />
+                  )}
                 </Td>
                 <Td className="whitespace-nowrap text-right">
-                  {gap === 0 ? (
+                  {rupture || gap === 0 ? (
                     <span className="text-[0.8rem] tabular-nums text-fg-subtle">—</span>
                   ) : (
                     <span
@@ -170,6 +201,7 @@ export function ReceptionPanel({
                   )}
                 </Td>
               </tr>
+              </React.Fragment>
             )
           })}
         </tbody>

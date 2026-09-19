@@ -210,7 +210,7 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
         {order.status === 'DELIVERED' ? (
           <ReceptionPanel orderId={order.id} lines={order.lines} />
         ) : (
-        <GlassCard>
+        <GlassCard overflowVisible>
           <TableWrap minWidth="46rem">
             <thead>
               <tr>

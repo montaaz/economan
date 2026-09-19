@@ -257,7 +257,7 @@ export function NewOrderForm({
   const filledCount = products.length - missing.length
 
   return (
-    <GlassCard>
+    <GlassCard overflowVisible>
       {/* Cartouche de la feuille. La date est remontée près du titre ; elle
           reste imprimée ici, car la feuille sortie du bureau doit porter sa
           journée. */}

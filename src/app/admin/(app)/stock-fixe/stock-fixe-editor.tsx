@@ -250,7 +250,7 @@ export function StockFixeEditor({
         })}
       </div>
 
-      <GlassCard>
+      <GlassCard overflowVisible>
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[rgb(var(--glass-edge)/0.16)] px-4 py-3 sm:px-5">
           <div className="flex min-w-0 items-center gap-2.5">
             <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-accent/12 text-accent">

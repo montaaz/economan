@@ -342,7 +342,7 @@ export function OrderProcessor({ order }: { order: ProcessOrder }) {
       </GlassCard>
 
       {/* Lignes */}
-      <GlassCard>
+      <GlassCard overflowVisible>
         <TableWrap minWidth="44rem">
           <thead>
             <tr>

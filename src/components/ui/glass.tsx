@@ -9,10 +9,17 @@ type CardProps = React.HTMLAttributes<HTMLDivElement> & {
   rim?: boolean
   hover?: boolean
   as?: 'div' | 'section' | 'article' | 'aside'
+  /**
+   * Laisse le contenu déborder. `overflow-hidden` arrondit les coins mais crée
+   * un conteneur qui annule le `sticky` d'un en-tête de tableau : une carte qui
+   * en contient un doit l'activer.
+   */
+  overflowVisible?: boolean
 }
 
 export function GlassCard({
-  className, deep, specular = true, rim, hover, as: Tag = 'div', children, ...props
+  className, deep, specular = true, rim, hover, overflowVisible,
+  as: Tag = 'div', children, ...props
 }: CardProps) {
   return (
     <Tag
@@ -21,13 +28,15 @@ export function GlassCard({
         specular && 'glass-specular',
         rim && 'glass-rim',
         hover && 'glass-hover',
-        'overflow-hidden',
+        overflowVisible ? 'overflow-visible' : 'overflow-hidden',
         className,
       )}
       {...props}
     >
       {/* Le contenu passe au-dessus du reflet ::after. */}
-      <div className="relative z-[1]">{children}</div>
+      <div className={cn('relative z-[1]', overflowVisible && 'overflow-visible')}>
+        {children}
+      </div>
     </Tag>
   )
 }
@@ -244,7 +253,9 @@ export function TableWrap({
   minWidth?: string
 }) {
   return (
-    <div className={cn('scroll-x w-full', className)}>
+    // `scroll-x-sticky` plutôt que `scroll-x` : il découpe l'axe vertical sans
+    // créer de conteneur de défilement, ce qui laisse l'en-tête coller.
+    <div className={cn('scroll-x-sticky w-full', className)}>
       <table className="w-full border-collapse text-left text-[0.86rem]" style={{ minWidth }}>
         {children}
       </table>
@@ -256,8 +267,10 @@ export function Th({ children, className, ...props }: React.ThHTMLAttributes<HTM
   return (
     <th
       className={cn(
-        'sticky top-0 z-[2] whitespace-nowrap bg-[rgb(var(--glass-edge)/0.12)] px-3 py-2.5',
-        'text-[0.74rem] font-semibold uppercase tracking-wider text-fg-muted backdrop-blur-md',
+        // Fond opaque : à 12 % d'opacité, les lignes transparaissaient sous
+        // l'en-tête pendant le défilement et le rendaient illisible.
+        'sticky top-0 z-[2] whitespace-nowrap bg-[#e7edf7] px-3 py-2.5',
+        'text-[0.74rem] font-semibold uppercase tracking-wider text-fg-muted',
         className,
       )}
       {...props}

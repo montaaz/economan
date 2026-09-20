@@ -13,6 +13,7 @@ export type BoardOrder = {
   businessDay: string
   rejectedCount: number
   adjustedCount: number
+  validatedCount: number
   status: 'PENDING' | 'ACCEPTED' | 'DELIVERED' | 'RECEIVED' | 'CANCELLED'
   createdAt: string
   lineCount: number
@@ -143,6 +144,19 @@ export function DayBoard({ board, basePath }: { board: Board; basePath: string }
 }
 
 /**
+ * Teinte de fond par état, la même que sur l'écran du département : un ticket
+ * garde la même couleur d'un bout à l'autre de la chaîne, que ce soit
+ * l'employé, l'économat ou l'administration qui le regarde.
+ */
+const CARTE: Record<BoardOrder['status'], string> = {
+  PENDING: 'bg-warn/[0.20] border-warn/40',
+  ACCEPTED: 'bg-danger/[0.16] border-danger/40',
+  DELIVERED: 'bg-ok/[0.20] border-ok/40',
+  RECEIVED: 'bg-info/[0.16] border-info/40',
+  CANCELLED: 'bg-[rgb(var(--glass-edge)/0.16)] border-[rgb(var(--glass-edge)/0.35)]',
+}
+
+/**
  * Carte d'un ticket. La barre d'avancement longe le bord gauche : sur une
  * colonne de cartes, les tickets qui stagnent se repèrent sans lire un chiffre.
  */
@@ -172,7 +186,11 @@ function TicketCard({
   return (
     <Link
       href={href}
-      className="group relative flex overflow-hidden rounded-xl border border-[rgb(var(--glass-edge)/0.26)] bg-white/70 transition-[transform,box-shadow,border-color] duration-200 hover:-translate-y-0.5 hover:border-[rgb(var(--glass-edge)/0.5)] hover:shadow-[0_10px_24px_-12px_rgb(var(--shadow-ambient)/0.4)]"
+      className={cn(
+        'group relative flex overflow-hidden rounded-xl border transition-[transform,box-shadow,border-color] duration-200',
+        'hover:-translate-y-0.5 hover:shadow-[0_10px_24px_-12px_rgb(var(--shadow-ambient)/0.4)]',
+        CARTE[o.status],
+      )}
     >
       {/* Jauge verticale : le remplissage EST l'avancement. */}
       <span aria-hidden className={cn('relative w-1.5 shrink-0', encart)}>
@@ -237,6 +255,13 @@ function TicketCard({
           {o.adjustedCount > 0 ? (
             <span className="rounded-full bg-warn/14 px-1.5 font-medium text-warn">
               {o.adjustedCount} ajustée{o.adjustedCount > 1 ? 's' : ''}
+            </span>
+          ) : null}
+          {/* Et ce qui va bien : sans lui, deux comptes rouges sur une carte
+              laissaient croire que tout le ticket posait problème. */}
+          {o.validatedCount > 0 ? (
+            <span className="rounded-full bg-ok/14 px-1.5 font-medium text-ok">
+              {o.validatedCount} conforme{o.validatedCount > 1 ? 's' : ''}
             </span>
           ) : null}
 

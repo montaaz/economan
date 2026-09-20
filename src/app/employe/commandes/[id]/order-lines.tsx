@@ -4,6 +4,7 @@ import * as React from 'react'
 import { useRouter } from 'next/navigation'
 import { Check, Loader2, Pencil, Search, X } from 'lucide-react'
 import { EmptyState, TableWrap, Th, Td } from '@/components/ui/glass'
+import { FilterBadge, FilterReset } from '@/components/ui/filter-badge'
 import { FamilyBand, countByFamily } from '@/components/ui/family-band'
 import { useToast } from '@/components/ui/toast'
 import { gql, errorMessage } from '@/lib/graphql-client'
@@ -56,6 +57,9 @@ export function OrderLines({
 
   const [search, setSearch] = React.useState('')
   const [famille, setFamille] = React.useState<string | null>(null)
+  // Filtre par état : voir d'un coup les articles non livrés ou servis en
+  // quantité différente, sans les chercher un à un dans la feuille.
+  const [etat, setEtat] = React.useState<'REJECTED' | 'ADJUSTED' | null>(null)
 
   // Le rang est celui de la feuille, figé une fois pour toutes : filtrer
   // renumérote les lignes de 1 à n, et « l'article 87 » ne désignerait plus
@@ -75,9 +79,15 @@ export function OrderLines({
     return vues
   }, [lines])
 
+  const counts = React.useMemo(() => ({
+    rejected: lines.filter((l) => l.status === 'REJECTED').length,
+    adjusted: lines.filter((l) => l.status === 'ADJUSTED').length,
+  }), [lines])
+
   const affichees = React.useMemo(() => {
     const q = search.trim().toLowerCase()
     return numerotees.filter((l) => {
+      if (etat && l.status !== etat) return false
       if (famille && l.categoryName !== famille) return false
       if (!q) return true
       // Même recherche qu'à la saisie : sur le nom ou sur la référence.
@@ -85,7 +95,7 @@ export function OrderLines({
         l.productName.toLowerCase().includes(q) || l.productRef.toLowerCase().includes(q)
       )
     })
-  }, [numerotees, search, famille])
+  }, [numerotees, search, famille, etat])
 
   // Le compte accompagne le nom sur le bandeau : il porte sur ce qui est
   // réellement affiché, donc il suit le filtre.
@@ -170,6 +180,41 @@ export function OrderLines({
       {/* Même barre qu'à la saisie : sur cent lignes, retrouver un article en
           faisant défiler est un travail en soi. */}
       <div className="no-print space-y-3 border-b border-[rgb(var(--glass-edge)/0.16)] p-3.5">
+        {/* Ce qui cloche se compte en tête, et se montre au clic : chercher
+            trois ruptures parmi cent lignes était le travail que ce compteur
+            doit épargner. */}
+        {counts.rejected > 0 || counts.adjusted > 0 ? (
+          <div className="flex flex-wrap items-center gap-1.5">
+            {counts.rejected > 0 ? (
+              <FilterBadge
+                tone="danger"
+                actif={etat === 'REJECTED'}
+                onClick={() => setEtat(etat === 'REJECTED' ? null : 'REJECTED')}
+                label={etat === 'REJECTED'
+                  ? 'Afficher de nouveau tous les articles'
+                  : `N’afficher que les ${counts.rejected} article(s) en rupture`}
+              >
+                {counts.rejected} rupture{counts.rejected > 1 ? 's' : ''}
+              </FilterBadge>
+            ) : null}
+            {counts.adjusted > 0 ? (
+              <FilterBadge
+                tone="warn"
+                actif={etat === 'ADJUSTED'}
+                onClick={() => setEtat(etat === 'ADJUSTED' ? null : 'ADJUSTED')}
+                label={etat === 'ADJUSTED'
+                  ? 'Afficher de nouveau tous les articles'
+                  : `N’afficher que les ${counts.adjusted} article(s) servi(s) en quantité différente`}
+              >
+                {counts.adjusted} ajustée{counts.adjusted > 1 ? 's' : ''}
+              </FilterBadge>
+            ) : null}
+            {etat !== null ? (
+              <FilterReset total={lines.length} onClick={() => setEtat(null)} />
+            ) : null}
+          </div>
+        ) : null}
+
         <div className="relative">
           <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-fg-subtle" />
           <input
@@ -219,7 +264,7 @@ export function OrderLines({
             {affichees.length} article{affichees.length > 1 ? 's' : ''} sur {lines.length}
             <button
               type="button"
-              onClick={() => { setSearch(''); setFamille(null) }}
+              onClick={() => { setSearch(''); setFamille(null); setEtat(null) }}
               className="ml-2 font-medium text-accent hover:underline"
             >
               Tout afficher

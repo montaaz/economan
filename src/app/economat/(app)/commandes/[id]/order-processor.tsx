@@ -3,10 +3,11 @@
 import * as React from 'react'
 import { useRouter } from 'next/navigation'
 import {
-  Check, Ban, Pencil, Printer, Truck, PackageOpen, Save, RotateCcw, Undo2, ChevronRight, X,
+  Check, Ban, Pencil, Printer, Truck, PackageOpen, Save, RotateCcw, Undo2,
 } from 'lucide-react'
 import { GlassCard, Button, Badge, TableWrap, Th, Td } from '@/components/ui/glass'
 import { FamilyBand, countByFamily } from '@/components/ui/family-band'
+import { FilterBadge, FilterReset } from '@/components/ui/filter-badge'
 import { Icon } from '@/components/ui/icon'
 import { useToast } from '@/components/ui/toast'
 import { useConfirm } from '@/components/ui/confirm'
@@ -316,7 +317,7 @@ export function OrderProcessor({ order }: { order: ProcessOrder }) {
               cent lignes pour retrouver les trois qu'il désigne. Le clic ne
               garde que ces lignes-là ; un second clic rend la liste entière. */}
           {counts.rejected > 0 ? (
-            <BadgeFiltre
+            <FilterBadge
               tone="danger"
               actif={filtre === 'REJECTED'}
               onClick={() => setFiltre(filtre === 'REJECTED' ? null : 'REJECTED')}
@@ -325,11 +326,11 @@ export function OrderProcessor({ order }: { order: ProcessOrder }) {
                 : `N’afficher que les ${counts.rejected} ligne(s) en rupture`}
             >
               {counts.rejected} rupture(s)
-            </BadgeFiltre>
+            </FilterBadge>
           ) : null}
 
           {counts.adjusted > 0 ? (
-            <BadgeFiltre
+            <FilterBadge
               tone="warn"
               actif={filtre === 'ADJUSTED'}
               onClick={() => setFiltre(filtre === 'ADJUSTED' ? null : 'ADJUSTED')}
@@ -338,20 +339,13 @@ export function OrderProcessor({ order }: { order: ProcessOrder }) {
                 : `N’afficher que les ${counts.adjusted} ligne(s) ajustée(s)`}
             >
               {counts.adjusted} ajustée{counts.adjusted > 1 ? 's' : ''}
-            </BadgeFiltre>
+            </FilterBadge>
           ) : null}
 
           {/* Une liste filtrée ne dit pas d'elle-même qu'elle est partielle :
               sans ce rappel, on croirait la commande réduite à trois lignes. */}
           {filtre !== null ? (
-            <button
-              type="button"
-              onClick={() => setFiltre(null)}
-              className="inline-flex items-center gap-1 rounded-full border border-[rgb(var(--glass-edge)/0.3)] px-2 py-0.5 text-[0.8rem] font-medium leading-5 text-fg-muted transition-colors hover:bg-[rgb(var(--glass-edge)/0.14)] sm:text-[0.72rem]"
-            >
-              <X className="size-3.5" />
-              Afficher les {order.lineCount} articles
-            </button>
+            <FilterReset total={order.lineCount} onClick={() => setFiltre(null)} />
           ) : null}
         </div>
 
@@ -676,49 +670,6 @@ const ACTION_TONES = {
   danger: 'border-danger/45 bg-danger text-white',
   neutral: 'border-[rgb(var(--glass-edge)/0.3)] bg-white/60 text-fg-muted',
 } as const
-
-/**
- * Compteur qui filtre le tableau sur les lignes qu'il dénombre.
- *
- * Il a l'apparence d'un badge mais le comportement d'un interrupteur : il ne
- * change rien à la commande, il restreint seulement ce qui est affiché.
- */
-function BadgeFiltre({
-  tone, actif, onClick, label, children,
-}: {
-  tone: 'danger' | 'warn'
-  actif: boolean
-  onClick: () => void
-  /** Ce que le bouton fait, pour les lecteurs d'écran et l'infobulle. */
-  label: string
-  children: React.ReactNode
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-pressed={actif}
-      aria-label={label}
-      title={label}
-      className={cn(
-        'inline-flex items-center gap-1 whitespace-nowrap rounded-full border px-2 py-0.5',
-        'text-[0.8rem] font-medium leading-5 tracking-tight sm:text-[0.72rem]',
-        'cursor-pointer transition-colors',
-        tone === 'danger'
-          ? 'border-danger/30 bg-danger/12 text-danger hover:bg-danger/20'
-          : 'border-warn/30 bg-warn/14 text-warn hover:bg-warn/24',
-        // Le filtre actif se voit : sinon rien ne dirait pourquoi la liste
-        // s'est raccourcie.
-        actif && (tone === 'danger'
-          ? 'bg-danger/25 ring-2 ring-danger/40'
-          : 'bg-warn/28 ring-2 ring-warn/40'),
-      )}
-    >
-      {children}
-      {actif ? <Check className="size-3.5" /> : <ChevronRight className="size-3.5" />}
-    </button>
-  )
-}
 
 function LineAction({
   active, tone, label, onClick, children, disabled,

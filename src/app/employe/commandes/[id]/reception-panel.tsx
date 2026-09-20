@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { PackageCheck, Check, AlertTriangle } from 'lucide-react'
 import { Button, Badge, TableWrap, Th, Td } from '@/components/ui/glass'
 import { FamilyBand, countByFamily } from '@/components/ui/family-band'
+import { FilterBadge, FilterReset } from '@/components/ui/filter-badge'
 import { useToast } from '@/components/ui/toast'
 import { gql, errorMessage } from '@/lib/graphql-client'
 import { cn, formatQty, toNumber } from '@/lib/utils'
@@ -46,14 +47,29 @@ export function ReceptionPanel({
   // Les lignes en rupture n'ont rien à compter : elles sortent de la vérification.
   const toCheck = React.useMemo(() => lines.filter((l) => l.status !== 'REJECTED'), [lines])
 
+  // Filtre par état : à la réception, voir d'abord ce qui manque ou ce qui
+  // diffère évite de parcourir cent lignes conformes pour les trouver.
+  const [etat, setEtat] = React.useState<'REJECTED' | 'ADJUSTED' | null>(null)
+
+  const counts = React.useMemo(() => ({
+    rejected: lines.filter((l) => l.status === 'REJECTED').length,
+    adjusted: lines.filter((l) => l.status === 'ADJUSTED').length,
+  }), [lines])
+
+  // Le rang est celui de la feuille, figé avant tout filtrage : renuméroter
+  // une liste filtrée ferait que « l'article 16 » changerait de sens.
+  const numerotees = React.useMemo(
+    () => lines.map((l, i) => ({ ...l, rang: i + 1 })),
+    [lines],
+  )
+
   // Toutes les lignes sont montrées, ruptures comprises : ce tableau est le
   // seul affiché à la réception, et l'employé doit voir ce qui n'a pas été
-  // livré. Elles restent regroupées par famille, comme partout ailleurs.
-  const affichees = React.useMemo(() => {
-    const ordre: string[] = []
-    for (const l of lines) if (!ordre.includes(l.categoryName)) ordre.push(l.categoryName)
-    return ordre.flatMap((c) => lines.filter((l) => l.categoryName === c))
-  }, [lines])
+  // livré.
+  const affichees = React.useMemo(
+    () => (etat === null ? numerotees : numerotees.filter((l) => l.status === etat)),
+    [numerotees, etat],
+  )
 
   // Le compte accompagne le nom sur le bandeau : il porte sur ce qui est
   // réellement affiché, donc il suit le filtre.
@@ -108,7 +124,35 @@ export function ReceptionPanel({
           Comptez ce que vous recevez. Les cases partent de ce que l’économat a servi —
           ne corrigez que les lignes qui diffèrent.
         </p>
-        <div className="flex shrink-0 items-center gap-2">
+        <div className="flex shrink-0 flex-wrap items-center gap-2">
+          {/* Ce qui cloche se compte ici, et se montre au clic. */}
+          {counts.rejected > 0 ? (
+            <FilterBadge
+              tone="danger"
+              actif={etat === 'REJECTED'}
+              onClick={() => setEtat(etat === 'REJECTED' ? null : 'REJECTED')}
+              label={etat === 'REJECTED'
+                ? 'Afficher de nouveau tous les articles'
+                : `N’afficher que les ${counts.rejected} article(s) en rupture`}
+            >
+              {counts.rejected} rupture{counts.rejected > 1 ? 's' : ''}
+            </FilterBadge>
+          ) : null}
+          {counts.adjusted > 0 ? (
+            <FilterBadge
+              tone="warn"
+              actif={etat === 'ADJUSTED'}
+              onClick={() => setEtat(etat === 'ADJUSTED' ? null : 'ADJUSTED')}
+              label={etat === 'ADJUSTED'
+                ? 'Afficher de nouveau tous les articles'
+                : `N’afficher que les ${counts.adjusted} article(s) servi(s) en quantité différente`}
+            >
+              {counts.adjusted} ajustée{counts.adjusted > 1 ? 's' : ''}
+            </FilterBadge>
+          ) : null}
+          {etat !== null ? (
+            <FilterReset total={lines.length} onClick={() => setEtat(null)} />
+          ) : null}
           {gaps.length > 0 ? (
             <Badge tone="warn" icon={<AlertTriangle className="size-3.5" />}>
               {gaps.length} écart(s)
@@ -169,7 +213,7 @@ export function ReceptionPanel({
                   rupture && 'bg-danger/[0.08]',
                 )}
               >
-                <Td className="text-right text-[0.78rem] tabular-nums text-fg-subtle">{i + 1}</Td>
+                <Td className="text-right text-[0.78rem] tabular-nums text-fg-subtle">{l.rang}</Td>
                 <Td className="max-w-0">
                   <p className="truncate text-[0.85rem] font-medium text-fg">{l.productName}</p>
                   {/* La famille est portée par le bandeau. */}

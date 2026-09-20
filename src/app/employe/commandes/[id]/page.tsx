@@ -115,6 +115,8 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
   // Sa commande, pas encore prise en charge : les deux conditions du serveur.
   const modifiable = order.status === 'PENDING' && order.createdBy.id === String(user.id)
 
+  const ruptures = order.lines.filter((l) => l.status === 'REJECTED').length
+
   // Une commande ne retient que ce qu'il y avait à commander : un rayon déjà
   // plein ne produit pas de ligne. Tant qu'elle est modifiable, on rétablit la
   // feuille entière pour que ces articles-là restent corrigeables — un stock
@@ -254,8 +256,13 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
               {order.lineCount} article{order.lineCount > 1 ? 's' : ''} commandé
               {order.lineCount > 1 ? 's' : ''}
             </Badge>
-            {order.processedBy ? (
-              <Badge tone="neutral">Traité par {order.processedBy.fullName}</Badge>
+            {/* Qui a traité la commande n'apprenait rien à l'employé qui la
+                relit ; ce qui manque ou diffère, si. Les compteurs cliquables
+                sont au-dessus du tableau, là où ils filtrent. */}
+            {ruptures > 0 ? (
+              <Badge tone="danger">
+                {ruptures} article{ruptures > 1 ? 's' : ''} non livré{ruptures > 1 ? 's' : ''}
+              </Badge>
             ) : null}
           </div>
 

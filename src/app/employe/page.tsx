@@ -5,7 +5,7 @@ import { executeGraphQL } from '@/server/graphql/execute'
 import { PageHeader } from '@/components/ui/stat'
 import { GlassCard, Button, EmptyState, Badge } from '@/components/ui/glass'
 import { StatusBadge } from '@/components/ui/status'
-import { formatInstantDate, formatLongDate, formatTime } from '@/lib/utils'
+import { cn, formatInstantDate, formatLongDate, formatTime } from '@/lib/utils'
 
 export const metadata: Metadata = { title: 'Commandes du département' }
 export const dynamic = 'force-dynamic'
@@ -42,6 +42,22 @@ type Order = {
   note: string | null
   department: { name: string; color: string }
   createdBy: { fullName: string }
+}
+
+/**
+ * Teinte de fond par état, du plus urgent au plus abouti.
+ *
+ * Le fond porte l'information, pas seulement la pastille : sur une liste de
+ * cartes, l'état se lit alors sans rien déchiffrer. Les teintes restent
+ * légères — la carte doit rester une carte, pas un bloc de couleur.
+ */
+const CARTE: Record<string, string> = {
+  PENDING: '!bg-warn/[0.28] !border-warn/45',
+  ACCEPTED: '!bg-danger/[0.22] !border-danger/45',
+  DELIVERED: '!bg-ok/[0.26] !border-ok/45',
+  // Reçue : le cycle est clos, la carte n'appelle plus rien et s'efface.
+  RECEIVED: '!bg-ok/[0.10] !border-ok/25',
+  CANCELLED: '!bg-[rgb(var(--glass-edge)/0.18)] !border-[rgb(var(--glass-edge)/0.35)]',
 }
 
 export default async function MyOrdersPage() {
@@ -99,7 +115,10 @@ export default async function MyOrdersPage() {
               <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
                 {orders.map((o) => (
                   <Link key={o.id} href={`/employe/commandes/${o.id}`}>
-                    <GlassCard hover className="h-full">
+                    {/* La carte entière prend la couleur de son état : sur une
+                        liste, repérer ce qui attend encore quelque chose se
+                        faisait en lisant chaque pastille une par une. */}
+                    <GlassCard hover className={cn('h-full', CARTE[o.status])}>
                       <div className="space-y-3 p-4">
                         {/* L'auteur et l'horodatage ouvrent la carte : c'est ce
                             qu'on cherche d'abord en la parcourant. */}

@@ -63,7 +63,9 @@ export function RupturesPanel({
 
   return (
     <>
-      <Button variant="secondary" size="sm" onClick={() => setOpen(true)}>
+      {/* Rouge comme les ruptures qu'il annonce : un bouton neutre au milieu
+          des compteurs colorés ne se rattachait à rien. */}
+      <Button variant="danger" size="sm" onClick={() => setOpen(true)}>
         <Ban className="size-3.5" />
         {count} rupture{count > 1 ? 's' : ''}
       </Button>

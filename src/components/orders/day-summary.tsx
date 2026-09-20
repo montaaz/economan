@@ -151,7 +151,7 @@ export function DaySummary({ board }: { board: Board }) {
                 aria-valuenow={part}
                 aria-valuemin={0}
                 aria-valuemax={100}
-                aria-label={`${part}% de la quantité demandée a été servie`}
+                aria-label={`${part}% de la quantité commandée a été servie`}
               >
                 <div
                   className="h-full rounded-full bg-gradient-to-r from-[#2fc48f] to-[#6ee7b7] transition-[width] duration-500"
@@ -162,7 +162,7 @@ export function DaySummary({ board }: { board: Board }) {
               <p className="mt-2.5 text-[0.95rem] tabular-nums text-white/70 sm:text-[0.85rem]">
                 <span className="font-bold text-[#6ee7b7]">{formatQty(board.totalServed)}</span> servi
                 <span className="mx-1.5 text-white/30">sur</span>
-                <span className="font-bold text-white/90">{formatQty(board.totalAsked)}</span> demandé
+                <span className="font-bold text-white/90">{formatQty(board.totalAsked)}</span> commandé
               </p>
             </div>
           ) : null}
@@ -187,7 +187,7 @@ export function DaySummary({ board }: { board: Board }) {
             <Chiffre
               icon={TrendingUp}
               valeur={formatQty(board.totalAsked)}
-              libelle="quantité demandée"
+              libelle="quantité commandée"
             />
           </div>
         ) : null}

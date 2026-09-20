@@ -61,7 +61,7 @@ export default async function AdminPage({
         description={
           b.isRange
             ? 'Période : tickets de toutes les journées, cumulés par département.'
-            : 'Journée de service : tickets par département, quantités demandées et servies.'
+            : 'Journée de service : tickets par département, quantités commandées et servies.'
         }
         actions={
           <DayPicker

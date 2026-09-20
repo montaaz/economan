@@ -91,7 +91,7 @@ export function DayTotals({ board }: { board: Board }) {
           </div>
           <div className="flex items-baseline gap-6">
             <div className="text-right">
-              <p className="text-[0.76rem] font-medium uppercase tracking-wide text-white/50 sm:text-[0.72rem]">Demandé</p>
+              <p className="text-[0.76rem] font-medium uppercase tracking-wide text-white/50 sm:text-[0.72rem]">Commande</p>
               <p className="text-[2rem] font-bold leading-none tabular-nums text-white sm:text-[1.85rem]">
                 {formatQty(board.totalAsked)}
               </p>
@@ -161,7 +161,7 @@ function AllDepartments({ board, onClose }: { board: Board; onClose: () => void 
             <Badge tone="neutral">
               {board.orderCount} ticket{board.orderCount > 1 ? 's' : ''}
             </Badge>
-            <Badge tone="accent">{formatQty(board.totalAsked)} demandé</Badge>
+            <Badge tone="accent">{formatQty(board.totalAsked)} commandé</Badge>
             {board.totalServed > 0 ? (
               <Badge tone="ok">{formatQty(board.totalServed)} servi</Badge>
             ) : null}
@@ -190,7 +190,7 @@ function AllDepartments({ board, onClose }: { board: Board; onClose: () => void 
                     </span>
                   </p>
                   <span className="flex shrink-0 items-center gap-1.5">
-                    <Badge tone="accent">{formatQty(g.totalAsked)} demandé</Badge>
+                    <Badge tone="accent">{formatQty(g.totalAsked)} commandé</Badge>
                     {g.totalServed > 0 ? (
                       <Badge tone="ok">{formatQty(g.totalServed)} servi</Badge>
                     ) : null}
@@ -203,7 +203,7 @@ function AllDepartments({ board, onClose }: { board: Board; onClose: () => void 
                       <Th className="w-10 text-right">#</Th>
                       <Th className="w-full">Article</Th>
                       <Th className="text-right">Tickets</Th>
-                      <Th className="text-right">Demandé</Th>
+                      <Th className="text-right">Commande</Th>
                       <Th className="text-right">Servi</Th>
                     </tr>
                   </thead>

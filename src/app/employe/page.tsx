@@ -126,7 +126,7 @@ export default async function MyOrdersPage() {
 
                         <div className="flex flex-wrap items-center gap-1.5">
                           <Badge tone="neutral">{o.lineCount} article{o.lineCount > 1 ? 's' : ''}</Badge>
-                          <Badge tone="neutral">{formatQty(o.totalAsked)} demandé</Badge>
+                          <Badge tone="neutral">{formatQty(o.totalAsked)} commandé</Badge>
                           {o.status === 'DELIVERED' || o.status === 'RECEIVED' ? (
                             <Badge tone="ok">{formatQty(o.totalServed)} servi</Badge>
                           ) : null}

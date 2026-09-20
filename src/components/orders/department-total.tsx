@@ -85,7 +85,7 @@ export function DepartmentTotal({
         <div className="flex items-baseline gap-5">
           <div className="text-right">
             <p className="text-[0.74rem] font-medium uppercase tracking-wide text-fg-subtle sm:text-[0.7rem]">
-              Demandé
+              Commande
             </p>
             <p className="text-[1.4rem] font-bold leading-none tabular-nums text-accent sm:text-[1.3rem]">
               {formatQty(group.totalAsked)}
@@ -169,7 +169,7 @@ function ArticlesDetail({
               {group.orderCount} ticket{group.orderCount > 1 ? 's' : ''} cumulé
               {group.orderCount > 1 ? 's' : ''}
             </Badge>
-            <Badge tone="accent">{formatQty(totalAsked)} demandé</Badge>
+            <Badge tone="accent">{formatQty(totalAsked)} commandé</Badge>
             {totalServed > 0 ? <Badge tone="ok">{formatQty(totalServed)} servi</Badge> : null}
           </div>
 
@@ -180,7 +180,7 @@ function ArticlesDetail({
                   <Th className="w-10 text-right">#</Th>
                   <Th className="w-full">Article</Th>
                   <Th className="text-right">Tickets</Th>
-                  <Th className="text-right">Demandé</Th>
+                  <Th className="text-right">Commande</Th>
                   <Th className="text-right">Servi</Th>
                 </tr>
               </thead>

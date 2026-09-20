@@ -107,7 +107,7 @@ export function DayBoard({ board, basePath }: { board: Board; basePath: string }
 
               <p className="shrink-0 text-right text-[0.9rem] tabular-nums sm:text-[0.82rem]">
                 <span className="font-bold text-accent">{formatQty(g.totalAsked)}</span>
-                <span className="text-fg-subtle"> demandé</span>
+                <span className="text-fg-subtle"> commandé</span>
                 {g.totalServed > 0 ? (
                   <>
                     <span className="mx-1.5 text-fg-subtle">·</span>
@@ -232,7 +232,7 @@ function TicketCard({
           {/* Un nombre nu ne veut rien dire : il lui faut son libellé. */}
           <span className="font-semibold text-accent">
             {formatQty(o.totalAsked)}
-            <span className="font-normal text-fg-subtle"> demandé</span>
+            <span className="font-normal text-fg-subtle"> commandé</span>
           </span>
 
           {/* Ce qui cloche se signale ici, pas dans le détail. */}

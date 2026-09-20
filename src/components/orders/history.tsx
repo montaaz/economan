@@ -45,7 +45,7 @@ export async function OrderHistory({ basePath, take = 200 }: { basePath: string;
             <Th>Référence</Th>
             <Th>Demandeur</Th>
             <Th className="text-right">Lignes</Th>
-            <Th className="text-right">Demandé</Th>
+            <Th className="text-right">Commande</Th>
             <Th className="text-right">Servi</Th>
             <Th>État</Th>
           </tr>

@@ -123,6 +123,22 @@ const typeDefs = /* GraphQL */ `
     ticketCount: Int!
   }
 
+  "Une ligne non livrée, avec son motif et le département qui l'attendait."
+  type RuptureLine {
+    lineId: ID!
+    orderId: ID!
+    orderReference: String!
+    businessDay: Date!
+    department: Department!
+    productName: String!
+    productRef: String!
+    categoryName: String!
+    unitSymbol: String!
+    quantityAsked: Float!
+    "Motif saisi par l'économat, s'il l'a renseigné."
+    rejectReason: String
+  }
+
   "Les articles d'un département, cumulés sur la journée."
   type DayDepartmentArticles {
     department: Department!
@@ -190,6 +206,8 @@ const typeDefs = /* GraphQL */ `
     dayArticlesByDepartment(day: Date, dayTo: Date): [DayDepartmentArticles!]!
     "Stock fixe d'un département, tous ses articles — écran d'administration."
     stockFixeMatrix(departmentId: ID!): [StockFixeLine!]!
+    "Toutes les lignes non livrées d'une journée ou d'une période, tous départements."
+    dayRuptures(day: Date, dayTo: Date): [RuptureLine!]!
   }
 
   type Mutation {
@@ -531,6 +549,53 @@ const resolvers = {
     ) => {
       requireStaff(ctx)
       return cumulerArticles(resolvePeriod(a.day, a.dayTo), Number(a.departmentId))
+    },
+
+    dayRuptures: async (_p: unknown, a: { day?: string; dayTo?: string }, ctx: Ctx) => {
+      requireStaff(ctx)
+      const period = resolvePeriod(a.day, a.dayTo)
+      const lines = await prisma.orderLine.findMany({
+        where: {
+          status: 'REJECTED',
+          order: { businessDay: periodFilter(period) },
+        },
+        select: {
+          id: true,
+          productName: true,
+          productRef: true,
+          categoryName: true,
+          quantityAsked: true,
+          rejectReason: true,
+          sortOrder: true,
+          unit: { select: { symbol: true } },
+          order: {
+            select: {
+              id: true, reference: true, businessDay: true,
+              department: true,
+            },
+          },
+        },
+        // Par département puis par feuille : on lit les manques rayon par
+        // rayon, comme on les constate en magasin.
+        orderBy: [
+          { order: { departmentId: 'asc' } },
+          { order: { businessDay: 'asc' } },
+          { sortOrder: 'asc' },
+        ],
+      })
+      return lines.map((l) => ({
+        lineId: String(l.id),
+        orderId: String(l.order.id),
+        orderReference: l.order.reference,
+        businessDay: l.order.businessDay,
+        department: l.order.department,
+        productName: l.productName,
+        productRef: l.productRef,
+        categoryName: l.categoryName,
+        unitSymbol: l.unit?.symbol ?? '',
+        quantityAsked: Number(l.quantityAsked),
+        rejectReason: l.rejectReason,
+      }))
     },
 
     dayArticlesByDepartment: async (

@@ -3,7 +3,7 @@
 import * as React from 'react'
 import { useRouter } from 'next/navigation'
 import {
-  Check, Ban, Pencil, Printer, Truck, PackageOpen, Save, RotateCcw, Undo2,
+  Check, Ban, Pencil, Printer, Truck, PackageOpen, Save, RotateCcw, Undo2, ChevronRight,
 } from 'lucide-react'
 import { GlassCard, Button, Badge, TableWrap, Th, Td } from '@/components/ui/glass'
 import { FamilyBand, countByFamily } from '@/components/ui/family-band'
@@ -85,6 +85,32 @@ export function OrderProcessor({ order }: { order: ProcessOrder }) {
   // Repères de ligne : sur 72 articles, dire « 3 lignes manquent » sans
   // montrer lesquelles obligerait à tout reparcourir.
   const rowRefs = React.useRef<Record<string, HTMLTableRowElement | null>>({})
+
+  /** Conduit à une ligne et la souligne brièvement. */
+  const allerA = React.useCallback((id: string) => {
+    const el = rowRefs.current[id]
+    if (!el) return
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    // Un surlignage bref : après un défilement, retrouver la bonne ligne
+    // parmi ses voisines demande encore un effort.
+    el.animate(
+      [{ background: 'rgb(var(--glass-edge) / 0.35)' }, { background: 'transparent' }],
+      { duration: 1600, easing: 'ease-out' },
+    )
+  }, [])
+
+  // Rang de la dernière ligne atteinte, par état : un second clic conduit à la
+  // suivante. Sur trois ruptures éparpillées dans cent lignes, revenir
+  // toujours à la première obligerait à chercher les autres à la main.
+  const curseur = React.useRef<Record<string, number>>({})
+
+  const parcourir = React.useCallback((etat: LineStatus) => {
+    const cibles = lignes.filter((l) => (draft[l.id]?.status ?? 'PENDING') === etat)
+    if (cibles.length === 0) return
+    const suivant = ((curseur.current[etat] ?? -1) + 1) % cibles.length
+    curseur.current[etat] = suivant
+    allerA(cibles[suivant].id)
+  }, [lignes, draft, allerA])
 
   const counts = React.useMemo(() => {
     let validated = 0
@@ -174,14 +200,7 @@ export function OrderProcessor({ order }: { order: ProcessOrder }) {
     const premiere = lignes.find((l) => (draft[l.id]?.status ?? 'PENDING') === 'PENDING')
     if (premiere) {
       push('error', `${counts.pending} ligne(s) à traiter — la première est mise en évidence.`)
-      const el = rowRefs.current[premiere.id]
-      el?.scrollIntoView({ behavior: 'smooth', block: 'center' })
-      // Un surlignage bref : après un défilement, retrouver la bonne ligne
-      // parmi ses voisines demande encore un effort.
-      el?.animate(
-        [{ background: 'rgb(var(--glass-edge) / 0.35)' }, { background: 'transparent' }],
-        { duration: 1600, easing: 'ease-out' },
-      )
+      allerA(premiere.id)
       return
     }
 
@@ -282,7 +301,28 @@ export function OrderProcessor({ order }: { order: ProcessOrder }) {
           <Badge tone="neutral" className="capitalize">{formatLongDate(order.businessDay)}</Badge>
           <Badge tone="neutral">{order.lineCount} article{order.lineCount > 1 ? 's' : ''}</Badge>
 
-          {counts.rejected > 0 ? <Badge tone="danger">{counts.rejected} rupture(s)</Badge> : null}
+          {/* Cliquables : un compte qui ne mène nulle part oblige à parcourir
+              cent lignes pour retrouver les trois qu'il désigne. Chaque clic
+              conduit à la suivante, puis revient à la première. */}
+          {counts.rejected > 0 ? (
+            <BadgeLien
+              tone="danger"
+              onClick={() => parcourir('REJECTED')}
+              label={`Voir les ${counts.rejected} ligne(s) en rupture`}
+            >
+              {counts.rejected} rupture(s)
+            </BadgeLien>
+          ) : null}
+
+          {counts.adjusted > 0 ? (
+            <BadgeLien
+              tone="warn"
+              onClick={() => parcourir('ADJUSTED')}
+              label={`Voir les ${counts.adjusted} ligne(s) ajustée(s)`}
+            >
+              {counts.adjusted} ajustée{counts.adjusted > 1 ? 's' : ''}
+            </BadgeLien>
+          ) : null}
         </div>
 
         {order.note ? (
@@ -606,6 +646,42 @@ const ACTION_TONES = {
   danger: 'border-danger/45 bg-danger text-white',
   neutral: 'border-[rgb(var(--glass-edge)/0.3)] bg-white/60 text-fg-muted',
 } as const
+
+/**
+ * Compteur cliquable, qui conduit aux lignes qu'il dénombre.
+ *
+ * Il a l'apparence d'un badge mais le comportement d'un bouton : il ne change
+ * rien à la commande, il déplace seulement le regard.
+ */
+function BadgeLien({
+  tone, onClick, label, children,
+}: {
+  tone: 'danger' | 'warn'
+  onClick: () => void
+  /** Ce que le bouton fait, pour les lecteurs d'écran et l'infobulle. */
+  label: string
+  children: React.ReactNode
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={label}
+      title={label}
+      className={cn(
+        'inline-flex items-center gap-1 whitespace-nowrap rounded-full border px-2 py-0.5',
+        'text-[0.8rem] font-medium leading-5 tracking-tight sm:text-[0.72rem]',
+        'cursor-pointer transition-colors',
+        tone === 'danger'
+          ? 'border-danger/30 bg-danger/12 text-danger hover:bg-danger/20'
+          : 'border-warn/30 bg-warn/14 text-warn hover:bg-warn/24',
+      )}
+    >
+      {children}
+      <ChevronRight className="size-3.5" />
+    </button>
+  )
+}
 
 function LineAction({
   active, tone, label, onClick, children, disabled,

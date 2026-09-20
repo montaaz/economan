@@ -8,7 +8,7 @@ import { requireEmployeeDepartment } from '@/server/auth/guards'
 import { GlassCard, Badge, TableWrap, Th, Td, Button } from '@/components/ui/glass'
 import { StatusBadge, statusSteps } from '@/components/ui/status'
 import { Ticket, ticketVariant, type TicketOrder } from '@/components/ui/ticket'
-import { formatLongDate, formatQty, formatTime, cn } from '@/lib/utils'
+import { formatLongDate, formatTime, cn } from '@/lib/utils'
 import { ReceptionPanel } from './reception-panel'
 import { OrderLines } from './order-lines'
 import { PrintButton } from '@/components/ui/print-button'
@@ -254,9 +254,6 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
               {order.lineCount} article{order.lineCount > 1 ? 's' : ''} commandé
               {order.lineCount > 1 ? 's' : ''}
             </Badge>
-            {order.status === 'DELIVERED' || order.status === 'RECEIVED' ? (
-              <Badge tone="ok">{formatQty(order.totalServed)} servi</Badge>
-            ) : null}
             {order.processedBy ? (
               <Badge tone="neutral">Traité par {order.processedBy.fullName}</Badge>
             ) : null}

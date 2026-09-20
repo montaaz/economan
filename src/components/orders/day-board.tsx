@@ -3,7 +3,7 @@ import { Inbox, ChevronRight } from 'lucide-react'
 import { GlassCard, EmptyState } from '@/components/ui/glass'
 import { Icon } from '@/components/ui/icon'
 import { StatusBadge } from '@/components/ui/status'
-import { cn, formatInstantDate, formatQty, formatShortDay, formatTime } from '@/lib/utils'
+import { cn, formatInstantDate, formatShortDay, formatTime } from '@/lib/utils'
 import { DepartmentTotal } from './department-total'
 
 export type BoardOrder = {
@@ -105,16 +105,15 @@ export function DayBoard({ board, basePath }: { board: Board; basePath: string }
                 </span>
               </h2>
 
+              {/* La part servie plutôt qu'un total : on ne cumule pas des
+                  kilos avec des litres. */}
               <p className="shrink-0 text-right text-[0.9rem] tabular-nums sm:text-[0.82rem]">
-                <span className="font-bold text-accent">{formatQty(g.totalAsked)}</span>
-                <span className="text-fg-subtle"> commandé</span>
-                {g.totalServed > 0 ? (
-                  <>
-                    <span className="mx-1.5 text-fg-subtle">·</span>
-                    <span className="font-bold text-ok">{formatQty(g.totalServed)}</span>
-                    <span className="text-fg-subtle"> servi</span>
-                  </>
-                ) : null}
+                <span className="font-bold text-ok">
+                  {g.totalAsked > 0
+                    ? Math.min(100, Math.round((g.totalServed / g.totalAsked) * 100))
+                    : 0}%
+                </span>
+                <span className="text-fg-subtle"> servi</span>
               </p>
             </header>
 
@@ -229,12 +228,6 @@ function TicketCard({
           <span className="text-fg-subtle">
             {o.lineCount} article{o.lineCount > 1 ? 's' : ''}
           </span>
-          {/* Un nombre nu ne veut rien dire : il lui faut son libellé. */}
-          <span className="font-semibold text-accent">
-            {formatQty(o.totalAsked)}
-            <span className="font-normal text-fg-subtle"> commandé</span>
-          </span>
-
           {/* Ce qui cloche se signale ici, pas dans le détail. */}
           {o.rejectedCount > 0 ? (
             <span className="rounded-full bg-danger/12 px-1.5 font-semibold text-danger">

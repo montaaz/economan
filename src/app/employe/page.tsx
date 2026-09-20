@@ -5,7 +5,7 @@ import { executeGraphQL } from '@/server/graphql/execute'
 import { PageHeader } from '@/components/ui/stat'
 import { GlassCard, Button, EmptyState, Badge } from '@/components/ui/glass'
 import { StatusBadge } from '@/components/ui/status'
-import { formatInstantDate, formatLongDate, formatTime, formatQty } from '@/lib/utils'
+import { formatInstantDate, formatLongDate, formatTime } from '@/lib/utils'
 
 export const metadata: Metadata = { title: 'Commandes du département' }
 export const dynamic = 'force-dynamic'
@@ -125,11 +125,10 @@ export default async function MyOrdersPage() {
                         </p>
 
                         <div className="flex flex-wrap items-center gap-1.5">
+                          {/* Le nombre d'articles suffit : cumuler des unités,
+                              des kilos et des litres en un seul total ne
+                              désignait aucune grandeur réelle. */}
                           <Badge tone="neutral">{o.lineCount} article{o.lineCount > 1 ? 's' : ''}</Badge>
-                          <Badge tone="neutral">{formatQty(o.totalAsked)} commandé</Badge>
-                          {o.status === 'DELIVERED' || o.status === 'RECEIVED' ? (
-                            <Badge tone="ok">{formatQty(o.totalServed)} servi</Badge>
-                          ) : null}
                         </div>
 
                         {o.status === 'DELIVERED' ? (

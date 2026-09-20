@@ -59,8 +59,7 @@ export function OrderView({ order }: { order: ProcessOrder }) {
         <div className="flex flex-wrap items-center gap-1.5 px-4 py-3 sm:px-5">
           <Badge tone="neutral" className="capitalize">{formatLongDate(order.businessDay)}</Badge>
           <Badge tone="neutral">{order.lineCount} article{order.lineCount > 1 ? 's' : ''}</Badge>
-          <Badge tone="accent">{formatQty(order.totalAsked)} commandé</Badge>
-          <Badge tone="ok">{formatQty(order.totalServed)} servi</Badge>
+
           {order.processedBy ? (
             <Badge tone="neutral">Traité par {order.processedBy.fullName}</Badge>
           ) : null}

@@ -148,12 +148,6 @@ export function NewOrderForm({
     [products, onHand, isFilled],
   )
 
-  /** Total des quantités qui seront commandées. */
-  const totalAsked = React.useMemo(
-    () => selected.reduce((s, x) => s + x.asked, 0),
-    [selected],
-  )
-
   /** Articles sans stock fixe : ils ne peuvent rien générer. */
   const withoutPar = React.useMemo(
     () => products.filter((p) => p.stockFixe <= 0).length,
@@ -519,8 +513,7 @@ export function NewOrderForm({
             ) : (
               <>
                 Les {products.length} lignes sont renseignées ·{' '}
-                <strong className="text-fg">{selected.length}</strong> article(s) à commander,{' '}
-                <strong className="text-fg">{formatQty(totalAsked)}</strong> au total.
+                <strong className="text-fg">{selected.length}</strong> article(s) à commander.
               </>
             )}
           </p>

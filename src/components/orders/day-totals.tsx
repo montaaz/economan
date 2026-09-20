@@ -90,19 +90,16 @@ export function DayTotals({ board }: { board: Board }) {
               <ChevronRight className="size-4 transition-transform duration-200 group-hover:translate-x-0.5" />
             </p>
           </div>
-          <div className="flex items-baseline gap-6">
-            <div className="text-right">
-              <p className="text-[0.76rem] font-medium uppercase tracking-wide text-white/50 sm:text-[0.72rem]">Commande</p>
-              <p className="text-[2rem] font-bold leading-none tabular-nums text-white sm:text-[1.85rem]">
-                {formatQty(board.totalAsked)}
-              </p>
-            </div>
-            <div className="text-right">
-              <p className="text-[0.76rem] font-medium uppercase tracking-wide text-white/50 sm:text-[0.72rem]">Servi</p>
-              <p className="text-[2rem] font-bold leading-none tabular-nums text-[#6ee7b7] sm:text-[1.85rem]">
-                {formatQty(board.totalServed)}
-              </p>
-            </div>
+          {/* Un seul chiffre, et qui veut dire quelque chose : la part
+              servie. Cumuler des kilos et des litres n'en disait rien. */}
+          <div className="text-right">
+            <p className="text-[0.76rem] font-medium uppercase tracking-wide text-white/50 sm:text-[0.72rem]">Servi</p>
+            <p className="text-[2rem] font-bold leading-none tabular-nums text-[#6ee7b7] sm:text-[1.85rem]">
+              {board.totalAsked > 0
+                ? Math.min(100, Math.round((board.totalServed / board.totalAsked) * 100))
+                : 0}
+              <span className="text-[1.2rem] text-white/45">%</span>
+            </p>
           </div>
         </div>
       </button>
@@ -162,10 +159,7 @@ function AllDepartments({ board, onClose }: { board: Board; onClose: () => void 
             <Badge tone="neutral">
               {board.orderCount} ticket{board.orderCount > 1 ? 's' : ''}
             </Badge>
-            <Badge tone="accent">{formatQty(board.totalAsked)} commandé</Badge>
-            {board.totalServed > 0 ? (
-              <Badge tone="ok">{formatQty(board.totalServed)} servi</Badge>
-            ) : null}
+
           </div>
 
           <div className="max-h-[26rem] space-y-5 overflow-y-auto pr-1">
@@ -195,10 +189,7 @@ function AllDepartments({ board, onClose }: { board: Board; onClose: () => void 
                     </span>
                   </p>
                   <span className="flex shrink-0 items-center gap-1.5">
-                    <Badge tone="accent">{formatQty(g.totalAsked)} commandé</Badge>
-                    {g.totalServed > 0 ? (
-                      <Badge tone="ok">{formatQty(g.totalServed)} servi</Badge>
-                    ) : null}
+
                   </span>
                 </div>
 

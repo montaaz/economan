@@ -58,6 +58,9 @@ export function DepartmentTotal({
   dayTo?: string | null
 }) {
   const [open, setOpen] = React.useState(false)
+  const part = group.totalAsked > 0
+    ? Math.min(100, Math.round((group.totalServed / group.totalAsked) * 100))
+    : 0
 
   return (
     <>
@@ -83,23 +86,16 @@ export function DepartmentTotal({
           </p>
         </div>
 
-        <div className="flex items-baseline gap-5">
-          <div className="text-right">
-            <p className="text-[0.74rem] font-medium uppercase tracking-wide text-fg-subtle sm:text-[0.7rem]">
-              Commande
-            </p>
-            <p className="text-[1.4rem] font-bold leading-none tabular-nums text-accent sm:text-[1.3rem]">
-              {formatQty(group.totalAsked)}
-            </p>
-          </div>
-          <div className="text-right">
-            <p className="text-[0.74rem] font-medium uppercase tracking-wide text-fg-subtle sm:text-[0.7rem]">
-              Servi
-            </p>
-            <p className="text-[1.4rem] font-bold leading-none tabular-nums text-ok sm:text-[1.3rem]">
-              {formatQty(group.totalServed)}
-            </p>
-          </div>
+        {/* La part servie remplace les deux totaux : additionner des kilos,
+            des litres et des unités ne donnait aucune grandeur réelle, alors
+            qu'un rapport entre les deux reste juste. */}
+        <div className="text-right">
+          <p className="text-[0.74rem] font-medium uppercase tracking-wide text-fg-subtle sm:text-[0.7rem]">
+            Servi
+          </p>
+          <p className="text-[1.4rem] font-bold leading-none tabular-nums text-ok sm:text-[1.3rem]">
+            {part}<span className="text-[0.9rem] text-fg-subtle">%</span>
+          </p>
         </div>
       </button>
 
@@ -171,8 +167,7 @@ function ArticlesDetail({
               {group.orderCount} ticket{group.orderCount > 1 ? 's' : ''} cumulé
               {group.orderCount > 1 ? 's' : ''}
             </Badge>
-            <Badge tone="accent">{formatQty(totalAsked)} commandé</Badge>
-            {totalServed > 0 ? <Badge tone="ok">{formatQty(totalServed)} servi</Badge> : null}
+
           </div>
 
           <div className="max-h-[24rem] overflow-y-auto">

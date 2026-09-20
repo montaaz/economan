@@ -1,5 +1,5 @@
 import { AlertTriangle, CalendarRange, CheckCircle2, Clock, Inbox, Building2, Layers, TrendingUp } from 'lucide-react'
-import { cn, countDays, formatQty, formatPeriod } from '@/lib/utils'
+import { cn, countDays, formatPeriod } from '@/lib/utils'
 import type { Board } from './day-board'
 
 /**
@@ -159,10 +159,12 @@ export function DaySummary({ board }: { board: Board }) {
                 />
               </div>
 
+              {/* La jauge dit déjà la part servie ; répéter les deux totaux
+                  additionnait des kilos à des litres sans rien désigner. */}
               <p className="mt-2.5 text-[0.95rem] tabular-nums text-white/70 sm:text-[0.85rem]">
-                <span className="font-bold text-[#6ee7b7]">{formatQty(board.totalServed)}</span> servi
-                <span className="mx-1.5 text-white/30">sur</span>
-                <span className="font-bold text-white/90">{formatQty(board.totalAsked)}</span> commandé
+                <span className="font-bold text-white/90">{board.lineCount}</span> ligne
+                {board.lineCount > 1 ? 's' : ''} sur {board.orderCount} ticket
+                {board.orderCount > 1 ? 's' : ''}
               </p>
             </div>
           ) : null}
@@ -184,11 +186,9 @@ export function DaySummary({ board }: { board: Board }) {
               <Chiffre icon={Building2} valeur={board.departments.length} libelle="départements" />
             )}
             <Chiffre icon={Layers} valeur={board.lineCount} libelle="lignes" />
-            <Chiffre
-              icon={TrendingUp}
-              valeur={formatQty(board.totalAsked)}
-              libelle="quantité commandée"
-            />
+            {/* La part servie remplace la quantité cumulée : un total mêlant
+                kilos, litres et unités ne mesurait rien. */}
+            <Chiffre icon={TrendingUp} valeur={`${part}%`} libelle="servi" />
           </div>
         ) : null}
       </div>

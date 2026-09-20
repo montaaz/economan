@@ -3,7 +3,7 @@
 import * as React from 'react'
 import { useRouter } from 'next/navigation'
 import {
-  Check, Ban, Pencil, Printer, Truck, PackageOpen, Save, RotateCcw, Undo2, ChevronRight,
+  Check, Ban, Pencil, Printer, Truck, PackageOpen, Save, RotateCcw, Undo2, ChevronRight, X,
 } from 'lucide-react'
 import { GlassCard, Button, Badge, TableWrap, Th, Td } from '@/components/ui/glass'
 import { FamilyBand, countByFamily } from '@/components/ui/family-band'
@@ -99,18 +99,25 @@ export function OrderProcessor({ order }: { order: ProcessOrder }) {
     )
   }, [])
 
-  // Rang de la dernière ligne atteinte, par état : un second clic conduit à la
-  // suivante. Sur trois ruptures éparpillées dans cent lignes, revenir
-  // toujours à la première obligerait à chercher les autres à la main.
-  const curseur = React.useRef<Record<string, number>>({})
+  // Filtre par état : cliquer sur « 3 rupture(s) » ne laisse que ces trois
+  // lignes. Sur cent articles, les chercher une à une était le travail que ce
+  // compteur devait justement épargner.
+  const [filtre, setFiltre] = React.useState<LineStatus | null>(null)
 
-  const parcourir = React.useCallback((etat: LineStatus) => {
-    const cibles = lignes.filter((l) => (draft[l.id]?.status ?? 'PENDING') === etat)
-    if (cibles.length === 0) return
-    const suivant = ((curseur.current[etat] ?? -1) + 1) % cibles.length
-    curseur.current[etat] = suivant
-    allerA(cibles[suivant].id)
-  }, [lignes, draft, allerA])
+  // Le rang est celui de la feuille, figé avant tout filtrage : renuméroter
+  // de 1 à n une liste filtrée ferait que « l'article 16 » ne désignerait plus
+  // la même chose d'un écran à l'autre.
+  const numerotees = React.useMemo(
+    () => lignes.map((l, i) => ({ ...l, rang: i + 1 })),
+    [lignes],
+  )
+
+  const affichees = React.useMemo(
+    () => (filtre === null
+      ? numerotees
+      : numerotees.filter((l) => (draft[l.id]?.status ?? 'PENDING') === filtre)),
+    [numerotees, draft, filtre],
+  )
 
   const counts = React.useMemo(() => {
     let validated = 0
@@ -200,7 +207,11 @@ export function OrderProcessor({ order }: { order: ProcessOrder }) {
     const premiere = lignes.find((l) => (draft[l.id]?.status ?? 'PENDING') === 'PENDING')
     if (premiere) {
       push('error', `${counts.pending} ligne(s) à traiter — la première est mise en évidence.`)
-      allerA(premiere.id)
+      // Une ligne masquée par le filtre n'est pas dans la page : on rend la
+      // liste entière avant d'y conduire, sinon rien ne bougerait.
+      setFiltre(null)
+      // Le temps que React rende les lignes rétablies.
+      window.setTimeout(() => allerA(premiere.id), 60)
       return
     }
 
@@ -302,26 +313,45 @@ export function OrderProcessor({ order }: { order: ProcessOrder }) {
           <Badge tone="neutral">{order.lineCount} article{order.lineCount > 1 ? 's' : ''}</Badge>
 
           {/* Cliquables : un compte qui ne mène nulle part oblige à parcourir
-              cent lignes pour retrouver les trois qu'il désigne. Chaque clic
-              conduit à la suivante, puis revient à la première. */}
+              cent lignes pour retrouver les trois qu'il désigne. Le clic ne
+              garde que ces lignes-là ; un second clic rend la liste entière. */}
           {counts.rejected > 0 ? (
-            <BadgeLien
+            <BadgeFiltre
               tone="danger"
-              onClick={() => parcourir('REJECTED')}
-              label={`Voir les ${counts.rejected} ligne(s) en rupture`}
+              actif={filtre === 'REJECTED'}
+              onClick={() => setFiltre(filtre === 'REJECTED' ? null : 'REJECTED')}
+              label={filtre === 'REJECTED'
+                ? 'Afficher de nouveau toutes les lignes'
+                : `N’afficher que les ${counts.rejected} ligne(s) en rupture`}
             >
               {counts.rejected} rupture(s)
-            </BadgeLien>
+            </BadgeFiltre>
           ) : null}
 
           {counts.adjusted > 0 ? (
-            <BadgeLien
+            <BadgeFiltre
               tone="warn"
-              onClick={() => parcourir('ADJUSTED')}
-              label={`Voir les ${counts.adjusted} ligne(s) ajustée(s)`}
+              actif={filtre === 'ADJUSTED'}
+              onClick={() => setFiltre(filtre === 'ADJUSTED' ? null : 'ADJUSTED')}
+              label={filtre === 'ADJUSTED'
+                ? 'Afficher de nouveau toutes les lignes'
+                : `N’afficher que les ${counts.adjusted} ligne(s) ajustée(s)`}
             >
               {counts.adjusted} ajustée{counts.adjusted > 1 ? 's' : ''}
-            </BadgeLien>
+            </BadgeFiltre>
+          ) : null}
+
+          {/* Une liste filtrée ne dit pas d'elle-même qu'elle est partielle :
+              sans ce rappel, on croirait la commande réduite à trois lignes. */}
+          {filtre !== null ? (
+            <button
+              type="button"
+              onClick={() => setFiltre(null)}
+              className="inline-flex items-center gap-1 rounded-full border border-[rgb(var(--glass-edge)/0.3)] px-2 py-0.5 text-[0.8rem] font-medium leading-5 text-fg-muted transition-colors hover:bg-[rgb(var(--glass-edge)/0.14)] sm:text-[0.72rem]"
+            >
+              <X className="size-3.5" />
+              Afficher les {order.lineCount} articles
+            </button>
           ) : null}
         </div>
 
@@ -446,10 +476,10 @@ export function OrderProcessor({ order }: { order: ProcessOrder }) {
             </tr>
           </thead>
           <tbody className="divide-y divide-[rgb(var(--glass-edge)/0.12)]">
-            {lignes.map((l, i) => {
+            {affichees.map((l, i) => {
               // Un bandeau ouvre chaque famille : on sert le rayon d'un bloc,
               // pas article par article dans le désordre.
-              const ouvreFamille = i === 0 || lignes[i - 1].categoryName !== l.categoryName
+              const ouvreFamille = i === 0 || affichees[i - 1].categoryName !== l.categoryName
               const d = draft[l.id]
               const status = d?.status ?? 'PENDING'
 
@@ -485,7 +515,7 @@ export function OrderProcessor({ order }: { order: ProcessOrder }) {
                       status === 'REJECTED' && 'bg-danger/[0.16] shadow-[inset_3px_0_0_0_var(--danger)]',
                     )}
                   >
-                    <Td className="text-right text-[0.78rem] tabular-nums text-fg-subtle">{i + 1}</Td>
+                    <Td className="text-right text-[0.78rem] tabular-nums text-fg-subtle">{l.rang}</Td>
                     <Td className="max-w-0">
                       <p className="truncate text-[0.85rem] font-medium text-fg">{l.productName}</p>
                       {/* La famille est portée par le bandeau : la répéter à
@@ -648,15 +678,16 @@ const ACTION_TONES = {
 } as const
 
 /**
- * Compteur cliquable, qui conduit aux lignes qu'il dénombre.
+ * Compteur qui filtre le tableau sur les lignes qu'il dénombre.
  *
- * Il a l'apparence d'un badge mais le comportement d'un bouton : il ne change
- * rien à la commande, il déplace seulement le regard.
+ * Il a l'apparence d'un badge mais le comportement d'un interrupteur : il ne
+ * change rien à la commande, il restreint seulement ce qui est affiché.
  */
-function BadgeLien({
-  tone, onClick, label, children,
+function BadgeFiltre({
+  tone, actif, onClick, label, children,
 }: {
   tone: 'danger' | 'warn'
+  actif: boolean
   onClick: () => void
   /** Ce que le bouton fait, pour les lecteurs d'écran et l'infobulle. */
   label: string
@@ -666,6 +697,7 @@ function BadgeLien({
     <button
       type="button"
       onClick={onClick}
+      aria-pressed={actif}
       aria-label={label}
       title={label}
       className={cn(
@@ -675,10 +707,15 @@ function BadgeLien({
         tone === 'danger'
           ? 'border-danger/30 bg-danger/12 text-danger hover:bg-danger/20'
           : 'border-warn/30 bg-warn/14 text-warn hover:bg-warn/24',
+        // Le filtre actif se voit : sinon rien ne dirait pourquoi la liste
+        // s'est raccourcie.
+        actif && (tone === 'danger'
+          ? 'bg-danger/25 ring-2 ring-danger/40'
+          : 'bg-warn/28 ring-2 ring-warn/40'),
       )}
     >
       {children}
-      <ChevronRight className="size-3.5" />
+      {actif ? <Check className="size-3.5" /> : <ChevronRight className="size-3.5" />}
     </button>
   )
 }

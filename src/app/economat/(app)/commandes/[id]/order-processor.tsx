@@ -481,17 +481,20 @@ export function OrderProcessor({ order }: { order: ProcessOrder }) {
                             status === 'REJECTED' && 'font-semibold text-danger',
                             conforme && 'font-semibold text-ok',
                             ecart && 'font-semibold text-warn',
-                            // Non traitée : on montre déjà ce qui sera servi —
-                            // les lignes non touchées partent telles quelles —
-                            // mais en gris, car rien n'est encore décidé.
-                            status === 'PENDING' && 'text-fg-subtle',
                           )}
                         >
-                          {status === 'REJECTED'
-                            ? 'Rupture'
-                            : `${formatQty(
-                                status === 'ADJUSTED' ? toNumber(d?.served) : l.quantityAsked,
-                              )} ${l.unitSymbol}`}
+                          {/* Une ligne non traitée reste vide : afficher par
+                              avance la quantité commandée donnait à lire un
+                              chiffre que personne n'avait encore décidé, et on
+                              ne distinguait plus d'un coup d'œil ce qui avait
+                              été pointé de ce qui restait à faire. */}
+                          {status === 'PENDING'
+                            ? ''
+                            : status === 'REJECTED'
+                              ? 'Rupture'
+                              : `${formatQty(
+                                  status === 'ADJUSTED' ? toNumber(d?.served) : l.quantityAsked,
+                                )} ${l.unitSymbol}`}
                         </span>
                       )}
                     </Td>

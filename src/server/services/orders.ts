@@ -9,6 +9,35 @@ export class WorkflowError extends Error {}
 export type OrderLineInput = { productId: number; quantityOnHand: number }
 
 /**
+ * Rang de chaque article dans la feuille du département.
+ *
+ * C'est le seul ordre qui fasse autorité : celui que l'administration règle
+ * depuis Stock fixe, et que tout le monde doit voir — l'employé qui commande,
+ * l'économat qui sert, le magasinier qui lit le bon papier.
+ *
+ * `Product.sortOrder` ne convient pas : il classe l'article dans sa catégorie,
+ * pas dans la feuille, vaut 0 pour la plupart des articles, et serait de toute
+ * façon le même pour deux départements qui rangent leurs rayons autrement.
+ *
+ * Un article sans ligne de feuille passe en fin de liste plutôt que de
+ * remonter en tête sur un rang nul.
+ */
+async function sheetRanks(
+  tx: { departmentProduct: { findMany: typeof prisma.departmentProduct.findMany } },
+  departmentId: number,
+  productIds: number[],
+): Promise<Map<number, number>> {
+  const rows = await tx.departmentProduct.findMany({
+    where: { departmentId, productId: { in: productIds } },
+    select: { productId: true, sortOrder: true },
+  })
+  return new Map(rows.map((r) => [r.productId, r.sortOrder]))
+}
+
+/** Rang de repli pour un article absent de la feuille : après tous les autres. */
+const HORS_FEUILLE = 1_000_000
+
+/**
  * Enregistre une commande pour le département de l'employé.
  *
  * Règle métier : l'employé doit renseigner toutes les lignes de la feuille,
@@ -53,7 +82,7 @@ export async function createOrder(params: {
           : { category: { departments: { some: { departmentId } } } }),
       },
       select: {
-        id: true, name: true, reference: true, baseUnitId: true, sortOrder: true,
+        id: true, name: true, reference: true, baseUnitId: true,
         category: { select: { name: true } },
       },
     })
@@ -69,6 +98,10 @@ export async function createOrder(params: {
       select: { productId: true, quantity: true },
     })
     const parBy = new Map(pars.map((p) => [p.productId, Number(p.quantity)]))
+
+    // L'ordre de la feuille est figé dans la ligne : la feuille peut être
+    // réorganisée demain, le ticket déjà imprimé doit rester lisible tel quel.
+    const rangs = await sheetRanks(tx, departmentId, [...seen])
 
     // Quantité = stock fixe − stock compté, jamais négative. Un article sans
     // stock fixe vaut 0 : rien n'est commandé tant que l'admin ne l'a pas réglé.
@@ -126,7 +159,7 @@ export async function createOrder(params: {
               stockFixe: l.target,
               quantityOnHand: l.quantityOnHand,
               quantityAsked: l.asked,
-              sortOrder: p.sortOrder,
+              sortOrder: rangs.get(p.id) ?? HORS_FEUILLE,
             }
           }),
         },
@@ -195,7 +228,7 @@ export async function updateOrder(params: {
           : { category: { departments: { some: { departmentId } } } }),
       },
       select: {
-        id: true, name: true, reference: true, baseUnitId: true, sortOrder: true,
+        id: true, name: true, reference: true, baseUnitId: true,
         category: { select: { name: true } },
       },
     })
@@ -209,6 +242,7 @@ export async function updateOrder(params: {
       select: { productId: true, quantity: true },
     })
     const parBy = new Map(pars.map((p) => [p.productId, Number(p.quantity)]))
+    const rangs = await sheetRanks(tx, departmentId, [...seen])
 
     // Même calcul qu'à la création : la quantité se déduit du stock fixe lu en
     // base, jamais de ce que le client envoie.
@@ -242,7 +276,7 @@ export async function updateOrder(params: {
               stockFixe: l.target,
               quantityOnHand: l.quantityOnHand,
               quantityAsked: l.asked,
-              sortOrder: p.sortOrder,
+              sortOrder: rangs.get(p.id) ?? HORS_FEUILLE,
             }
           }),
         },

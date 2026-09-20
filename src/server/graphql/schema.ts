@@ -321,6 +321,7 @@ async function cumulerArticles(
         quantityAsked: true,
         quantityServed: true,
         orderId: true,
+        sortOrder: true,
         unit: { select: { symbol: true } },
       },
     })
@@ -337,6 +338,7 @@ async function cumulerArticles(
         unitSymbol: string
         quantityAsked: number
         quantityServed: number
+        sortOrder: number
         orders: Set<number>
       }
     >()
@@ -357,17 +359,17 @@ async function cumulerArticles(
         unitSymbol: l.unit?.symbol ?? '',
         quantityAsked: Number(l.quantityAsked),
         quantityServed: Number(l.quantityServed ?? 0),
+        sortOrder: l.sortOrder,
         orders: new Set([l.orderId]),
       })
     }
 
+    // L'ordre de la feuille du département, comme partout ailleurs : un
+    // classement alphabétique donnait à ces écrans une liste que le magasinier
+    // ne retrouvait sur aucun de ses rayons.
     return [...byProduct.values()]
       .map((r) => ({ ...r, ticketCount: r.orders.size }))
-      .sort(
-        (x, y) =>
-          x.categoryName.localeCompare(y.categoryName) ||
-          x.productName.localeCompare(y.productName),
-      )
+      .sort((x, y) => x.sortOrder - y.sortOrder || x.productName.localeCompare(y.productName))
 }
 
 const resolvers = {

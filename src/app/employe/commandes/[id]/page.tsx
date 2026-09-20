@@ -2,7 +2,7 @@ import * as React from 'react'
 import type { Metadata } from 'next'
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
-import { ArrowLeft, Printer, Pencil } from 'lucide-react'
+import { ArrowLeft, Printer, ListRestart } from 'lucide-react'
 import { executeGraphQL } from '@/server/graphql/execute'
 import { requireEmployeeDepartment } from '@/server/auth/guards'
 import { GlassCard, Badge, TableWrap, Th, Td, Button } from '@/components/ui/glass'
@@ -10,6 +10,7 @@ import { StatusBadge, statusSteps } from '@/components/ui/status'
 import { Ticket, ticketVariant, type TicketOrder } from '@/components/ui/ticket'
 import { formatLongDate, formatQty, formatTime, cn } from '@/lib/utils'
 import { ReceptionPanel } from './reception-panel'
+import { OrderLines } from './order-lines'
 import { PrintButton } from '@/components/ui/print-button'
 
 export const metadata: Metadata = { title: 'Commande' }
@@ -36,6 +37,7 @@ const QUERY = /* GraphQL */ `
       processedBy { fullName }
       lines {
         id
+        productId
         productName
         productRef
         categoryName
@@ -53,8 +55,11 @@ const QUERY = /* GraphQL */ `
   }
 `
 
-type Order = Omit<TicketOrder, 'createdBy'> & {
+type Order = Omit<TicketOrder, 'createdBy' | 'lines'> & {
   id: string
+  // Le ticket papier n'a que faire de l'identifiant produit ; le crayon de
+  // correction en a besoin pour renvoyer la commande au serveur.
+  lines: (TicketOrder['lines'][number] & { productId: string })[]
   createdBy: { id: string; fullName: string }
   status: 'PENDING' | 'ACCEPTED' | 'DELIVERED' | 'RECEIVED' | 'CANCELLED'
   lineCount: number
@@ -96,6 +101,9 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
 
   const steps = statusSteps(order.status)
 
+  // Sa commande, pas encore prise en charge : les deux conditions du serveur.
+  const modifiable = order.status === 'PENDING' && order.createdBy.id === String(user.id)
+
   return (
     <>
       <div className="no-print mb-4 flex flex-wrap items-center justify-between gap-3">
@@ -107,16 +115,22 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
           Commandes du service
         </Link>
         <div className="flex items-center gap-2">
-          {/* Corriger reste possible tant que l'économat n'a pas pris la
-              commande en main. Passé ce point le bouton disparaît : la
-              marchandise est peut-être déjà sortie du magasin. */}
-          {/* Un collègue voit la commande — le service se relaie — mais ne la
+          {/* Une ligne se corrige sur place, au crayon, dans le tableau : le
+              bouton global obligeait à rouvrir cent lignes pour un chiffre.
+              Reste ici la refonte complète, pour ajouter ou retirer un
+              article — ce qu'une case seule ne permet pas.
+
+              Corriger reste possible tant que l'économat n'a pas pris la
+              commande en main. Passé ce point le lien disparaît : la
+              marchandise est peut-être déjà sortie du magasin.
+
+              Un collègue voit la commande — le service se relaie — mais ne la
               corrige pas : le serveur refuserait, autant ne pas proposer. */}
-          {order.status === 'PENDING' && order.createdBy.id === String(user.id) ? (
+          {modifiable ? (
             <Link href={`/employe/commandes/${order.id}/modifier`}>
-              <Button variant="primary" size="sm">
-                <Pencil className="size-3.5" />
-                Modifier
+              <Button variant="secondary" size="sm">
+                <ListRestart className="size-3.5" />
+                Refaire la feuille
               </Button>
             </Link>
           ) : null}
@@ -218,88 +232,12 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
           <ReceptionPanel orderId={order.id} lines={order.lines} />
         ) : (
         <GlassCard overflowVisible>
-          <TableWrap minWidth="46rem">
-            <thead>
-              <tr>
-                <Th className="w-10 text-right">#</Th>
-                <Th className="w-full">Article</Th>
-                {/* Les deux valeurs d'où sort la quantité commandée : la cible
-                    du département moins ce qui restait en rayon. Sans elles,
-                    un chiffre inattendu reste inexplicable. */}
-                <Th className="text-right">Stock fixe</Th>
-                <Th className="text-right">Mon stock</Th>
-                {/* Même intitulé que l'écran de l'économat et la feuille
-                    papier : une seule notion, un seul mot. */}
-                <Th className="text-right">Commande</Th>
-                <Th className="text-right">Servi</Th>
-                {order.status === 'RECEIVED' ? (
-                  <Th className="text-right">Reçu</Th>
-                ) : null}
-                <Th>État</Th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-[rgb(var(--glass-edge)/0.12)]">
-              {lignes.map((l, i) => (
-                <React.Fragment key={l.id}>
-                  {i === 0 || lignes[i - 1].categoryName !== l.categoryName ? (
-                    <tr>
-                      <td
-                        colSpan={order.status === 'RECEIVED' ? 8 : 7}
-                        className="bg-ok/12 px-2 py-1.5 text-[0.72rem] font-bold uppercase tracking-[0.06em] text-ok sm:px-3 sm:text-[0.76rem]"
-                      >
-                        {l.categoryName}
-                      </td>
-                    </tr>
-                  ) : null}
-                <tr className={cn(l.status === 'REJECTED' && 'bg-danger/[0.06]')}>
-                  <Td className="text-right text-[0.78rem] tabular-nums text-fg-subtle">{i + 1}</Td>
-                  <Td className="max-w-0">
-                    <p className="truncate text-[0.85rem] font-medium text-fg">{l.productName}</p>
-                    {/* La famille est portée par le bandeau : la répéter sous
-                        chaque nom allongeait sans rien apprendre. */}
-                    <p className="truncate font-mono text-[0.7rem] text-fg-subtle">
-                      {l.productRef}
-                    </p>
-                  </Td>
-                  <Td className="whitespace-nowrap text-right tabular-nums text-fg-subtle">
-                    {formatQty(l.stockFixe)} {l.unitSymbol}
-                  </Td>
-                  <Td className="whitespace-nowrap text-right tabular-nums text-fg-subtle">
-                    {formatQty(l.quantityOnHand)} {l.unitSymbol}
-                  </Td>
-                  <Td className="whitespace-nowrap text-right font-semibold tabular-nums text-fg">
-                    {formatQty(l.quantityAsked)} {l.unitSymbol}
-                  </Td>
-                  <Td className="whitespace-nowrap text-right font-medium tabular-nums text-fg">
-                    {l.quantityServed === null ? '—' : `${formatQty(l.quantityServed)} ${l.unitSymbol}`}
-                  </Td>
-                  {order.status === 'RECEIVED' ? (
-                    <Td className="whitespace-nowrap text-right tabular-nums">
-                      {l.quantityReceived == null ? (
-                        <span className="text-fg-subtle">—</span>
-                      ) : (
-                        <span className={cn((l.receiptGap ?? 0) !== 0 && 'font-bold text-warn')}>
-                          {formatQty(l.quantityReceived)} {l.unitSymbol}
-                          {(l.receiptGap ?? 0) !== 0 ? (
-                            <span className="ml-1 text-[0.72rem]">
-                              ({(l.receiptGap ?? 0) > 0 ? '+' : ''}{formatQty(l.receiptGap ?? 0)})
-                            </span>
-                          ) : null}
-                        </span>
-                      )}
-                    </Td>
-                  ) : null}
-                  <Td>
-                    <Badge tone={LINE_TONE[l.status]}>{LINE_LABEL[l.status]}</Badge>
-                    {l.rejectReason ? (
-                      <p className="mt-0.5 text-[0.7rem] text-danger">{l.rejectReason}</p>
-                    ) : null}
-                  </Td>
-                </tr>
-                </React.Fragment>
-              ))}
-            </tbody>
-          </TableWrap>
+          <OrderLines
+            orderId={order.id}
+            lines={lignes}
+            editable={modifiable}
+            showReceived={order.status === 'RECEIVED'}
+          />
         </GlassCard>
         )}
       </div>

@@ -2,8 +2,8 @@
 
 import * as React from 'react'
 import { useRouter } from 'next/navigation'
-import { Check, Loader2, Pencil, X } from 'lucide-react'
-import { Badge, TableWrap, Th, Td } from '@/components/ui/glass'
+import { Check, Loader2, Pencil, Search, X } from 'lucide-react'
+import { Badge, EmptyState, TableWrap, Th, Td } from '@/components/ui/glass'
 import { useToast } from '@/components/ui/toast'
 import { gql, errorMessage } from '@/lib/graphql-client'
 import { cn, formatQty, toNumber } from '@/lib/utils'
@@ -67,14 +67,38 @@ export function OrderLines({
   const router = useRouter()
   const { push } = useToast()
 
-  // Les lignes sont figées à l'envoi : celles passées avant que les feuilles
-  // soient regroupées gardent leurs familles éparpillées. On les rassemble
-  // pour l'affichage, sans toucher au ticket enregistré.
-  const affichees = React.useMemo(() => {
-    const ordre: string[] = []
-    for (const l of lines) if (!ordre.includes(l.categoryName)) ordre.push(l.categoryName)
-    return ordre.flatMap((c) => lines.filter((l) => l.categoryName === c))
+  const [search, setSearch] = React.useState('')
+  const [famille, setFamille] = React.useState<string | null>(null)
+
+  // Le rang est celui de la feuille, figé une fois pour toutes : filtrer
+  // renumérote les lignes de 1 à n, et « l'article 87 » ne désignerait plus
+  // rien entre deux écrans. On le calcule donc avant tout filtrage.
+  const numerotees = React.useMemo(
+    () => lines.map((l, i) => ({ ...l, rang: i + 1 })),
+    [lines],
+  )
+
+  const familles = React.useMemo(() => {
+    const vues: { nom: string; total: number }[] = []
+    for (const l of lines) {
+      const f = vues.find((v) => v.nom === l.categoryName)
+      if (f) f.total += 1
+      else vues.push({ nom: l.categoryName, total: 1 })
+    }
+    return vues
   }, [lines])
+
+  const affichees = React.useMemo(() => {
+    const q = search.trim().toLowerCase()
+    return numerotees.filter((l) => {
+      if (famille && l.categoryName !== famille) return false
+      if (!q) return true
+      // Même recherche qu'à la saisie : sur le nom ou sur la référence.
+      return (
+        l.productName.toLowerCase().includes(q) || l.productRef.toLowerCase().includes(q)
+      )
+    })
+  }, [numerotees, search, famille])
 
   const [editing, setEditing] = React.useState<string | null>(null)
   const [draft, setDraft] = React.useState('')
@@ -140,6 +164,75 @@ export function OrderLines({
   }
 
   return (
+    <>
+      {/* Même barre qu'à la saisie : sur cent lignes, retrouver un article en
+          faisant défiler est un travail en soi. */}
+      <div className="no-print space-y-3 border-b border-[rgb(var(--glass-edge)/0.16)] p-3.5">
+        <div className="relative">
+          <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-fg-subtle" />
+          <input
+            type="search"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Rechercher un article ou une référence…"
+            className="field pl-9"
+            aria-label="Rechercher un article dans la commande"
+          />
+        </div>
+
+        <div className="scroll-x -mx-1 flex gap-1.5 px-1 pb-1">
+          <button
+            type="button"
+            onClick={() => setFamille(null)}
+            className={cn(
+              'shrink-0 rounded-full border px-3 py-1.5 text-[0.78rem] font-medium transition-colors',
+              famille === null
+                ? 'border-accent/40 bg-accent/12 text-accent'
+                : 'border-[rgb(var(--glass-edge)/0.28)] text-fg-muted hover:bg-[rgb(var(--glass-edge)/0.14)]',
+            )}
+          >
+            Tout ({lines.length})
+          </button>
+          {familles.map((f) => (
+            <button
+              key={f.nom}
+              type="button"
+              onClick={() => setFamille(f.nom)}
+              className={cn(
+                'shrink-0 rounded-full border px-3 py-1.5 text-[0.78rem] font-medium transition-colors',
+                famille === f.nom
+                  ? 'border-accent/40 bg-accent/12 text-accent'
+                  : 'border-[rgb(var(--glass-edge)/0.28)] text-fg-muted hover:bg-[rgb(var(--glass-edge)/0.14)]',
+              )}
+            >
+              {f.nom} ({f.total})
+            </button>
+          ))}
+        </div>
+
+        {/* Une liste filtrée ne dit pas d'elle-même qu'elle est partielle :
+            sans ce compte, on croirait la commande plus courte qu'elle n'est. */}
+        {affichees.length !== lines.length ? (
+          <p className="text-[0.8rem] text-fg-muted">
+            {affichees.length} article{affichees.length > 1 ? 's' : ''} sur {lines.length}
+            <button
+              type="button"
+              onClick={() => { setSearch(''); setFamille(null) }}
+              className="ml-2 font-medium text-accent hover:underline"
+            >
+              Tout afficher
+            </button>
+          </p>
+        ) : null}
+      </div>
+
+      {affichees.length === 0 ? (
+        <EmptyState
+          icon={<Search className="size-6" />}
+          title="Aucun article"
+          description="Aucun article de cette commande ne correspond à votre recherche."
+        />
+      ) : (
     <TableWrap minWidth={editable ? '52rem' : '46rem'}>
       <thead>
         <tr>
@@ -180,7 +273,7 @@ export function OrderLines({
                   ouvert && 'bg-accent/[0.08]',
                 )}
               >
-                <Td className="text-right text-[0.78rem] tabular-nums text-fg-subtle">{i + 1}</Td>
+                <Td className="text-right text-[0.78rem] tabular-nums text-fg-subtle">{l.rang}</Td>
                 <Td className="max-w-0">
                   <p className="truncate text-[0.85rem] font-medium text-fg">{l.productName}</p>
                   {/* La famille est portée par le bandeau : la répéter sous
@@ -299,5 +392,7 @@ export function OrderLines({
         })}
       </tbody>
     </TableWrap>
+      )}
+    </>
   )
 }

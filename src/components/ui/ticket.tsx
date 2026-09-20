@@ -86,8 +86,6 @@ export function Ticket({
   // Le compte accompagne le nom, comme à l'écran : sur une feuille papier de
   // cent lignes, il dit d'un coup d'œil ce qu'il reste à pointer dans le bloc.
   const parFamille = countByFamily(lines)
-  const rejected = order.lines.filter((l) => l.status === 'REJECTED')
-
   return (
     <div className="print-page bg-white p-5 text-[#0f1e33]">
       <header className="mb-4 flex items-start justify-between gap-4 border-b-2 border-[#0f1e33] pb-3">
@@ -190,7 +188,18 @@ export function Ticket({
                   <td className="px-2 py-1 text-right tabular-nums text-[#4a5f7d]">{i + 1}</td>
                   {/* La référence catalogue n'aide pas à sortir la marchandise :
                       le nom suffit, et la ligne reste lisible en rayon. */}
-                  <td className="px-2 py-1 font-medium">{l.productName}</td>
+                  <td className="px-2 py-1 font-medium">
+                    {l.productName}
+                    {/* Le motif accompagne sa ligne : il était rappelé en pied
+                        de document, mais sur quatre pages celui qui lit
+                        « Rupture » en première page ne va pas le chercher en
+                        dernière. */}
+                    {isBon && l.status === 'REJECTED' && l.rejectReason ? (
+                      <span className="block text-[0.72rem] font-normal italic text-[#d63f5a]">
+                        {l.rejectReason}
+                      </span>
+                    ) : null}
+                  </td>
                   <td className="px-2 py-1 text-right tabular-nums text-[#4a5f7d]">
                     {formatQty(l.stockFixe)}
                   </td>
@@ -241,19 +250,6 @@ export function Ticket({
         <p className="mt-3 text-[0.76rem] text-[#4a5f7d]">
           <span className="font-bold text-[#b4630f]">▼</span> servi en moins que commandé ·{' '}
           <span className="font-bold text-[#b4630f]">▲</span> servi en plus
-        </p>
-      ) : null}
-
-      {/* Les motifs de rupture, lorsqu'ils ont été saisis. La ligne du tableau
-          dit qu'il y a rupture ; ce rappel dit pourquoi, sans alourdir chaque
-          ligne d'une colonne de texte. */}
-      {isBon && rejected.some((l) => l.rejectReason) ? (
-        <p className="mt-3 text-[0.76rem] text-[#4a5f7d]">
-          <span className="font-semibold text-[#d63f5a]">Ruptures :</span>{' '}
-          {rejected
-            .filter((l) => l.rejectReason)
-            .map((l) => `${l.productName} (${l.rejectReason})`)
-            .join(' · ')}
         </p>
       ) : null}
 

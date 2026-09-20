@@ -1,5 +1,6 @@
 import * as React from 'react'
 import { GlassCard, Badge, TableWrap, Th, Td } from '@/components/ui/glass'
+import { FamilyBand, countByFamily } from '@/components/ui/family-band'
 import { Icon } from '@/components/ui/icon'
 import { StatusBadge } from '@/components/ui/status'
 import { cn, formatLongDate, formatQty, formatTime } from '@/lib/utils'
@@ -22,6 +23,10 @@ export function OrderView({ order }: { order: ProcessOrder }) {
     if (!ordreFamilles.includes(l.categoryName)) ordreFamilles.push(l.categoryName)
   }
   const lignes = ordreFamilles.flatMap((c) => order.lines.filter((l) => l.categoryName === c))
+
+  // Le compte accompagne le nom sur le bandeau : il porte sur ce qui est
+  // réellement affiché, donc il suit le filtre.
+  const parFamille = React.useMemo(() => countByFamily(lignes), [lignes])
 
   return (
     <div className="space-y-4">
@@ -84,14 +89,11 @@ export function OrderView({ order }: { order: ProcessOrder }) {
             {lignes.map((l, i) => (
               <React.Fragment key={l.id}>
                 {i === 0 || lignes[i - 1].categoryName !== l.categoryName ? (
-                  <tr>
-                    <td
-                      colSpan={6}
-                      className="bg-ok/12 px-2 py-1.5 text-[0.72rem] font-bold uppercase tracking-[0.06em] text-ok sm:px-3 sm:text-[0.76rem]"
-                    >
-                      {l.categoryName}
-                    </td>
-                  </tr>
+                  <FamilyBand
+                    name={l.categoryName}
+                    count={parFamille.get(l.categoryName) ?? 0}
+                    colSpan={6}
+                  />
                 ) : null}
               <tr className={cn(l.status === 'REJECTED' && 'bg-danger/[0.06]')}>
                 <Td className="text-right text-[0.78rem] tabular-nums text-fg-subtle">{i + 1}</Td>

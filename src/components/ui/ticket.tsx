@@ -1,5 +1,6 @@
 import * as React from 'react'
 import { cn, formatLongDate, formatQty, formatTime } from '@/lib/utils'
+import { FamilyBand, countByFamily } from '@/components/ui/family-band'
 
 export type TicketLine = {
   id: string
@@ -81,6 +82,10 @@ export function Ticket({
     if (!ordreFamilles.includes(l.categoryName)) ordreFamilles.push(l.categoryName)
   }
   const lines = ordreFamilles.flatMap((c) => retenues.filter((l) => l.categoryName === c))
+
+  // Le compte accompagne le nom, comme à l'écran : sur une feuille papier de
+  // cent lignes, il dit d'un coup d'œil ce qu'il reste à pointer dans le bloc.
+  const parFamille = countByFamily(lines)
   const rejected = order.lines.filter((l) => l.status === 'REJECTED')
 
   return (
@@ -156,14 +161,12 @@ export function Ticket({
             return (
               <React.Fragment key={l.id}>
                 {ouvre ? (
-                  <tr>
-                    <td
-                      colSpan={livre ? 5 : 4}
-                      className="border-y border-[#b9c8e0] bg-[#e8eefa] px-2 py-1 text-[0.76rem] font-bold uppercase tracking-[0.06em]"
-                    >
-                      {l.categoryName}
-                    </td>
-                  </tr>
+                  <FamilyBand
+                    name={l.categoryName}
+                    count={parFamille.get(l.categoryName) ?? 0}
+                    colSpan={livre ? 5 : 4}
+                    className="border-y border-[#b9c8e0] bg-[#e8eefa] py-1 text-[0.76rem] text-inherit sm:text-[0.76rem]"
+                  />
                 ) : null}
                 <tr
                   className={cn(

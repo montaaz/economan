@@ -6,6 +6,7 @@ import {
   Check, Ban, Pencil, Printer, Truck, PackageOpen, Save, RotateCcw,
 } from 'lucide-react'
 import { GlassCard, Button, Badge, TableWrap, Th, Td } from '@/components/ui/glass'
+import { FamilyBand, countByFamily } from '@/components/ui/family-band'
 import { Icon } from '@/components/ui/icon'
 import { useToast } from '@/components/ui/toast'
 import { useConfirm } from '@/components/ui/confirm'
@@ -73,6 +74,10 @@ export function OrderProcessor({ order }: { order: ProcessOrder }) {
     }
     return ordre.flatMap((c) => order.lines.filter((l) => l.categoryName === c))
   }, [order.lines])
+
+  // Le compte accompagne le nom sur le bandeau : il porte sur ce qui est
+  // réellement affiché.
+  const parFamille = React.useMemo(() => countByFamily(lignes), [lignes])
 
   // Repères de ligne : sur 72 articles, dire « 3 lignes manquent » sans
   // montrer lesquelles obligerait à tout reparcourir.
@@ -376,14 +381,11 @@ export function OrderProcessor({ order }: { order: ProcessOrder }) {
               return (
                 <React.Fragment key={l.id}>
                   {ouvreFamille ? (
-                    <tr>
-                      <td
-                        colSpan={6}
-                        className="bg-ok/12 px-2 py-1.5 text-[0.72rem] font-bold uppercase tracking-[0.06em] text-ok sm:px-3 sm:text-[0.76rem]"
-                      >
-                        {l.categoryName}
-                      </td>
-                    </tr>
+                    <FamilyBand
+                    name={l.categoryName}
+                    count={parFamille.get(l.categoryName) ?? 0}
+                    colSpan={6}
+                  />
                   ) : null}
                   <tr
                     ref={(el) => { rowRefs.current[l.id] = el }}

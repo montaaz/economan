@@ -4,6 +4,7 @@ import * as React from 'react'
 import { useRouter } from 'next/navigation'
 import { PackageCheck, Check, AlertTriangle } from 'lucide-react'
 import { Button, Badge, TableWrap, Th, Td } from '@/components/ui/glass'
+import { FamilyBand, countByFamily } from '@/components/ui/family-band'
 import { useToast } from '@/components/ui/toast'
 import { gql, errorMessage } from '@/lib/graphql-client'
 import { cn, formatQty, toNumber } from '@/lib/utils'
@@ -53,6 +54,10 @@ export function ReceptionPanel({
     for (const l of lines) if (!ordre.includes(l.categoryName)) ordre.push(l.categoryName)
     return ordre.flatMap((c) => lines.filter((l) => l.categoryName === c))
   }, [lines])
+
+  // Le compte accompagne le nom sur le bandeau : il porte sur ce qui est
+  // réellement affiché, donc il suit le filtre.
+  const parFamille = React.useMemo(() => countByFamily(affichees), [affichees])
 
   const [counted, setCounted] = React.useState<Record<string, string>>(() =>
     Object.fromEntries(toCheck.map((l) => [l.id, String(l.quantityServed ?? 0)])),
@@ -149,14 +154,11 @@ export function ReceptionPanel({
             return (
               <React.Fragment key={l.id}>
                 {ouvre ? (
-                  <tr>
-                    <td
-                      colSpan={8}
-                      className="bg-ok/12 px-2 py-1.5 text-[0.72rem] font-bold uppercase tracking-[0.06em] text-ok sm:px-3 sm:text-[0.76rem]"
-                    >
-                      {l.categoryName}
-                    </td>
-                  </tr>
+                  <FamilyBand
+                    name={l.categoryName}
+                    count={parFamille.get(l.categoryName) ?? 0}
+                    colSpan={8}
+                  />
                 ) : null}
               <tr
                 className={cn(

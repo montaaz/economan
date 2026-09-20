@@ -3,6 +3,7 @@
 import * as React from 'react'
 import { ChevronRight, Loader2, PackageSearch } from 'lucide-react'
 import { Badge, EmptyState, TableWrap, Th, Td } from '@/components/ui/glass'
+import { FamilyBand, countByFamily } from '@/components/ui/family-band'
 import { Icon } from '@/components/ui/icon'
 import { Modal } from '@/components/ui/modal'
 import { gql, errorMessage } from '@/lib/graphql-client'
@@ -168,7 +169,11 @@ function AllDepartments({ board, onClose }: { board: Board; onClose: () => void 
           </div>
 
           <div className="max-h-[26rem] space-y-5 overflow-y-auto pr-1">
-            {groups.map((g) => (
+            {groups.map((g) => {
+              // Un compte par département : les familles se répètent d'un
+              // bloc à l'autre, avec des articles différents.
+              const parFamille = countByFamily(g.lines)
+              return (
               <section key={g.department.id}>
                 {/* Le département ouvre son bloc, puis viennent ses articles. */}
                 <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2">
@@ -214,14 +219,11 @@ function AllDepartments({ board, onClose }: { board: Board; onClose: () => void 
                       return (
                         <React.Fragment key={l.productId}>
                           {ouvre ? (
-                            <tr>
-                              <td
-                                colSpan={5}
-                                className="bg-ok/12 px-2 py-1 text-[0.7rem] font-bold uppercase tracking-[0.06em] text-ok sm:px-3"
-                              >
-                                {l.categoryName}
-                              </td>
-                            </tr>
+                            <FamilyBand
+                    name={l.categoryName}
+                    count={parFamille.get(l.categoryName) ?? 0}
+                    colSpan={5}
+                  />
                           ) : null}
                           <tr>
                             <Td className="text-right text-[0.74rem] tabular-nums text-fg-subtle">
@@ -259,7 +261,8 @@ function AllDepartments({ board, onClose }: { board: Board; onClose: () => void 
                   </tbody>
                 </TableWrap>
               </section>
-            ))}
+              )
+            })}
           </div>
         </div>
       )}

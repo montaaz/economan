@@ -3,6 +3,7 @@
 import * as React from 'react'
 import { ChevronRight, Layers, Loader2, PackageSearch } from 'lucide-react'
 import { Badge, EmptyState, TableWrap, Th, Td } from '@/components/ui/glass'
+import { FamilyBand, countByFamily } from '@/components/ui/family-band'
 import { Modal } from '@/components/ui/modal'
 import { gql, errorMessage } from '@/lib/graphql-client'
 import { cn, formatPeriod, formatQty } from '@/lib/utils'
@@ -141,6 +142,7 @@ function ArticlesDetail({
     }
   }, [group.department.id, day, dayTo])
 
+  const parFamille = countByFamily(lines ?? [])
   const totalAsked = (lines ?? []).reduce((s, l) => s + l.quantityAsked, 0)
   const totalServed = (lines ?? []).reduce((s, l) => s + l.quantityServed, 0)
 
@@ -191,14 +193,11 @@ function ArticlesDetail({
                   return (
                     <React.Fragment key={l.productId}>
                       {ouvre ? (
-                        <tr>
-                          <td
-                            colSpan={5}
-                            className="bg-ok/12 px-2 py-1.5 text-[0.72rem] font-bold uppercase tracking-[0.06em] text-ok sm:px-3"
-                          >
-                            {l.categoryName}
-                          </td>
-                        </tr>
+                        <FamilyBand
+                    name={l.categoryName}
+                    count={parFamille.get(l.categoryName) ?? 0}
+                    colSpan={5}
+                  />
                       ) : null}
                       <tr>
                         <Td className="text-right text-[0.75rem] tabular-nums text-fg-subtle">

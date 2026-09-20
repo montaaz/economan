@@ -4,6 +4,7 @@ import * as React from 'react'
 import { useRouter } from 'next/navigation'
 import { Check, Loader2, Pencil, Search, X } from 'lucide-react'
 import { Badge, EmptyState, TableWrap, Th, Td } from '@/components/ui/glass'
+import { FamilyBand, countByFamily } from '@/components/ui/family-band'
 import { useToast } from '@/components/ui/toast'
 import { gql, errorMessage } from '@/lib/graphql-client'
 import { cn, formatQty, toNumber } from '@/lib/utils'
@@ -99,6 +100,10 @@ export function OrderLines({
       )
     })
   }, [numerotees, search, famille])
+
+  // Le compte accompagne le nom sur le bandeau : il porte sur ce qui est
+  // réellement affiché, donc il suit le filtre.
+  const parFamille = React.useMemo(() => countByFamily(affichees), [affichees])
 
   const [editing, setEditing] = React.useState<string | null>(null)
   const [draft, setDraft] = React.useState('')
@@ -258,14 +263,11 @@ export function OrderLines({
           return (
             <React.Fragment key={l.id}>
               {i === 0 || affichees[i - 1].categoryName !== l.categoryName ? (
-                <tr>
-                  <td
+                <FamilyBand
+                    name={l.categoryName}
+                    count={parFamille.get(l.categoryName) ?? 0}
                     colSpan={colonnes}
-                    className="bg-ok/12 px-2 py-1.5 text-[0.72rem] font-bold uppercase tracking-[0.06em] text-ok sm:px-3 sm:text-[0.76rem]"
-                  >
-                    {l.categoryName}
-                  </td>
-                </tr>
+                  />
               ) : null}
               <tr
                 className={cn(

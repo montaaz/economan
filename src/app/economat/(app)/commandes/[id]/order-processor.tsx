@@ -4,6 +4,7 @@ import * as React from 'react'
 import { useRouter } from 'next/navigation'
 import {
   Check, Ban, Pencil, Printer, Truck, PackageOpen, Save, RotateCcw, Undo2,
+  MessageSquareWarning,
 } from 'lucide-react'
 import { GlassCard, Button, Badge, TableWrap, Th, Td } from '@/components/ui/glass'
 import { FamilyBand, countByFamily } from '@/components/ui/family-band'
@@ -329,6 +330,19 @@ export function OrderProcessor({ order }: { order: ProcessOrder }) {
             </FilterBadge>
           ) : null}
 
+          {counts.validated > 0 ? (
+            <FilterBadge
+              tone="ok"
+              actif={filtre === 'VALIDATED'}
+              onClick={() => setFiltre(filtre === 'VALIDATED' ? null : 'VALIDATED')}
+              label={filtre === 'VALIDATED'
+                ? 'Afficher de nouveau toutes les lignes'
+                : `N’afficher que les ${counts.validated} ligne(s) servie(s) comme demandé`}
+            >
+              {counts.validated} conforme{counts.validated > 1 ? 's' : ''}
+            </FilterBadge>
+          ) : null}
+
           {counts.adjusted > 0 ? (
             <FilterBadge
               tone="warn"
@@ -651,6 +665,21 @@ export function OrderProcessor({ order }: { order: ProcessOrder }) {
                           aria-label={`Motif de rupture pour ${l.productName}`}
                           className="field h-8 py-0 text-[0.8rem]"
                         />
+                      </Td>
+                    </tr>
+                  ) : null}
+
+                  {/* Commande close : le champ de saisie a disparu, et avec
+                      lui le motif écrit. L'économat qui rouvre un bon livré
+                      doit pouvoir relire ce qu'il a annoncé au département. */}
+                  {status === 'REJECTED' && !open && l.rejectReason ? (
+                    <tr className="bg-danger/[0.04]">
+                      <Td />
+                      <Td colSpan={5} className="pb-2.5 pt-0">
+                        <p className="flex items-start gap-1 text-[0.78rem] font-medium leading-snug text-danger">
+                          <MessageSquareWarning className="mt-px size-3.5 shrink-0" />
+                          {l.rejectReason}
+                        </p>
                       </Td>
                     </tr>
                   ) : null}

@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import { useRouter } from 'next/navigation'
-import { Check, Loader2, Pencil, Search, X } from 'lucide-react'
+import { Check, Loader2, MessageSquareWarning, Pencil, Search, X } from 'lucide-react'
 import { EmptyState, TableWrap, Th, Td } from '@/components/ui/glass'
 import { FilterBadge, FilterReset } from '@/components/ui/filter-badge'
 import { FamilyBand, countByFamily } from '@/components/ui/family-band'
@@ -59,7 +59,7 @@ export function OrderLines({
   const [famille, setFamille] = React.useState<string | null>(null)
   // Filtre par état : voir d'un coup les articles non livrés ou servis en
   // quantité différente, sans les chercher un à un dans la feuille.
-  const [etat, setEtat] = React.useState<'REJECTED' | 'ADJUSTED' | null>(null)
+  const [etat, setEtat] = React.useState<'REJECTED' | 'ADJUSTED' | 'VALIDATED' | null>(null)
 
   // Le rang est celui de la feuille, figé une fois pour toutes : filtrer
   // renumérote les lignes de 1 à n, et « l'article 87 » ne désignerait plus
@@ -82,6 +82,8 @@ export function OrderLines({
   const counts = React.useMemo(() => ({
     rejected: lines.filter((l) => l.status === 'REJECTED').length,
     adjusted: lines.filter((l) => l.status === 'ADJUSTED').length,
+    // Servi exactement ce qui était commandé : le reste de la feuille.
+    validated: lines.filter((l) => l.status === 'VALIDATED').length,
   }), [lines])
 
   const affichees = React.useMemo(() => {
@@ -183,7 +185,7 @@ export function OrderLines({
         {/* Ce qui cloche se compte en tête, et se montre au clic : chercher
             trois ruptures parmi cent lignes était le travail que ce compteur
             doit épargner. */}
-        {counts.rejected > 0 || counts.adjusted > 0 ? (
+        {counts.rejected > 0 || counts.adjusted > 0 || counts.validated > 0 ? (
           <div className="flex flex-wrap items-center gap-1.5">
             {counts.rejected > 0 ? (
               <FilterBadge
@@ -207,6 +209,18 @@ export function OrderLines({
                   : `N’afficher que les ${counts.adjusted} article(s) servi(s) en quantité différente`}
               >
                 {counts.adjusted} ajustée{counts.adjusted > 1 ? 's' : ''}
+              </FilterBadge>
+            ) : null}
+            {counts.validated > 0 ? (
+              <FilterBadge
+                tone="ok"
+                actif={etat === 'VALIDATED'}
+                onClick={() => setEtat(etat === 'VALIDATED' ? null : 'VALIDATED')}
+                label={etat === 'VALIDATED'
+                  ? 'Afficher de nouveau tous les articles'
+                  : `N’afficher que les ${counts.validated} article(s) servi(s) comme demandé`}
+              >
+                {counts.validated} conforme{counts.validated > 1 ? 's' : ''}
               </FilterBadge>
             ) : null}
             {etat !== null ? (
@@ -323,9 +337,14 @@ export function OrderLines({
                       chaque nom allongeait sans rien apprendre. */}
                   <p className="truncate font-mono text-[0.7rem] text-fg-subtle">{l.productRef}</p>
                   {/* La colonne d'état a disparu : sans ce report, un article
-                      en rupture n'aurait plus nulle part où dire pourquoi. */}
+                      en rupture n'aurait plus nulle part où dire pourquoi.
+                      C'est le motif saisi par l'économat, « sera disponible
+                      dans 2 jours » — précisément ce qu'il faut savoir. */}
                   {l.rejectReason ? (
-                    <p className="text-[0.7rem] text-danger">{l.rejectReason}</p>
+                    <p className="mt-0.5 flex items-start gap-1 text-[0.75rem] font-medium leading-snug text-danger">
+                      <MessageSquareWarning className="mt-px size-3.5 shrink-0" />
+                      {l.rejectReason}
+                    </p>
                   ) : null}
                 </Td>
                 <Td className="whitespace-nowrap text-right tabular-nums text-fg-subtle">

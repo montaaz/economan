@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import { useRouter } from 'next/navigation'
-import { PackageCheck, Check, AlertTriangle } from 'lucide-react'
+import { PackageCheck, AlertTriangle, MessageSquareWarning } from 'lucide-react'
 import { Button, Badge, TableWrap, Th, Td } from '@/components/ui/glass'
 import { FamilyBand, countByFamily } from '@/components/ui/family-band'
 import { FilterBadge, FilterReset } from '@/components/ui/filter-badge'
@@ -49,11 +49,13 @@ export function ReceptionPanel({
 
   // Filtre par état : à la réception, voir d'abord ce qui manque ou ce qui
   // diffère évite de parcourir cent lignes conformes pour les trouver.
-  const [etat, setEtat] = React.useState<'REJECTED' | 'ADJUSTED' | null>(null)
+  const [etat, setEtat] = React.useState<'REJECTED' | 'ADJUSTED' | 'VALIDATED' | null>(null)
 
   const counts = React.useMemo(() => ({
     rejected: lines.filter((l) => l.status === 'REJECTED').length,
     adjusted: lines.filter((l) => l.status === 'ADJUSTED').length,
+    // Servi exactement ce qui était commandé : le reste de la feuille.
+    validated: lines.filter((l) => l.status === 'VALIDATED').length,
   }), [lines])
 
   // Le rang est celui de la feuille, figé avant tout filtrage : renuméroter
@@ -150,16 +152,30 @@ export function ReceptionPanel({
               {counts.adjusted} ajustée{counts.adjusted > 1 ? 's' : ''}
             </FilterBadge>
           ) : null}
+          {/* « Conforme » filtre comme les deux autres : voir d'un bloc ce
+              qui est arrivé tel que demandé, sans le rouge ni l'orange. */}
+          {counts.validated > 0 ? (
+            <FilterBadge
+              tone="ok"
+              actif={etat === 'VALIDATED'}
+              onClick={() => setEtat(etat === 'VALIDATED' ? null : 'VALIDATED')}
+              label={etat === 'VALIDATED'
+                ? 'Afficher de nouveau tous les articles'
+                : `N’afficher que les ${counts.validated} article(s) servi(s) comme demandé`}
+            >
+              {counts.validated} conforme{counts.validated > 1 ? 's' : ''}
+            </FilterBadge>
+          ) : null}
           {etat !== null ? (
             <FilterReset total={lines.length} onClick={() => setEtat(null)} />
           ) : null}
+          {/* L'écart porte sur ce que l'employé vient de compter, pas sur
+              l'état des lignes : il reste un constat, pas un filtre. */}
           {gaps.length > 0 ? (
             <Badge tone="warn" icon={<AlertTriangle className="size-3.5" />}>
               {gaps.length} écart(s)
             </Badge>
-          ) : (
-            <Badge tone="ok" icon={<Check className="size-3.5" />}>Conforme</Badge>
-          )}
+          ) : null}
           <Button variant="success" loading={busy} onClick={confirm}>
             {!busy ? <PackageCheck className="size-4" /> : null}
             Confirmer la réception
@@ -220,6 +236,16 @@ export function ReceptionPanel({
                   <p className="truncate font-mono text-[0.7rem] text-fg-subtle">
                     {l.productRef}
                   </p>
+                  {/* Le motif saisi par l'économat : « sera disponible dans
+                      2 jours » est précisément ce que l'employé doit savoir,
+                      et il ne le lisait nulle part. Sur toute la largeur de
+                      la cellule, pas tronqué comme les lignes au-dessus. */}
+                  {l.rejectReason ? (
+                    <p className="mt-0.5 flex items-start gap-1 text-[0.75rem] font-medium leading-snug text-danger">
+                      <MessageSquareWarning className="mt-px size-3.5 shrink-0" />
+                      {l.rejectReason}
+                    </p>
+                  ) : null}
                 </Td>
                 <Td className="whitespace-nowrap text-right tabular-nums text-fg-subtle">
                   {formatQty(l.stockFixe)} {l.unitSymbol}

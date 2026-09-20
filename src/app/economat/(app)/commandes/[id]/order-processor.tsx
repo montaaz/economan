@@ -3,7 +3,7 @@
 import * as React from 'react'
 import { useRouter } from 'next/navigation'
 import {
-  Check, Ban, Pencil, Printer, Truck, PackageOpen, Save, RotateCcw,
+  Check, Ban, Pencil, Printer, Truck, PackageOpen, Save, RotateCcw, Undo2,
 } from 'lucide-react'
 import { GlassCard, Button, Badge, TableWrap, Th, Td } from '@/components/ui/glass'
 import { FamilyBand, countByFamily } from '@/components/ui/family-band'
@@ -20,6 +20,9 @@ import type { LineStatus, ProcessOrder } from '@/lib/order-types'
 export type { ProcessLine, ProcessOrder } from '@/lib/order-types'
 
 const ACCEPT = /* GraphQL */ `mutation Accept($id: ID!) { acceptOrder(id: $id) { id status } }`
+const CANCEL_ACCEPT = /* GraphQL */ `
+  mutation CancelAccept($id: ID!) { cancelAcceptance(id: $id) { id status } }
+`
 const SET_LINES = /* GraphQL */ `
   mutation SetLines($id: ID!, $lines: [ServedLineInput!]!) {
     setServedLines(id: $id, lines: $lines) { id status }
@@ -136,6 +139,27 @@ export function OrderProcessor({ order }: { order: ProcessOrder }) {
 
   const accept = () =>
     call('accept', () => gql(ACCEPT, { id: order.id }), 'Commande acceptée — vous pouvez la servir.')
+
+  // Rendre la commande au département. La préparation déjà saisie est perdue :
+  // on le dit avant, pas après.
+  const cancelAccept = async () => {
+    const dejaTraitees = order.lines.length - counts.pending
+    const ok = await confirmer({
+      title: 'Annuler l’acceptation ?',
+      message: dejaTraitees > 0
+        ? `La commande repassera en attente et ${dejaTraitees} ligne(s) déjà traitée(s) seront `
+          + 'remises à zéro. Le département pourra de nouveau la modifier.'
+        : 'La commande repassera en attente. Le département pourra de nouveau la modifier.',
+      confirmLabel: 'Rendre au département',
+      tone: 'danger',
+    })
+    if (!ok) return
+    await call(
+      'cancel',
+      () => gql(CANCEL_ACCEPT, { id: order.id }),
+      'Commande rendue au département — elle est de nouveau en attente.',
+    )
+  }
 
   const save = () =>
     call('save', () => gql(SET_LINES, { id: order.id, lines: payload() }), 'Lignes enregistrées.')
@@ -270,23 +294,45 @@ export function OrderProcessor({ order }: { order: ProcessOrder }) {
 
         {/* Actions */}
         <div className="flex flex-wrap items-center gap-2 border-t border-[rgb(var(--glass-edge)/0.16)] px-4 py-3 sm:px-5">
-          {/* Le libellé nomme ce qui sort de l'imprimante, et suit donc la
-              même règle que la feuille elle-même. */}
-          {/* PrintButton vide le titre de l'onglet le temps de l'impression :
+          {/* Rien ne s'imprime avant l'acceptation : un ticket sorti d'une
+              commande que le département peut encore corriger circulerait en
+              magasin sans correspondre à ce qui sera servi.
+
+              Le libellé nomme ce qui sort de l'imprimante, et suit donc la
+              même règle que la feuille elle-même.
+
+              PrintButton vide le titre de l'onglet le temps de l'impression :
               l'en-tête haut reste blanc. */}
-          <PrintButton orderId={order.id} variant="secondary" size="sm">
-            <Printer className="size-3.5" />
-            {{
-              ticket: 'Imprimer le ticket',
-              commande: 'Imprimer le bon de commande',
-              livraison: 'Imprimer le bon de livraison',
-            }[ticketVariant(order.status)]}
-          </PrintButton>
+          {order.status !== 'PENDING' ? (
+            <PrintButton orderId={order.id} variant="secondary" size="sm">
+              <Printer className="size-3.5" />
+              {{
+                ticket: 'Imprimer le ticket',
+                commande: 'Imprimer le bon de commande',
+                livraison: 'Imprimer le bon de livraison',
+              }[ticketVariant(order.status)]}
+            </PrintButton>
+          ) : null}
 
           {order.status === 'PENDING' ? (
             <Button variant="primary" loading={busy === 'accept'} onClick={accept}>
               {busy !== 'accept' ? <PackageOpen className="size-4" /> : null}
               Accepter la commande
+            </Button>
+          ) : null}
+
+          {/* Se tromper de ticket arrive : tant que le bon n'est pas émis, on
+              rend la commande au département plutôt que de le forcer à en
+              refaire une, qui prendrait un second numéro. */}
+          {order.status === 'ACCEPTED' ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              loading={busy === 'cancel'}
+              onClick={() => void cancelAccept()}
+            >
+              {busy !== 'cancel' ? <Undo2 className="size-3.5" /> : null}
+              Annuler l’acceptation
             </Button>
           ) : null}
 

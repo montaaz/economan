@@ -300,6 +300,47 @@ export async function acceptOrder(orderId: number, actorId: number) {
   })
 }
 
+/**
+ * L'économat rend la commande au département : elle repasse en attente.
+ *
+ * Accepter est un geste courant, et se tromper de ticket l'est aussi. Sans
+ * retour en arrière, l'employé ne pouvait plus corriger son stock et devait
+ * refaire une commande, qui prenait un second numéro pour la même sortie.
+ *
+ * Le travail de préparation déjà saisi est effacé : la commande redevient
+ * modifiable, et des quantités servies survivant à une feuille recomptée
+ * annonceraient une marchandise qui ne correspond plus à rien.
+ */
+export async function cancelAcceptance(orderId: number) {
+  return prisma.$transaction(async (tx) => {
+    const order = await tx.order.findUnique({
+      where: { id: orderId },
+      select: { status: true },
+    })
+    if (!order) throw new WorkflowError('Commande introuvable.')
+    // Une fois le bon émis, la marchandise est peut-être sortie du magasin :
+    // on ne réécrit pas l'histoire d'une livraison.
+    if (order.status !== 'ACCEPTED') {
+      throw new WorkflowError(
+        order.status === 'PENDING'
+          ? 'Cette commande est déjà en attente.'
+          : 'Le bon est déjà émis : cette commande ne peut plus être rendue au département.',
+      )
+    }
+
+    await tx.orderLine.updateMany({
+      where: { orderId },
+      data: { status: 'PENDING', quantityServed: null, rejectReason: null },
+    })
+
+    return tx.order.update({
+      where: { id: orderId },
+      data: { status: 'PENDING', processedById: null, acceptedAt: null },
+      select: { id: true },
+    })
+  })
+}
+
 export type ServedLine = {
   lineId: number
   status: 'VALIDATED' | 'ADJUSTED' | 'REJECTED'

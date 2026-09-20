@@ -5,7 +5,8 @@ import { prisma } from '@/server/db'
 import { businessDay, addDays } from '@/lib/utils'
 import type { SessionUser } from '@/server/auth/session'
 import {
-  createOrder, updateOrder, acceptOrder, setServedLines, deliverOrder, receiveOrder, WorkflowError,
+  createOrder, updateOrder, acceptOrder, cancelAcceptance, setServedLines, deliverOrder,
+  receiveOrder, WorkflowError,
 } from '@/server/services/orders'
 
 export type Ctx = { user: SessionUser | null }
@@ -192,6 +193,8 @@ const typeDefs = /* GraphQL */ `
     "Corrige une commande encore en attente. Refusée dès que l'économat l'a acceptée."
     updateOrder(id: ID!, lines: [OrderLineInput!]!, note: String): Order!
     acceptOrder(id: ID!): Order!
+    "Rend une commande acceptée au département : elle repasse en attente et redevient modifiable."
+    cancelAcceptance(id: ID!): Order!
     setServedLines(id: ID!, lines: [ServedLineInput!]!): Order!
     deliverOrder(id: ID!): Order!
     "L'employé confirme la réception, en déclarant ce qu'il a compté."
@@ -657,6 +660,12 @@ const resolvers = {
     acceptOrder: async (_p: unknown, a: { id: string }, ctx: Ctx) => {
       const u = requireStaff(ctx)
       await run(() => acceptOrder(Number(a.id), u.id))
+      return prisma.order.findUniqueOrThrow({ where: { id: Number(a.id) }, include: ORDER_INCLUDE })
+    },
+
+    cancelAcceptance: async (_p: unknown, a: { id: string }, ctx: Ctx) => {
+      requireStaff(ctx)
+      await run(() => cancelAcceptance(Number(a.id)))
       return prisma.order.findUniqueOrThrow({ where: { id: Number(a.id) }, include: ORDER_INCLUDE })
     },
 

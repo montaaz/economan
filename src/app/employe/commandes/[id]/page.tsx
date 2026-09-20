@@ -35,6 +35,7 @@ const QUERY = /* GraphQL */ `
       department { name code color }
       createdBy { id fullName }
       processedBy { fullName }
+      receivedBy { fullName }
       lines {
         id
         productId
@@ -81,6 +82,9 @@ type Order = Omit<TicketOrder, 'createdBy' | 'lines'> & {
   // correction en a besoin pour renvoyer la commande au serveur.
   lines: (TicketOrder['lines'][number] & { productId: string })[]
   createdBy: { id: string; fullName: string }
+  // Tout le service peut confirmer la réception ; le ticket papier n'en a que
+  // faire, l'écran si.
+  receivedBy: { fullName: string } | null
   status: 'PENDING' | 'ACCEPTED' | 'DELIVERED' | 'RECEIVED' | 'CANCELLED'
   lineCount: number
   totalAsked: number
@@ -263,6 +267,11 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
               <Badge tone="danger">
                 {ruptures} article{ruptures > 1 ? 's' : ''} non livré{ruptures > 1 ? 's' : ''}
               </Badge>
+            ) : null}
+            {/* Tout le service peut réceptionner : savoir qui l'a fait évite
+                d'avoir à demander à la ronde ce qui s'est passé. */}
+            {order.receivedBy ? (
+              <Badge tone="info">Reçue par {order.receivedBy.fullName}</Badge>
             ) : null}
           </div>
 

@@ -488,9 +488,12 @@ export async function receiveOrder(
       }
     }
 
+    // Qui a réceptionné : n'importe quel employé du service peut confirmer,
+    // et ce n'est pas toujours l'auteur de la commande. Sans ce nom, on ne
+    // saurait plus à qui demander ce qui s'est passé à la livraison.
     return tx.order.update({
       where: { id: orderId },
-      data: { status: 'RECEIVED', receivedAt: new Date() },
+      data: { status: 'RECEIVED', receivedAt: new Date(), receivedById: actor.id },
       select: { id: true },
     })
   })

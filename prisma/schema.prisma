@@ -135,6 +135,7 @@ model User {
 
   ordersCreated   Order[] @relation("OrderCreatedBy")
   ordersProcessed Order[] @relation("OrderProcessedBy")
+  ordersReceived  Order[] @relation("OrderReceivedBy")
 
   @@index([departmentId, isActive])
   @@index([role, isActive])
@@ -199,6 +200,9 @@ model Order {
   departmentId Int
   createdById  Int
   processedById Int?
+  // Qui a confirmé la réception : n'importe quel employé du service peut le
+  // faire, et l'auteur de la commande n'est pas toujours celui qui réceptionne.
+  receivedById Int?
   status       OrderStatus @default(PENDING)
   note         String?
   createdAt    DateTime    @default(now())
@@ -210,6 +214,7 @@ model Order {
   department  Department @relation(fields: [departmentId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   createdBy   User       @relation("OrderCreatedBy", fields: [createdById], references: [id], onDelete: Restrict, onUpdate: Cascade)
   processedBy User?      @relation("OrderProcessedBy", fields: [processedById], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  receivedBy  User?      @relation("OrderReceivedBy", fields: [receivedById], references: [id], onDelete: SetNull, onUpdate: Cascade)
   lines       OrderLine[]
 
   // Un seul numéro de ticket par jour et par département.

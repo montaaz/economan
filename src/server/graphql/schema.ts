@@ -89,6 +89,8 @@ const typeDefs = /* GraphQL */ `
     rejectedCount: Int!
     "Lignes servies en quantité différente."
     adjustedCount: Int!
+    "Lignes servies exactement comme demandé."
+    validatedCount: Int!
     ticketNumber: Int!
     businessDay: Date!
     status: OrderStatus!
@@ -100,6 +102,8 @@ const typeDefs = /* GraphQL */ `
     department: Department!
     createdBy: User!
     processedBy: User
+    "Qui a confirmé la réception — pas forcément l'auteur de la commande."
+    receivedBy: User
     lines: [OrderLine!]!
     lineCount: Int!
     totalAsked: Float!
@@ -265,6 +269,7 @@ const ORDER_INCLUDE = {
   department: true,
   createdBy: { include: { department: true } },
   processedBy: { include: { department: true } },
+  receivedBy: { include: { department: true } },
   lines: { orderBy: { sortOrder: 'asc' as const }, include: { unit: true } },
 }
 
@@ -423,6 +428,8 @@ const resolvers = {
       (o.lines ?? []).filter((l) => l.status === 'REJECTED').length,
     adjustedCount: (o: { lines?: { status: string }[] }) =>
       (o.lines ?? []).filter((l) => l.status === 'ADJUSTED').length,
+    validatedCount: (o: { lines?: { status: string }[] }) =>
+      (o.lines ?? []).filter((l) => l.status === 'VALIDATED').length,
     totalAsked: (o: { lines?: { quantityAsked: unknown }[] }) =>
       (o.lines ?? []).reduce((s, l) => s + Number(l.quantityAsked), 0),
     totalServed: (o: { lines?: { quantityServed: unknown }[] }) =>

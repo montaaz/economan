@@ -1,6 +1,6 @@
 import type { Metadata } from 'next'
 import Link from 'next/link'
-import { ClipboardList, PlusCircle, PackageCheck } from 'lucide-react'
+import { ClipboardList, PlusCircle, PackageCheck, UserCheck } from 'lucide-react'
 import { executeGraphQL } from '@/server/graphql/execute'
 import { PageHeader } from '@/components/ui/stat'
 import { GlassCard, Button, EmptyState, Badge } from '@/components/ui/glass'
@@ -20,11 +20,13 @@ const QUERY = /* GraphQL */ `
       status
       createdAt
       lineCount
-      totalAsked
-      totalServed
+      rejectedCount
+      adjustedCount
+      validatedCount
       note
       department { name color }
       createdBy { fullName }
+      receivedBy { fullName }
     }
   }
 `
@@ -37,11 +39,13 @@ type Order = {
   status: 'PENDING' | 'ACCEPTED' | 'DELIVERED' | 'RECEIVED' | 'CANCELLED'
   createdAt: string
   lineCount: number
-  totalAsked: number
-  totalServed: number
+  rejectedCount: number
+  adjustedCount: number
+  validatedCount: number
   note: string | null
   department: { name: string; color: string }
   createdBy: { fullName: string }
+  receivedBy: { fullName: string } | null
 }
 
 /**
@@ -55,8 +59,7 @@ const CARTE: Record<string, string> = {
   PENDING: '!bg-warn/[0.28] !border-warn/45',
   ACCEPTED: '!bg-danger/[0.22] !border-danger/45',
   DELIVERED: '!bg-ok/[0.26] !border-ok/45',
-  // Reçue : le cycle est clos, la carte n'appelle plus rien et s'efface.
-  RECEIVED: '!bg-ok/[0.10] !border-ok/25',
+  RECEIVED: '!bg-info/[0.22] !border-info/45',
   CANCELLED: '!bg-[rgb(var(--glass-edge)/0.18)] !border-[rgb(var(--glass-edge)/0.35)]',
 }
 
@@ -148,12 +151,41 @@ export default async function MyOrdersPage() {
                               des kilos et des litres en un seul total ne
                               désignait aucune grandeur réelle. */}
                           <Badge tone="neutral">{o.lineCount} article{o.lineCount > 1 ? 's' : ''}</Badge>
+                          {/* Le détail de ce qui s'est passé à la livraison,
+                              sans avoir à ouvrir la commande. Tant qu'elle
+                              n'est pas servie, ces comptes valent zéro et ne
+                              s'affichent pas. */}
+                          {o.rejectedCount > 0 ? (
+                            <Badge tone="danger">
+                              {o.rejectedCount} rupture{o.rejectedCount > 1 ? 's' : ''}
+                            </Badge>
+                          ) : null}
+                          {o.adjustedCount > 0 ? (
+                            <Badge tone="warn">
+                              {o.adjustedCount} ajustée{o.adjustedCount > 1 ? 's' : ''}
+                            </Badge>
+                          ) : null}
+                          {o.validatedCount > 0 ? (
+                            <Badge tone="ok">
+                              {o.validatedCount} conforme{o.validatedCount > 1 ? 's' : ''}
+                            </Badge>
+                          ) : null}
                         </div>
 
                         {o.status === 'DELIVERED' ? (
                           <p className="flex items-center gap-1.5 rounded-lg bg-info/10 px-2.5 py-1.5 text-[0.78rem] font-medium text-info">
                             <PackageCheck className="size-4 shrink-0" />
                             À confirmer en réception
+                          </p>
+                        ) : null}
+
+                        {/* Tout le service peut réceptionner : savoir qui l'a
+                            fait évite d'avoir à demander à la ronde ce qui
+                            s'est passé à la livraison. */}
+                        {o.status === 'RECEIVED' && o.receivedBy ? (
+                          <p className="flex items-center gap-1.5 rounded-lg bg-info/10 px-2.5 py-1.5 text-[0.78rem] font-medium text-info">
+                            <UserCheck className="size-4 shrink-0" />
+                            Reçue par {o.receivedBy.fullName}
                           </p>
                         ) : null}
                       </div>

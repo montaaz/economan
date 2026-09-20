@@ -3,7 +3,7 @@
 import * as React from 'react'
 import { useRouter } from 'next/navigation'
 import { Check, Loader2, Pencil, Search, X } from 'lucide-react'
-import { Badge, EmptyState, TableWrap, Th, Td } from '@/components/ui/glass'
+import { EmptyState, TableWrap, Th, Td } from '@/components/ui/glass'
 import { FamilyBand, countByFamily } from '@/components/ui/family-band'
 import { useToast } from '@/components/ui/toast'
 import { gql, errorMessage } from '@/lib/graphql-client'
@@ -32,20 +32,6 @@ const UPDATE = /* GraphQL */ `
     updateOrder(id: $id, lines: $lines) { id }
   }
 `
-
-const LINE_TONE = {
-  PENDING: 'neutral',
-  VALIDATED: 'ok',
-  ADJUSTED: 'warn',
-  REJECTED: 'danger',
-} as const
-
-const LINE_LABEL = {
-  PENDING: 'En attente',
-  VALIDATED: 'Servi',
-  ADJUSTED: 'Ajusté',
-  REJECTED: 'Rupture',
-} as const
 
 /**
  * Détail des lignes d'une commande.
@@ -117,6 +103,9 @@ export function OrderLines({
     setDraft(v)
   }
 
+  // # · Article · Stock fixe · Mon stock · Commande · Servi, plus Reçu et
+  // Modifier selon le cas. Un bandeau trop court laisserait un trou blanc au
+  // bout de la ligne.
   const colonnes = 6 + (showReceived ? 1 : 0) + (editable ? 1 : 0)
 
   function ouvrir(l: OrderLine) {
@@ -253,7 +242,6 @@ export function OrderLines({
           <Th className="text-right">Commande</Th>
           <Th className="text-right">Servi</Th>
           {showReceived ? <Th className="text-right">Reçu</Th> : null}
-          <Th>État</Th>
           {editable ? <Th className="text-right">Modifier</Th> : null}
         </tr>
       </thead>
@@ -264,10 +252,10 @@ export function OrderLines({
             <React.Fragment key={l.id}>
               {i === 0 || affichees[i - 1].categoryName !== l.categoryName ? (
                 <FamilyBand
-                    name={l.categoryName}
-                    count={parFamille.get(l.categoryName) ?? 0}
-                    colSpan={colonnes}
-                  />
+                  name={l.categoryName}
+                  count={parFamille.get(l.categoryName) ?? 0}
+                  colSpan={colonnes}
+                />
               ) : null}
               <tr
                 className={cn(
@@ -281,6 +269,11 @@ export function OrderLines({
                   {/* La famille est portée par le bandeau : la répéter sous
                       chaque nom allongeait sans rien apprendre. */}
                   <p className="truncate font-mono text-[0.7rem] text-fg-subtle">{l.productRef}</p>
+                  {/* La colonne d'état a disparu : sans ce report, un article
+                      en rupture n'aurait plus nulle part où dire pourquoi. */}
+                  {l.rejectReason ? (
+                    <p className="text-[0.7rem] text-danger">{l.rejectReason}</p>
+                  ) : null}
                 </Td>
                 <Td className="whitespace-nowrap text-right tabular-nums text-fg-subtle">
                   {formatQty(l.stockFixe)} {l.unitSymbol}
@@ -339,12 +332,6 @@ export function OrderLines({
                     )}
                   </Td>
                 ) : null}
-                <Td>
-                  <Badge tone={LINE_TONE[l.status]}>{LINE_LABEL[l.status]}</Badge>
-                  {l.rejectReason ? (
-                    <p className="mt-0.5 text-[0.7rem] text-danger">{l.rejectReason}</p>
-                  ) : null}
-                </Td>
                 {editable ? (
                   <Td className="text-right">
                     {ouvert ? (

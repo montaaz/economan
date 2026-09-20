@@ -136,7 +136,13 @@ export function Ticket({
         <thead>
           <tr className="border-y border-[#0f1e33] bg-[#f0f4fa]">
             <th className="w-8 px-2 py-1.5 text-right font-semibold">#</th>
-            <th className="px-2 py-1.5 text-left font-semibold">Article</th>
+            <th className="px-2 py-1.5 text-left font-semibold">
+              Article
+              {/* Le total accompagne l'intitulé : sur un document de quatre
+                  pages, savoir combien de lignes sont attendues permet de
+                  vérifier qu'aucune feuille ne manque. */}
+              <span className="ml-1.5 font-normal">({lines.length})</span>
+            </th>
             <th className="w-16 px-2 py-1.5 text-right font-semibold">Fixe</th>
             {/* L'unité rejoint la quantité qu'elle qualifie : « 5 u » se lit
                 d'un bloc, et la colonne « En rayon » disparaît — le stock

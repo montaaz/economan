@@ -1,3 +1,4 @@
+import * as React from 'react'
 import { GlassCard, Badge, TableWrap, Th, Td } from '@/components/ui/glass'
 import { Icon } from '@/components/ui/icon'
 import { StatusBadge } from '@/components/ui/status'
@@ -13,6 +14,15 @@ const LINE = {
 
 /** Consultation seule d'une commande — utilisée côté administration. */
 export function OrderView({ order }: { order: ProcessOrder }) {
+  // Les lignes d'une commande sont figées à l'envoi : celles passées avant que
+  // les feuilles soient regroupées gardent leurs familles éparpillées. On les
+  // rassemble pour l'affichage, sans toucher au ticket enregistré.
+  const ordreFamilles: string[] = []
+  for (const l of order.lines) {
+    if (!ordreFamilles.includes(l.categoryName)) ordreFamilles.push(l.categoryName)
+  }
+  const lignes = ordreFamilles.flatMap((c) => order.lines.filter((l) => l.categoryName === c))
+
   return (
     <div className="space-y-4">
       <GlassCard>
@@ -71,15 +81,26 @@ export function OrderView({ order }: { order: ProcessOrder }) {
             </tr>
           </thead>
           <tbody className="divide-y divide-[rgb(var(--glass-edge)/0.12)]">
-            {order.lines.map((l, i) => (
-              <tr key={l.id} className={cn(l.status === 'REJECTED' && 'bg-danger/[0.06]')}>
+            {lignes.map((l, i) => (
+              <React.Fragment key={l.id}>
+                {i === 0 || lignes[i - 1].categoryName !== l.categoryName ? (
+                  <tr>
+                    <td
+                      colSpan={6}
+                      className="bg-ok/12 px-2 py-1.5 text-[0.72rem] font-bold uppercase tracking-[0.06em] text-ok sm:px-3 sm:text-[0.76rem]"
+                    >
+                      {l.categoryName}
+                    </td>
+                  </tr>
+                ) : null}
+              <tr className={cn(l.status === 'REJECTED' && 'bg-danger/[0.06]')}>
                 <Td className="text-right text-[0.78rem] tabular-nums text-fg-subtle">{i + 1}</Td>
                 <Td className="max-w-0">
                   <p className="truncate text-[0.85rem] font-medium text-fg">{l.productName}</p>
-                  <p className="truncate text-[0.7rem] text-fg-subtle">
-                    <span className="font-mono">{l.productRef}</span>
-                    <span className="mx-1.5">·</span>
-                    {l.categoryName}
+                  {/* La famille est portée par le bandeau : la répéter sous
+                      chaque nom allongeait sans rien apprendre. */}
+                  <p className="truncate font-mono text-[0.7rem] text-fg-subtle">
+                    {l.productRef}
                   </p>
                 </Td>
                 <Td className="whitespace-nowrap text-right tabular-nums text-fg-muted">
@@ -109,6 +130,7 @@ export function OrderView({ order }: { order: ProcessOrder }) {
                   ) : null}
                 </Td>
               </tr>
+              </React.Fragment>
             ))}
           </tbody>
         </TableWrap>

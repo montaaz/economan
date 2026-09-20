@@ -52,8 +52,28 @@ const QUERY = /* GraphQL */ `
         rejectReason
       }
     }
+    # La feuille du département, dans son ordre. Tant que la commande est
+    # modifiable, les articles dont le rayon était plein n'ont pas de ligne :
+    # il faut les retrouver ici pour pouvoir les commander après coup.
+    myCatalog {
+      id
+      name
+      reference
+      stockFixe
+      category { name }
+      baseUnit { symbol }
+    }
   }
 `
+
+type CatalogEntry = {
+  id: string
+  name: string
+  reference: string
+  stockFixe: number
+  category: { name: string }
+  baseUnit: { symbol: string }
+}
 
 type Order = Omit<TicketOrder, 'createdBy' | 'lines'> & {
   id: string
@@ -84,25 +104,49 @@ const LINE_LABEL = {
 
 export default async function OrderDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
-  const [user, { order }] = await Promise.all([
+  const [user, { order, myCatalog }] = await Promise.all([
     requireEmployeeDepartment(),
-    executeGraphQL<{ order: Order | null }>(QUERY, { id }),
+    executeGraphQL<{ order: Order | null; myCatalog: CatalogEntry[] }>(QUERY, { id }),
   ])
   if (!order) notFound()
-
-  // Les lignes d'une commande sont figées à l'envoi : celles passées avant que
-  // les feuilles soient regroupées gardent leurs familles éparpillées. On les
-  // rassemble pour l'affichage, sans toucher au ticket enregistré.
-  const ordreFamilles: string[] = []
-  for (const l of order.lines) {
-    if (!ordreFamilles.includes(l.categoryName)) ordreFamilles.push(l.categoryName)
-  }
-  const lignes = ordreFamilles.flatMap((c) => order.lines.filter((l) => l.categoryName === c))
 
   const steps = statusSteps(order.status)
 
   // Sa commande, pas encore prise en charge : les deux conditions du serveur.
   const modifiable = order.status === 'PENDING' && order.createdBy.id === String(user.id)
+
+  // Une commande ne retient que ce qu'il y avait à commander : un rayon déjà
+  // plein ne produit pas de ligne. Tant qu'elle est modifiable, on rétablit la
+  // feuille entière pour que ces articles-là restent corrigeables — un stock
+  // mal compté ne doit pas obliger à refaire toute la feuille.
+  //
+  // Dès que l'économat l'accepte, la commande se fige sur ses lignes réelles :
+  // afficher des articles à zéro ferait croire à une marchandise à sortir.
+  const parProduit = new Map(order.lines.map((l) => [l.productId, l]))
+  const lignes = modifiable
+    ? myCatalog.map((p) => {
+        const existante = parProduit.get(p.id)
+        if (existante) return existante
+        // Article absent de la commande : son rayon couvrait la cible. On le
+        // montre tel qu'il a été compté, sans rien à commander.
+        return {
+          id: `catalogue-${p.id}`,
+          productId: p.id,
+          productName: p.name,
+          productRef: p.reference,
+          categoryName: p.category.name,
+          unitSymbol: p.baseUnit.symbol,
+          stockFixe: p.stockFixe,
+          quantityOnHand: p.stockFixe,
+          quantityAsked: 0,
+          quantityServed: null,
+          quantityReceived: null,
+          receiptGap: null,
+          status: 'PENDING' as const,
+          rejectReason: null,
+        }
+      })
+    : order.lines
 
   return (
     <>

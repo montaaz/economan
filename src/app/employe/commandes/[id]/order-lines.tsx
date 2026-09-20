@@ -123,14 +123,19 @@ export function OrderLines({
       setEditing(null)
       return
     }
-    // Un stock qui atteint la cible annule la ligne : le serveur ne garde que
-    // les quantités positives, l'article disparaîtrait de la commande sans
-    // prévenir. Le retirer reste possible en rouvrant toute la feuille.
-    if (stock >= ligne.stockFixe) {
+    // Un stock qui atteint la cible ramène la ligne à zéro : l'article reste
+    // affiché tant que la commande est modifiable, donc rien ne disparaît sous
+    // les yeux. Mais une commande entièrement à zéro n'existe plus — le
+    // serveur la refuserait, et l'employé se retrouverait devant une erreur
+    // technique là où il voulait simplement tout annuler.
+    const reste = lines.some((l) =>
+      l.id === ligne.id ? stock < l.stockFixe : l.quantityAsked > 0,
+    )
+    if (!reste) {
       push(
         'error',
-        `Un stock de ${formatQty(stock)} ${ligne.unitSymbol} atteint le stock fixe : il n’y aurait `
-          + 'plus rien à commander. Utilisez « Refaire la feuille » pour retirer l’article.',
+        'Ce serait la dernière ligne de la commande. Une commande vide ne peut pas être '
+          + 'enregistrée : annulez-la depuis « Refaire la feuille ».',
       )
       return
     }
@@ -144,9 +149,12 @@ export function OrderLines({
           quantityOnHand: l.id === ligne.id ? stock : l.quantityOnHand,
         })),
       })
+      const commande = Math.max(ligne.stockFixe - stock, 0)
       push(
         'success',
-        `${ligne.productName} : ${formatQty(ligne.stockFixe - stock)} ${ligne.unitSymbol} commandé.`,
+        commande > 0
+          ? `${ligne.productName} : ${formatQty(commande)} ${ligne.unitSymbol} commandé.`
+          : `${ligne.productName} : rien à commander, le rayon couvre le stock fixe.`,
       )
       setEditing(null)
       router.refresh()

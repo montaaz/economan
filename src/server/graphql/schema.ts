@@ -206,8 +206,8 @@ const typeDefs = /* GraphQL */ `
     dayArticlesByDepartment(day: Date, dayTo: Date): [DayDepartmentArticles!]!
     "Stock fixe d'un département, tous ses articles — écran d'administration."
     stockFixeMatrix(departmentId: ID!): [StockFixeLine!]!
-    "Toutes les lignes non livrées d'une journée ou d'une période, tous départements."
-    dayRuptures(day: Date, dayTo: Date): [RuptureLine!]!
+    "Lignes non livrées d'une journée ou d'une période. Sans departmentId, tous les services."
+    dayRuptures(day: Date, dayTo: Date, departmentId: ID): [RuptureLine!]!
   }
 
   type Mutation {
@@ -551,13 +551,22 @@ const resolvers = {
       return cumulerArticles(resolvePeriod(a.day, a.dayTo), Number(a.departmentId))
     },
 
-    dayRuptures: async (_p: unknown, a: { day?: string; dayTo?: string }, ctx: Ctx) => {
+    dayRuptures: async (
+      _p: unknown,
+      a: { day?: string; dayTo?: string; departmentId?: string },
+      ctx: Ctx,
+    ) => {
       requireStaff(ctx)
       const period = resolvePeriod(a.day, a.dayTo)
       const lines = await prisma.orderLine.findMany({
         where: {
           status: 'REJECTED',
-          order: { businessDay: periodFilter(period) },
+          order: {
+            businessDay: periodFilter(period),
+            // La liste suit le filtre de l'écran : montrer les ruptures des
+            // autres services sous un filtre « Bar » contredirait la page.
+            ...(a.departmentId ? { departmentId: Number(a.departmentId) } : {}),
+          },
         },
         select: {
           id: true,

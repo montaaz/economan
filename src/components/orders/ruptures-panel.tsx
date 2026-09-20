@@ -9,8 +9,8 @@ import { gql, errorMessage } from '@/lib/graphql-client'
 import { formatPeriod, formatQty, formatShortDay } from '@/lib/utils'
 
 const RUPTURES = /* GraphQL */ `
-  query DayRuptures($day: Date, $dayTo: Date) {
-    dayRuptures(day: $day, dayTo: $dayTo) {
+  query DayRuptures($day: Date, $dayTo: Date, $departmentId: ID) {
+    dayRuptures(day: $day, dayTo: $dayTo, departmentId: $departmentId) {
       lineId
       orderId
       orderReference
@@ -48,13 +48,15 @@ type Rupture = {
  * commande de chaque département.
  */
 export function RupturesPanel({
-  day, dayTo, count,
+  day, dayTo, count, departmentId,
 }: {
   day: string
   /** Borne de fin si l'écran affiche une période. */
   dayTo?: string | null
   /** Nombre de ruptures, connu de la page : le bouton l'annonce sans requête. */
   count: number
+  /** Service filtré à l'écran, s'il y en a un : la liste le suit. */
+  departmentId?: string | null
 }) {
   const [open, setOpen] = React.useState(false)
   if (count === 0) return null
@@ -66,17 +68,23 @@ export function RupturesPanel({
         {count} rupture{count > 1 ? 's' : ''}
       </Button>
       {open ? (
-        <Liste day={day} dayTo={dayTo} onClose={() => setOpen(false)} />
+        <Liste
+          day={day}
+          dayTo={dayTo}
+          departmentId={departmentId}
+          onClose={() => setOpen(false)}
+        />
       ) : null}
     </>
   )
 }
 
 function Liste({
-  day, dayTo, onClose,
+  day, dayTo, departmentId, onClose,
 }: {
   day: string
   dayTo?: string | null
+  departmentId?: string | null
   onClose: () => void
 }) {
   const [lines, setLines] = React.useState<Rupture[] | null>(null)
@@ -84,11 +92,13 @@ function Liste({
 
   React.useEffect(() => {
     let vivant = true
-    gql<{ dayRuptures: Rupture[] }>(RUPTURES, { day, dayTo: dayTo ?? null })
+    gql<{ dayRuptures: Rupture[] }>(RUPTURES, {
+      day, dayTo: dayTo ?? null, departmentId: departmentId ?? null,
+    })
       .then((d) => { if (vivant) setLines(d.dayRuptures) })
       .catch((e) => { if (vivant) setError(errorMessage(e)) })
     return () => { vivant = false }
-  }, [day, dayTo])
+  }, [day, dayTo, departmentId])
 
   // Un même article peut manquer à plusieurs services : le compter une fois
   // dit l'ampleur du manque, pas le nombre de lignes.

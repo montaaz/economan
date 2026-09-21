@@ -273,13 +273,16 @@ export function RefillForm({ service }: { service: RefillService }) {
               <Th className="w-10 text-right">#</Th>
               <Th className="w-full">Article</Th>
               <Th className="text-right">Commande</Th>
-              <Th className="text-right">Déjà servi</Th>
-              <Th className="text-right">Reste</Th>
+              <Th className="text-right">1ᵉʳ servi</Th>
+              {/* Les passages s'intercalent entre le premier service et le
+                  reste : la ligne se lit alors dans l'ordre où elle s'est
+                  jouée, et le reste conclut. */}
               {colonnes.map((c) => (
                 <Th key={c.cle} className="w-36 text-right">
                   {rangDe(c.cle)}ᵉ service
                 </Th>
               ))}
+              <Th className="text-right">Reste</Th>
               {/* État ferme le tableau : les colonnes de service s'intercalent
                   avant lui, et l'état conclut la ligne — c'est lui qu'on lit
                   après avoir saisi. */}
@@ -350,17 +353,6 @@ export function RefillForm({ service }: { service: RefillService }) {
                     <Td className="whitespace-nowrap text-right tabular-nums text-fg-muted">
                       {formatQty(servi)} {l.unitSymbol}
                     </Td>
-                    <Td className="whitespace-nowrap text-right font-bold tabular-nums">
-                      {/* Le reste se met à jour pendant la saisie : on voit
-                          ce qui manquera encore après ce passage. */}
-                      {soldee ? (
-                        <span className="text-ok">—</span>
-                      ) : (
-                        <span className={cn(partiel ? 'text-warn' : 'text-danger')}>
-                          {formatQty(r - enCours)} {l.unitSymbol}
-                        </span>
-                      )}
-                    </Td>
                     {colonnes.map((c) => (
                       <Td key={c.cle} className="text-right">
                         {r === 0 ? (
@@ -384,6 +376,17 @@ export function RefillForm({ service }: { service: RefillService }) {
                         )}
                       </Td>
                     ))}
+                    <Td className="whitespace-nowrap text-right font-bold tabular-nums">
+                      {/* Le reste se met à jour pendant la saisie : on voit
+                          ce qui manquera encore après ce passage. */}
+                      {soldee ? (
+                        <span className="text-ok">—</span>
+                      ) : (
+                        <span className={cn(partiel ? 'text-warn' : 'text-danger')}>
+                          {formatQty(r - enCours)} {l.unitSymbol}
+                        </span>
+                      )}
+                    </Td>
                     <Td>
                       {soldee ? (
                         <Badge tone="ok">Soldé</Badge>

@@ -26,6 +26,8 @@ export type RefillTicket = {
     quantity: number
     /** Ce qui manquera encore après ce passage. */
     remaining: number
+    /** Le ticket dont vient la ligne : un bon réunit plusieurs commandes. */
+    orderRef?: string
   }[]
 }
 
@@ -77,8 +79,10 @@ export function RefillTicketSheet({ refill }: { refill: RefillTicket }) {
       {/* Ce complément vient après un premier bon : le rappeler évite qu'on le
           prenne pour la commande entière. */}
       <p className="mt-2 border-l-2 border-[#b4630f] bg-[#fdf1e3] px-2.5 py-1.5 text-[0.82rem]">
-        Complément de la commande <span className="font-mono font-semibold">{o.reference}</span> —
-        seuls les articles ci-dessous sortent à ce passage.
+        {/* Un bon peut réunir plusieurs tickets du même rayon. */}
+        Complément {o.reference.includes('·') ? 'des commandes' : 'de la commande'}{' '}
+        <span className="font-mono font-semibold">{o.reference}</span> — seuls les articles
+        ci-dessous sortent à ce passage.
       </p>
 
       <table className="mt-3 w-full border-collapse">
@@ -117,7 +121,17 @@ export function RefillTicketSheet({ refill }: { refill: RefillTicket }) {
               ) : null}
               <tr className="border-b border-[#dbe3ef]">
                 <td className="px-2 py-1 text-right tabular-nums text-[#4a5f7d]">{i + 1}</td>
-                <td className="px-2 py-1 font-medium">{l.productName}</td>
+                <td className="px-2 py-1 font-medium">
+                  {l.productName}
+                  {/* Plusieurs commandes sur un même bon : sans sa référence,
+                      une ligne ne dirait pas de laquelle elle vient. Sur sa
+                      propre ligne, sans quoi elle coupait le nom en deux. */}
+                  {l.orderRef ? (
+                    <span className="block font-mono text-[0.68rem] font-normal text-[#4a5f7d]">
+                      {l.orderRef}
+                    </span>
+                  ) : null}
+                </td>
                 <td className="px-2 py-1 text-right tabular-nums text-[#4a5f7d]">
                   {formatQty(l.stockFixe)}
                 </td>

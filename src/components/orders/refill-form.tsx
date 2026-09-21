@@ -49,6 +49,8 @@ export type RefillService = {
   rangs: Record<string, number>
   /** Les passages enregistrés, pour imprimer leur bon. */
   passages: { id: string; rank: number; orderRef: string }[]
+  /** La journée affichée, pour cibler le bon du département. */
+  jour: string
 }
 
 /** Ce qui reste à servir sur une ligne, tous passages confondus. */
@@ -237,9 +239,9 @@ export function RefillForm({ service }: { service: RefillService }) {
         })
         crees.push({ id: d.addRefill.id, ref: c.ref, rang: d.addRefill.rank })
       }
-      setBons((b) => [...b, ...crees])
+      setBons(crees)
       push('success',
-        `${crees.length} bon(s) prêt(s) : ${crees.map((b) => `${b.ref} — ${b.rang}ᵉ service`).join(' · ')}`)
+        `${crees.length} commande(s) complétée(s) — le bon du ${crees[0].rang}ᵉ service est prêt.`)
       // La colonne enregistrée disparaît : son contenu est désormais en base,
       // et le « déjà servi » de chaque ligne l'intègre.
       retirerColonne(cle)
@@ -260,18 +262,18 @@ export function RefillForm({ service }: { service: RefillService }) {
           <p className="text-[0.85rem] font-medium text-fg">
             {rangDernier}ᵉ service enregistré — imprimez le bon :
           </p>
-          {dernierPassage.map((b) => (
-            <a
-              key={b.id}
-              href={`/api/bon-service/${b.id}`}
-              target="_blank"
-              rel="noreferrer"
-              className="inline-flex items-center gap-1.5 rounded-lg border border-info/40 bg-white/70 px-2.5 py-1 text-[0.8rem] font-semibold text-info transition-colors hover:bg-white"
-            >
-              <Printer className="size-3.5" />
-              {b.orderRef}
-            </a>
-          ))}
+          {/* Un seul bon pour le département : le même passage touche
+              plusieurs commandes du rayon, et deux papiers pour une tournée
+              ne servaient personne. */}
+          <a
+            href={`/api/bon-service/departement?dep=${service.id}&rang=${rangDernier}&jour=${service.jour}`}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-info/40 bg-white/70 px-2.5 py-1 text-[0.8rem] font-semibold text-info transition-colors hover:bg-white"
+          >
+            <Printer className="size-3.5" />
+            Bon du {rangDernier}ᵉ service — {service.nom}
+          </a>
         </div>
       ) : null}
 
@@ -282,18 +284,15 @@ export function RefillForm({ service }: { service: RefillService }) {
           <p className="text-[0.85rem] font-medium text-fg">
             Service enregistré — imprimez le bon :
           </p>
-          {bons.map((b) => (
-            <a
-              key={b.id}
-              href={`/api/bon-service/${b.id}`}
-              target="_blank"
-              rel="noreferrer"
-              className="inline-flex items-center gap-1.5 rounded-lg border border-info/40 bg-white/70 px-2.5 py-1 text-[0.8rem] font-semibold text-info transition-colors hover:bg-white"
-            >
-              <Printer className="size-3.5" />
-              {b.ref} — {b.rang}ᵉ service
-            </a>
-          ))}
+          <a
+            href={`/api/bon-service/departement?dep=${service.id}&rang=${bons[0].rang}&jour=${service.jour}`}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-info/40 bg-white/70 px-2.5 py-1 text-[0.8rem] font-semibold text-info transition-colors hover:bg-white"
+          >
+            <Printer className="size-3.5" />
+            Bon du {bons[0].rang}ᵉ service — {service.nom}
+          </a>
         </div>
       ) : null}
 

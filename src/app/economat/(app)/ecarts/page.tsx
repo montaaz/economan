@@ -112,7 +112,7 @@ export default async function EcartsPage({
         bloc = {
           id: o.department.id, nom: o.department.name,
           couleur: o.department.color, icone: o.department.icon,
-          lignes: [], rangs: {}, passages: [],
+          lignes: [], rangs: {}, passages: [], jour: board.day,
         }
         services.push(bloc)
       }

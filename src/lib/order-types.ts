@@ -40,6 +40,8 @@ export type ProcessOrder = {
   acceptedAt: string | null
   deliveredAt: string | null
   receivedAt: string | null
+  /** Rang du dernier service complémentaire ; 1 si aucun. */
+  lastRefillRank: number
   lineCount: number
   totalAsked: number
   totalServed: number

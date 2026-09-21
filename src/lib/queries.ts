@@ -26,6 +26,7 @@ export const DAY_BOARD_QUERY = /* GraphQL */ `
           acceptedAt
           deliveredAt
           receivedAt
+      lastRefillRank
           lineCount
           rejectedCount
           adjustedCount

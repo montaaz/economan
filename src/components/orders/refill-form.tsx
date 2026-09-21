@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import { useRouter } from 'next/navigation'
-import { ListChecks, PackageCheck, Printer, RotateCcw } from 'lucide-react'
+import { ListChecks, PackageCheck, Plus, Printer, RotateCcw, X } from 'lucide-react'
 import { Button, Badge, TableWrap, Th, Td } from '@/components/ui/glass'
 import { Icon } from '@/components/ui/icon'
 import { FamilyBand, countByFamily } from '@/components/ui/family-band'
@@ -57,7 +57,10 @@ export function RefillForm({ service }: { service: RefillService }) {
   const router = useRouter()
   const { push } = useToast()
   const [busy, setBusy] = React.useState(false)
-  const [saisie, setSaisie] = React.useState<Record<string, string>>({})
+  // Une colonne par passage à préparer. Le « + » en ouvre une nouvelle : on
+  // peut ainsi préparer le 2ᵉ et le 3ᵉ service côte à côte, et comparer.
+  const [colonnes, setColonnes] = React.useState<{ cle: number; rang: number }[]>([])
+  const [saisie, setSaisie] = React.useState<Record<string, Record<string, string>>>({})
   // Les bons du dernier passage enregistré : c'est maintenant qu'on les
   // imprime, pas en retrouvant la commande plus tard.
   const [bons, setBons] = React.useState<{ id: string; ref: string; rang: number }[]>([])
@@ -68,30 +71,63 @@ export function RefillForm({ service }: { service: RefillService }) {
 
   const parFamille = countByFamily(service.lignes)
 
-  const set = (id: string, v: string) => {
+  /** Ce qui est déjà saisi sur une ligne, dans les autres colonnes. */
+  const saisiAilleurs = (id: string, sauf: number) =>
+    colonnes.reduce(
+      (n, c) => (c.cle === sauf ? n : n + toNumber(saisie[String(c.cle)]?.[id] ?? '')),
+      0,
+    )
+
+  const set = (cle: number, id: string, v: string) => {
     const n = v.replace(',', '.')
     if (n !== '' && !/^\d*\.?\d*$/.test(n)) return
     const ligne = service.lignes.find((l) => l.id === id)
-    if (ligne && n !== '' && toNumber(n) > reste(ligne)) {
+    // Le reste se partage entre les colonnes : deux passages préparés
+    // ensemble ne peuvent pas servir deux fois la même quantité.
+    const dispo = ligne ? reste(ligne) - saisiAilleurs(id, cle) : 0
+    if (ligne && n !== '' && toNumber(n) > dispo) {
       push('error',
-        `${ligne.productName} : il ne reste que ${formatQty(reste(ligne))} ${ligne.unitSymbol} à servir.`)
+        `${ligne.productName} : il ne reste que ${formatQty(dispo)} ${ligne.unitSymbol} à répartir.`)
       return
     }
-    setSaisie((s) => ({ ...s, [id]: n }))
+    setSaisie((s) => ({ ...s, [String(cle)]: { ...(s[String(cle)] ?? {}), [id]: n } }))
   }
 
-  const toutServir = () => {
-    setSaisie(Object.fromEntries(aServir.map((l) => [l.id, String(reste(l))])))
-    push('info', `${aServir.length} ligne(s) au reste à servir.`)
+  const ajouterColonne = () => {
+    // Le rang annoncé : après le dernier passage enregistré, et après les
+    // colonnes déjà ouvertes.
+    const base = Math.max(1, ...Object.values(service.rangs), 1)
+    const cle = Date.now()
+    setColonnes((c) => [...c, { cle, rang: base + c.length + 1 }])
   }
 
-  const vider = () => setSaisie({})
+  const retirerColonne = (cle: number) => {
+    setColonnes((c) => c.filter((x) => x.cle !== cle))
+    setSaisie((s) => {
+      const n = { ...s }
+      delete n[String(cle)]
+      return n
+    })
+  }
 
-  // Les lignes saisies, groupées par commande : chaque ticket a son passage.
-  const parCommande = React.useMemo(() => {
+  const toutServir = (cle: number) => {
+    const valeurs: Record<string, string> = {}
+    for (const l of aServir) {
+      const dispo = reste(l) - saisiAilleurs(l.id, cle)
+      if (dispo > 0) valeurs[l.id] = String(dispo)
+    }
+    setSaisie((s) => ({ ...s, [String(cle)]: valeurs }))
+    push('info', `${Object.keys(valeurs).length} ligne(s) au reste à servir.`)
+  }
+
+  const vider = (cle: number) =>
+    setSaisie((s) => ({ ...s, [String(cle)]: {} }))
+
+  /** Les lignes d'une colonne, groupées par commande : un bon par ticket. */
+  const parCommande = React.useCallback((cle: number) => {
     const m = new Map<string, { ref: string; lines: { lineId: string; quantity: number }[] }>()
     for (const l of service.lignes) {
-      const v = (saisie[l.id] ?? '').trim()
+      const v = (saisie[String(cle)]?.[l.id] ?? '').trim()
       if (v === '' || toNumber(v) <= 0) continue
       const e = m.get(l.orderId) ?? { ref: l.orderRef, lines: [] }
       e.lines.push({ lineId: l.id, quantity: toNumber(v) })
@@ -100,11 +136,13 @@ export function RefillForm({ service }: { service: RefillService }) {
     return m
   }, [saisie, service.lignes])
 
-  const total = [...parCommande.values()].reduce((n, c) => n + c.lines.length, 0)
+  const compte = (cle: number) =>
+    [...parCommande(cle).values()].reduce((n, c) => n + c.lines.length, 0)
 
-  const enregistrer = async () => {
-    if (total === 0) {
-      push('error', 'Saisissez au moins une quantité.')
+  const enregistrer = async (cle: number) => {
+    const groupes = parCommande(cle)
+    if (groupes.size === 0) {
+      push('error', 'Saisissez au moins une quantité dans cette colonne.')
       return
     }
     setBusy(true)
@@ -112,16 +150,18 @@ export function RefillForm({ service }: { service: RefillService }) {
       // Un passage par commande : les bons partent séparément, chacun vers
       // son ticket.
       const crees: { id: string; ref: string; rang: number }[] = []
-      for (const [orderId, c] of parCommande) {
+      for (const [orderId, c] of groupes) {
         const d = await gql<{ addRefill: { id: string; rank: number } }>(ADD_REFILL, {
           id: orderId, lines: c.lines,
         })
         crees.push({ id: d.addRefill.id, ref: c.ref, rang: d.addRefill.rank })
       }
-      setBons(crees)
+      setBons((b) => [...b, ...crees])
       push('success',
         `${crees.length} bon(s) prêt(s) : ${crees.map((b) => `${b.ref} — ${b.rang}ᵉ service`).join(' · ')}`)
-      setSaisie({})
+      // La colonne enregistrée disparaît : son contenu est désormais en base,
+      // et le « déjà servi » de chaque ligne l'intègre.
+      retirerColonne(cle)
       router.refresh()
     } catch (e) {
       push('error', errorMessage(e))
@@ -154,35 +194,50 @@ export function RefillForm({ service }: { service: RefillService }) {
         </div>
       ) : null}
 
-      {/* Barre d'action : ce qu'on s'apprête à sortir. */}
-      <div className="no-print flex flex-wrap items-center justify-between gap-3 rounded-xl border border-ok/30 bg-ok/[0.07] px-4 py-3">
-        <p className="text-[0.85rem] leading-snug text-fg">
-          La marchandise est arrivée : saisissez ce qui sort pour ce passage.
-          {' '}
-          <span className="font-semibold">
-            {aServir.length} ligne{aServir.length > 1 ? 's' : ''} en attente
-          </span>
-          {total > 0 ? (
-            <span className="font-semibold text-ok"> · {total} saisie{total > 1 ? 's' : ''}</span>
-          ) : null}
-        </p>
-        <div className="flex flex-wrap items-center gap-2">
-          <Button variant="ghost" size="sm" onClick={toutServir}>
-            <ListChecks className="size-3.5" />
-            Tout servir
-          </Button>
-          {total > 0 ? (
-            <Button variant="ghost" size="sm" onClick={vider}>
-              <RotateCcw className="size-3.5" />
-              Vider
-            </Button>
-          ) : null}
-          <Button variant="success" size="sm" loading={busy} onClick={enregistrer}>
-            {!busy ? <PackageCheck className="size-4" /> : null}
-            Enregistrer le service
-          </Button>
-        </div>
-      </div>
+      {/* Une barre par colonne ouverte : chacune part séparément. */}
+      {colonnes.map((c) => {
+        const n = compte(c.cle)
+        return (
+          <div
+            key={c.cle}
+            className="no-print flex flex-wrap items-center justify-between gap-3 rounded-xl border border-ok/30 bg-ok/[0.07] px-4 py-3"
+          >
+            <p className="text-[0.85rem] leading-snug text-fg">
+              <span className="font-bold">{c.rang}ᵉ service</span> — saisissez ce qui sort.
+              {n > 0 ? (
+                <span className="font-semibold text-ok"> {n} ligne{n > 1 ? 's' : ''} saisie{n > 1 ? 's' : ''}</span>
+              ) : (
+                <span className="text-fg-muted"> {aServir.length} ligne(s) en attente</span>
+              )}
+            </p>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button variant="ghost" size="sm" onClick={() => toutServir(c.cle)}>
+                <ListChecks className="size-3.5" />
+                Tout servir
+              </Button>
+              {n > 0 ? (
+                <Button variant="ghost" size="sm" onClick={() => vider(c.cle)}>
+                  <RotateCcw className="size-3.5" />
+                  Vider
+                </Button>
+              ) : null}
+              <Button variant="ghost" size="sm" onClick={() => retirerColonne(c.cle)}>
+                <X className="size-3.5" />
+                Fermer
+              </Button>
+              <Button
+                variant="success"
+                size="sm"
+                loading={busy}
+                onClick={() => void enregistrer(c.cle)}
+              >
+                {!busy ? <PackageCheck className="size-4" /> : null}
+                Enregistrer le {c.rang}ᵉ service
+              </Button>
+            </div>
+          </div>
+        )
+      })}
 
       <div className="overflow-hidden rounded-[calc(var(--radius)+4px)] border border-[rgb(var(--glass-edge)/0.26)] bg-white/45 backdrop-blur-xl">
         <header
@@ -210,7 +265,7 @@ export function RefillForm({ service }: { service: RefillService }) {
           </h2>
         </header>
 
-        <TableWrap minWidth="52rem">
+        <TableWrap minWidth={`${46 + colonnes.length * 7}rem`}>
           <thead>
             <tr>
               <Th className="w-10 text-right">#</Th>
@@ -218,15 +273,35 @@ export function RefillForm({ service }: { service: RefillService }) {
               <Th className="text-right">Commande</Th>
               <Th className="text-right">Déjà servi</Th>
               <Th className="text-right">Reste</Th>
-              {/* La colonne de saisie : ce qui sort à ce passage. */}
-              <Th className="w-32 text-right">Ce service</Th>
-              <Th>État</Th>
+              <Th>
+                <span className="inline-flex items-center gap-1.5">
+                  État
+                  {/* Le « + » ouvre une colonne de service : la marchandise
+                      arrive en plusieurs fois, et chaque passage a la sienne. */}
+                  <button
+                    type="button"
+                    onClick={ajouterColonne}
+                    title="Ajouter un service"
+                    aria-label="Ajouter une colonne de service"
+                    className="grid size-6 place-items-center rounded-lg bg-ok text-white transition-colors hover:bg-ok/85"
+                  >
+                    <Plus className="size-4" />
+                  </button>
+                </span>
+              </Th>
+              {colonnes.map((c) => (
+                <Th key={c.cle} className="w-32 text-right">
+                  {c.rang}ᵉ service
+                </Th>
+              ))}
             </tr>
           </thead>
           <tbody className="divide-y divide-[rgb(var(--glass-edge)/0.12)]">
             {service.lignes.map((l, i) => {
               const r = reste(l)
-              const saisi = (saisie[l.id] ?? '').trim()
+              const saisi = colonnes.some(
+                (c) => toNumber(saisie[String(c.cle)]?.[l.id] ?? '') > 0,
+              )
               const servi = (l.quantityServed ?? 0) + l.quantityRefilled
               return (
                 <React.Fragment key={l.id}>
@@ -234,7 +309,7 @@ export function RefillForm({ service }: { service: RefillService }) {
                     <FamilyBand
                       name={l.categoryName}
                       count={parFamille.get(l.categoryName) ?? 0}
-                      colSpan={7}
+                      colSpan={6 + colonnes.length}
                     />
                   ) : null}
                   <tr
@@ -242,7 +317,7 @@ export function RefillForm({ service }: { service: RefillService }) {
                       r === 0 && 'bg-ok/[0.07]',
                       r > 0 && l.status === 'REJECTED' && 'bg-danger/[0.06]',
                       r > 0 && l.status === 'ADJUSTED' && 'bg-warn/[0.07]',
-                      saisi !== '' && toNumber(saisi) > 0 && '!bg-ok/[0.16]',
+                      saisi && '!bg-ok/[0.16]',
                     )}
                   >
                     <Td className="text-right text-[0.78rem] tabular-nums text-fg-subtle">{i + 1}</Td>
@@ -266,20 +341,6 @@ export function RefillForm({ service }: { service: RefillService }) {
                         <span className="text-danger">{formatQty(r)} {l.unitSymbol}</span>
                       )}
                     </Td>
-                    <Td className="text-right">
-                      {r === 0 ? (
-                        <span className="text-[0.8rem] text-fg-subtle">soldé</span>
-                      ) : (
-                        <input
-                          inputMode="decimal"
-                          value={saisie[l.id] ?? ''}
-                          onChange={(e) => set(l.id, e.target.value)}
-                          placeholder="0"
-                          aria-label={`Quantité servie pour ${l.productName}`}
-                          className="field h-9 w-24 px-2 py-0 text-right text-[0.85rem] tabular-nums"
-                        />
-                      )}
-                    </Td>
                     <Td>
                       {r === 0 ? (
                         <Badge tone="ok">Soldé</Badge>
@@ -289,6 +350,22 @@ export function RefillForm({ service }: { service: RefillService }) {
                         </Badge>
                       )}
                     </Td>
+                    {colonnes.map((c) => (
+                      <Td key={c.cle} className="text-right">
+                        {r === 0 ? (
+                          <span className="text-[0.8rem] text-fg-subtle">—</span>
+                        ) : (
+                          <input
+                            inputMode="decimal"
+                            value={saisie[String(c.cle)]?.[l.id] ?? ''}
+                            onChange={(e) => set(c.cle, l.id, e.target.value)}
+                            placeholder="0"
+                            aria-label={`${c.rang}e service — ${l.productName}`}
+                            className="field h-9 w-24 px-2 py-0 text-right text-[0.85rem] tabular-nums"
+                          />
+                        )}
+                      </Td>
+                    ))}
                   </tr>
                 </React.Fragment>
               )

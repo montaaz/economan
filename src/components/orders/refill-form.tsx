@@ -342,13 +342,11 @@ export function RefillForm({ service }: { service: RefillService }) {
                     <Td className="whitespace-nowrap text-right font-semibold tabular-nums text-fg">
                       {formatQty(l.quantityAsked)} {l.unitSymbol}
                     </Td>
+                    {/* Ce qui est réellement sorti, sans la saisie en cours :
+                        celle-ci se lit dans sa propre colonne, et le reste
+                        montre déjà ce qu'elle change. */}
                     <Td className="whitespace-nowrap text-right tabular-nums text-fg-muted">
                       {formatQty(servi)} {l.unitSymbol}
-                      {enCours > 0 ? (
-                        <span className="ml-1 font-semibold text-ok">
-                          +{formatQty(enCours)}
-                        </span>
-                      ) : null}
                     </Td>
                     <Td className="whitespace-nowrap text-right font-bold tabular-nums">
                       {/* Le reste se met à jour pendant la saisie : on voit

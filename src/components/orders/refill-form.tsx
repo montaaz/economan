@@ -299,10 +299,16 @@ export function RefillForm({ service }: { service: RefillService }) {
           <tbody className="divide-y divide-[rgb(var(--glass-edge)/0.12)]">
             {service.lignes.map((l, i) => {
               const r = reste(l)
-              const saisi = colonnes.some(
-                (c) => toNumber(saisie[String(c.cle)]?.[l.id] ?? '') > 0,
+              // Ce que les colonnes ouvertes ajoutent à cette ligne.
+              const enCours = colonnes.reduce(
+                (n, c) => n + toNumber(saisie[String(c.cle)]?.[l.id] ?? ''), 0,
               )
               const servi = (l.quantityServed ?? 0) + l.quantityRefilled
+              // L'état suit la saisie : servir tout le reste solde la ligne,
+              // en servir une partie la laisse ajustée — y compris une
+              // rupture, qui cesse d'en être une dès qu'un peu sort.
+              const soldee = r === 0 || enCours >= r
+              const partiel = enCours > 0 && enCours < r
               return (
                 <React.Fragment key={l.id}>
                   {i === 0 || service.lignes[i - 1].categoryName !== l.categoryName ? (
@@ -314,10 +320,12 @@ export function RefillForm({ service }: { service: RefillService }) {
                   ) : null}
                   <tr
                     className={cn(
-                      r === 0 && 'bg-ok/[0.07]',
-                      r > 0 && l.status === 'REJECTED' && 'bg-danger/[0.06]',
-                      r > 0 && l.status === 'ADJUSTED' && 'bg-warn/[0.07]',
-                      saisi && '!bg-ok/[0.16]',
+                      // Vert dès que le reste est couvert, orange tant qu'il
+                      // manque quelque chose, rouge si rien n'est encore sorti.
+                      soldee && 'bg-ok/[0.14]',
+                      !soldee && partiel && 'bg-warn/[0.12]',
+                      !soldee && !partiel && l.status === 'REJECTED' && 'bg-danger/[0.06]',
+                      !soldee && !partiel && l.status === 'ADJUSTED' && 'bg-warn/[0.07]',
                     )}
                   >
                     <Td className="text-right text-[0.78rem] tabular-nums text-fg-subtle">{i + 1}</Td>
@@ -333,17 +341,30 @@ export function RefillForm({ service }: { service: RefillService }) {
                     </Td>
                     <Td className="whitespace-nowrap text-right tabular-nums text-fg-muted">
                       {formatQty(servi)} {l.unitSymbol}
+                      {enCours > 0 ? (
+                        <span className="ml-1 font-semibold text-ok">
+                          +{formatQty(enCours)}
+                        </span>
+                      ) : null}
                     </Td>
                     <Td className="whitespace-nowrap text-right font-bold tabular-nums">
-                      {r === 0 ? (
+                      {/* Le reste se met à jour pendant la saisie : on voit
+                          ce qui manquera encore après ce passage. */}
+                      {soldee ? (
                         <span className="text-ok">—</span>
                       ) : (
-                        <span className="text-danger">{formatQty(r)} {l.unitSymbol}</span>
+                        <span className={cn(partiel ? 'text-warn' : 'text-danger')}>
+                          {formatQty(r - enCours)} {l.unitSymbol}
+                        </span>
                       )}
                     </Td>
                     <Td>
-                      {r === 0 ? (
+                      {soldee ? (
                         <Badge tone="ok">Soldé</Badge>
+                      ) : partiel ? (
+                        /* Une rupture partiellement servie n'en est plus une :
+                           elle devient un ajustement. */
+                        <Badge tone="warn">Ajusté</Badge>
                       ) : (
                         <Badge tone={l.status === 'REJECTED' ? 'danger' : 'warn'}>
                           {l.status === 'REJECTED' ? 'Rupture' : 'Ajusté'}

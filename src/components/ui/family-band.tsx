@@ -45,3 +45,17 @@ export function countByFamily(lines: { categoryName: string }[]): Map<string, nu
   for (const l of lines) counts.set(l.categoryName, (counts.get(l.categoryName) ?? 0) + 1)
   return counts
 }
+
+/**
+ * Taille du groupe contigu qui commence à l'indice donné.
+ *
+ * `countByFamily` totalise une famille sur toute la liste, ce qui suppose
+ * qu'elle n'y apparaît qu'une fois. L'écran des écarts la rompt : les ajustées
+ * puis les ruptures forment deux blocs, et une même famille ouvre un bandeau
+ * dans chacun. Chacun doit annoncer ce qu'il contient, pas le total des deux.
+ */
+export function groupSize(lines: { categoryName: string }[], i: number): number {
+  let n = 0
+  while (i + n < lines.length && lines[i + n].categoryName === lines[i].categoryName) n++
+  return n
+}

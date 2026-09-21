@@ -48,10 +48,11 @@ export function RefillTicketSheet({
   blank?: boolean
 }) {
   const o = refill.order
-  // Les familles regroupées, comme sur tous les autres bons.
-  const ordre: string[] = []
-  for (const l of refill.lines) if (!ordre.includes(l.categoryName)) ordre.push(l.categoryName)
-  const lines = ordre.flatMap((c) => refill.lines.filter((l) => l.categoryName === c))
+  // L'ordre arrive déjà fait : le regrouper ici par famille fusionnerait les
+  // blocs qu'un appelant a pu construire — une famille présente à la fois en
+  // ajustées et en ruptures verrait toutes ses lignes remontées dans le
+  // premier bloc, et le papier ne suivrait plus l'écran.
+  const lines = refill.lines
 
   return (
     <div className="mx-auto max-w-[190mm] bg-white p-6 text-[0.86rem] text-[#0f1e33]">
@@ -127,9 +128,19 @@ export function RefillTicketSheet({
             // écart que sur un bon de livraison, et il porte la même marque.
             const du = l.quantityAsked - l.firstServed
             const ecart = l.quantity === null ? 0 : l.quantity - du
+
+            // Le bandeau compte son propre groupe, pas toutes les lignes de
+            // la famille : une même famille peut ouvrir deux blocs — ajustées
+            // puis ruptures — et chacun doit annoncer ce qu'il contient.
+            const ouvre = i === 0 || lines[i - 1].categoryName !== l.categoryName
+            let groupe = 0
+            if (ouvre) {
+              while (i + groupe < lines.length
+                && lines[i + groupe].categoryName === l.categoryName) groupe++
+            }
             return (
             <React.Fragment key={`${l.productRef}-${i}`}>
-              {i === 0 || lines[i - 1].categoryName !== l.categoryName ? (
+              {ouvre ? (
                 <tr>
                   <td
                     colSpan={7}
@@ -137,7 +148,7 @@ export function RefillTicketSheet({
                   >
                     {l.categoryName}
                     <span className="ml-1.5 font-semibold opacity-70">
-                      ({lines.filter((x) => x.categoryName === l.categoryName).length})
+                      ({groupe})
                     </span>
                   </td>
                 </tr>

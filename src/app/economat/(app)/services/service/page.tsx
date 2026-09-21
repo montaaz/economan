@@ -58,10 +58,8 @@ export default async function ServiceSheetPage({
 
   const premier = refills[0]
 
-  // Toutes les lignes des passages de ce rang, dans l'ordre des feuilles.
   const lines = refills
     .flatMap((r) => r.lines.map((l) => ({ ...l, ref: r.order.reference })))
-    .sort((a, b) => a.orderLine.sortOrder - b.orderLine.sortOrder)
     .map((l) => {
       const ol = l.orderLine
       const anterieurs = ol.refills
@@ -79,8 +77,20 @@ export default async function ServiceSheetPage({
         quantity: Number(l.quantity),
         remaining: Math.max(Number(ol.quantityAsked) - sorti, 0),
         orderRef: l.ref,
+        status: ol.status,
       }
     })
+
+  // Le même ordre que l'écran des écarts et que la feuille de tournée : les
+  // ajustées puis les ruptures, familles groupées. Le bon se relit en regard
+  // de la feuille qu'on vient de remplir ; deux ordres obligeraient à
+  // chercher chaque ligne.
+  const ordonnees = (['ADJUSTED', 'REJECTED'] as const).flatMap((etat) => {
+    const g = lines.filter((l) => l.status === etat)
+    const familles: string[] = []
+    for (const l of g) if (!familles.includes(l.categoryName)) familles.push(l.categoryName)
+    return familles.flatMap((c) => g.filter((l) => l.categoryName === c))
+  })
 
   return (
     <RefillTicketSheet
@@ -97,7 +107,7 @@ export default async function ServiceSheetPage({
           department: premier.order.department,
           createdBy: premier.order.createdBy,
         },
-        lines,
+        lines: ordonnees,
       }}
     />
   )

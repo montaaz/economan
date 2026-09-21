@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import { PackageCheck, Plus, Printer, RotateCcw, X } from 'lucide-react'
 import { Button, Badge, TableWrap, Th, Td } from '@/components/ui/glass'
 import { Icon } from '@/components/ui/icon'
-import { FamilyBand, countByFamily } from '@/components/ui/family-band'
+import { FamilyBand, groupSize } from '@/components/ui/family-band'
 import { useToast } from '@/components/ui/toast'
 import { useConfirm } from '@/components/ui/confirm'
 import { gql, errorMessage } from '@/lib/graphql-client'
@@ -79,7 +79,6 @@ export function RefillForm({ service }: { service: RefillService }) {
   // imprime, pas en retrouvant la commande plus tard.
   const [bons, setBons] = React.useState<{ id: string; ref: string; rang: number }[]>([])
 
-  const parFamille = countByFamily(service.lignes)
 
   /** Ce qui est déjà saisi sur une ligne, dans les autres colonnes. */
   const saisiAilleurs = (id: string, sauf: number) =>
@@ -436,7 +435,7 @@ export function RefillForm({ service }: { service: RefillService }) {
                   {i === 0 || service.lignes[i - 1].categoryName !== l.categoryName ? (
                     <FamilyBand
                       name={l.categoryName}
-                      count={parFamille.get(l.categoryName) ?? 0}
+                      count={groupSize(service.lignes, i)}
                       colSpan={6 + rangsServis.length + colonnes.length}
                     />
                   ) : null}

@@ -45,8 +45,6 @@ export default async function FeuilleServicePage({
     orderBy: { ticketNumber: 'asc' },
   })
 
-  // Seules les lignes qui attendent encore quelque chose : une ligne soldée
-  // n'a rien à faire sur une feuille de tournée.
   const lines = orders
     .flatMap((o) => o.lines.map((l) => ({ l, ref: o.reference })))
     .map(({ l, ref }) => {
@@ -64,13 +62,22 @@ export default async function FeuilleServicePage({
         quantity: null,
         remaining: Math.max(Number(l.quantityAsked) - sorti, 0),
         orderRef: ref,
-        sortOrder: l.sortOrder,
+        status: l.status,
       }
     })
-    .filter((l) => l.remaining > 0)
-    .sort((a, b) => a.sortOrder - b.sortOrder)
 
-  if (orders.length === 0 || lines.length === 0) notFound()
+  // L'ordre de l'écran, à la ligne près : les ajustées puis les ruptures,
+  // familles groupées dans chaque bloc. On descend au magasin avec ce papier
+  // et on reporte ensuite à l'écran ligne par ligne ; deux ordres différents
+  // obligeraient à chercher chaque article au lieu de suivre la liste.
+  const ordonnees = (['ADJUSTED', 'REJECTED'] as const).flatMap((etat) => {
+    const g = lines.filter((l) => l.status === etat)
+    const familles: string[] = []
+    for (const l of g) if (!familles.includes(l.categoryName)) familles.push(l.categoryName)
+    return familles.flatMap((c) => g.filter((l) => l.categoryName === c))
+  })
+
+  if (orders.length === 0 || ordonnees.length === 0) notFound()
 
   const premier = orders[0]
 
@@ -88,7 +95,7 @@ export default async function FeuilleServicePage({
           department: premier.department,
           createdBy: premier.createdBy,
         },
-        lines,
+        lines: ordonnees,
       }}
     />
   )

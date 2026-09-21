@@ -59,7 +59,7 @@ export function RefillForm({ service }: { service: RefillService }) {
   const [busy, setBusy] = React.useState(false)
   // Une colonne par passage à préparer. Le « + » en ouvre une nouvelle : on
   // peut ainsi préparer le 2ᵉ et le 3ᵉ service côte à côte, et comparer.
-  const [colonnes, setColonnes] = React.useState<{ cle: number; rang: number }[]>([])
+  const [colonnes, setColonnes] = React.useState<{ cle: number }[]>([])
   const [saisie, setSaisie] = React.useState<Record<string, Record<string, string>>>({})
   // Les bons du dernier passage enregistré : c'est maintenant qu'on les
   // imprime, pas en retrouvant la commande plus tard.
@@ -93,13 +93,14 @@ export function RefillForm({ service }: { service: RefillService }) {
     setSaisie((s) => ({ ...s, [String(cle)]: { ...(s[String(cle)] ?? {}), [id]: n } }))
   }
 
-  const ajouterColonne = () => {
-    // Le rang annoncé : après le dernier passage enregistré, et après les
-    // colonnes déjà ouvertes.
-    const base = Math.max(1, ...Object.values(service.rangs), 1)
-    const cle = Date.now()
-    setColonnes((c) => [...c, { cle, rang: base + c.length + 1 }])
-  }
+  // Le rang se déduit de la position, jamais figé à la création : fermer une
+  // colonne du milieu renumérote les suivantes, sinon deux « 3ᵉ service »
+  // coexistaient après une fermeture puis une réouverture.
+  const base = Math.max(1, ...Object.values(service.rangs))
+  const rangDe = (cle: number) => base + colonnes.findIndex((c) => c.cle === cle) + 1
+
+  const ajouterColonne = () =>
+    setColonnes((c) => [...c, { cle: Date.now() + c.length }])
 
   const retirerColonne = (cle: number) => {
     setColonnes((c) => c.filter((x) => x.cle !== cle))
@@ -197,13 +198,14 @@ export function RefillForm({ service }: { service: RefillService }) {
       {/* Une barre par colonne ouverte : chacune part séparément. */}
       {colonnes.map((c) => {
         const n = compte(c.cle)
+        const rang = rangDe(c.cle)
         return (
           <div
             key={c.cle}
             className="no-print flex flex-wrap items-center justify-between gap-3 rounded-xl border border-ok/30 bg-ok/[0.07] px-4 py-3"
           >
             <p className="text-[0.85rem] leading-snug text-fg">
-              <span className="font-bold">{c.rang}ᵉ service</span> — saisissez ce qui sort.
+              <span className="font-bold">{rang}ᵉ service</span> — saisissez ce qui sort.
               {n > 0 ? (
                 <span className="font-semibold text-ok"> {n} ligne{n > 1 ? 's' : ''} saisie{n > 1 ? 's' : ''}</span>
               ) : (
@@ -232,7 +234,7 @@ export function RefillForm({ service }: { service: RefillService }) {
                 onClick={() => void enregistrer(c.cle)}
               >
                 {!busy ? <PackageCheck className="size-4" /> : null}
-                Enregistrer le {c.rang}ᵉ service
+                Enregistrer le {rang}ᵉ service
               </Button>
             </div>
           </div>
@@ -275,7 +277,7 @@ export function RefillForm({ service }: { service: RefillService }) {
               <Th className="text-right">Reste</Th>
               {colonnes.map((c) => (
                 <Th key={c.cle} className="w-36 text-right">
-                  {c.rang}ᵉ service
+                  {rangDe(c.cle)}ᵉ service
                 </Th>
               ))}
               {/* État ferme le tableau : les colonnes de service s'intercalent
@@ -372,7 +374,7 @@ export function RefillForm({ service }: { service: RefillService }) {
                               value={saisie[String(c.cle)]?.[l.id] ?? ''}
                               onChange={(e) => set(c.cle, l.id, e.target.value)}
                               placeholder="0"
-                              aria-label={`${c.rang}e service — ${l.productName}`}
+                              aria-label={`${rangDe(c.cle)}e service — ${l.productName}`}
                               className="field h-9 w-20 px-2 py-0 text-right text-[0.85rem] tabular-nums"
                             />
                             <span className="w-6 text-left text-[0.78rem] font-medium text-fg-muted">

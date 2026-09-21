@@ -37,11 +37,13 @@ export function OrderDates({
 
   if (compact) {
     return (
-      <p className={cn('flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[0.72rem] tabular-nums', className)}>
+      <p className={cn('flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-[0.74rem] tabular-nums', className)}>
         {franchies.map((e) => (
           <span key={e.cle} className="whitespace-nowrap">
-            <span className="text-fg-subtle">{e.label} </span>
-            <span className={cn('font-semibold', e.ton)}>{formatTime(order[e.cle])}</span>
+            {/* L'intitulé en noir et gras : en gris clair il se lisait mal
+                sur les fonds colorés des cartes. */}
+            <span className="font-semibold text-fg">{e.label} </span>
+            <span className={cn('font-bold', e.ton)}>{formatTime(order[e.cle])}</span>
           </span>
         ))}
       </p>
@@ -54,7 +56,9 @@ export function OrderDates({
         <span key={e.cle} className="flex items-center gap-1.5 whitespace-nowrap">
           <e.Icon className={cn('size-3.5 shrink-0', e.ton)} />
           {/* « Heure » et non « date » : c'est bien une heure qui suit. */}
-          <span className="text-[0.78rem] text-fg-muted">Heure {e.label.toLowerCase()}</span>
+          <span className="text-[0.78rem] font-semibold text-fg">
+            Heure {e.label.toLowerCase()}
+          </span>
           <span className={cn('text-[0.85rem] font-bold tabular-nums', e.ton)}>
             {formatTime(order[e.cle])}
           </span>

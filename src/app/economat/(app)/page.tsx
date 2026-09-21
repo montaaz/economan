@@ -4,7 +4,6 @@ import { executeGraphQL } from '@/server/graphql/execute'
 import { PageHeader } from '@/components/ui/stat'
 import { DayBoard, DayTotals, type Board } from '@/components/orders/day-board'
 import { DayPicker } from '@/components/orders/day-picker'
-import { EcartFilter } from '@/components/orders/ecart-filter'
 import { RupturesPanel } from '@/components/orders/ruptures-panel'
 import { DepartmentFilter } from '@/components/orders/department-filter'
 import { Badge } from '@/components/ui/glass'
@@ -17,9 +16,9 @@ export const dynamic = 'force-dynamic'
 export default async function EconomatPage({
   searchParams,
 }: {
-  searchParams: Promise<{ jour?: string; jusquau?: string; dep?: string; ecart?: string }>
+  searchParams: Promise<{ jour?: string; jusquau?: string; dep?: string }>
 }) {
-  const { jour, jusquau, dep, ecart } = await searchParams
+  const { jour, jusquau, dep } = await searchParams
   const [data, allDepartments] = await Promise.all([
     executeGraphQL<{ dayBoard: Board; activeDays: string[] }>(DAY_BOARD_QUERY, {
       day: jour ?? null,
@@ -37,33 +36,12 @@ export default async function EconomatPage({
   const board = data.dayBoard
   const groups = board.departments
   const selected = dep && allDepartments.some((d) => String(d.id) === dep) ? dep : null
-  const parService = selected ? groups.filter((g) => g.department.id === selected) : groups
-
-  // Filtre par écart : on ne garde que les tickets concernés, et les services
-  // qui n'en ont plus aucun disparaissent — un bloc vide ne dirait rien.
-  const ecartActif = ecart === 'rupture' || ecart === 'ajuste' ? ecart : null
-  const porteEcart = (o: { rejectedCount: number; adjustedCount: number }) =>
-    ecartActif === 'rupture' ? o.rejectedCount > 0 : o.adjustedCount > 0
-
-  const shown = ecartActif
-    ? parService
-        .map((g) => {
-          const orders = g.orders.filter(porteEcart)
-          return {
-            ...g,
-            orders,
-            orderCount: orders.length,
-            lineCount: orders.reduce((n, o) => n + o.lineCount, 0),
-            totalAsked: orders.reduce((n, o) => n + o.totalAsked, 0),
-            totalServed: orders.reduce((n, o) => n + o.totalServed, 0),
-          }
-        })
-        .filter((g) => g.orders.length > 0)
-    : parService
+  const shown = selected ? groups.filter((g) => g.department.id === selected) : groups
+  const parService = shown
 
   // Les totaux suivent le filtre : garder ceux de la journée entière ferait
   // afficher « 2 tickets » au-dessus d'un seul, et l'écran se contredirait.
-  const b: Board = selected || ecartActif
+  const b: Board = selected
     ? {
         ...board,
         departments: shown,
@@ -118,22 +96,8 @@ export default async function EconomatPage({
           {/* Les ruptures sont visibles ticket par ticket ; rien ne les
               rassemblait. Pour savoir ce qui a manqué au magasin dans la
               journée, il fallait ouvrir chaque commande de chaque service. */}
-          {/* Compter les ruptures sans pouvoir les situer laissait le plus
-              gros du travail — retrouver quelles commandes sont concernées —
-              à la charge du lecteur. */}
-          <EcartFilter
-            ruptures={ruptures}
-            ajustees={ajustees}
-            current={ecartActif}
-            day={board.day}
-            dayTo={board.isRange ? board.dayTo : null}
-            dep={selected}
-            total={parService.reduce((n, g) => n + g.orders.length, 0)}
-          />
-
-          {/* Le filtre dit quelles commandes sont touchées, la fiche dit quels
-              articles : les deux questions se posent, et la seconde n'a pas
-              de réponse dans les cartes. */}
+          {/* Le compte ouvre le détail article par article : savoir qu'il y
+              a onze ruptures sans pouvoir les lire n'apprend rien. */}
           <RupturesPanel
             day={b.day}
             dayTo={b.isRange ? b.dayTo : null}
@@ -159,7 +123,6 @@ export default async function EconomatPage({
         basePath="/economat"
         day={board.day}
         dayTo={board.isRange ? board.dayTo : null}
-        keep={{ ecart: ecartActif }}
       />
 
       <DayBoard board={b} basePath="/economat/commandes" />

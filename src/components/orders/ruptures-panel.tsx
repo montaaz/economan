@@ -20,6 +20,7 @@ const RUPTURES = /* GraphQL */ `
       productRef
       categoryName
       unitSymbol
+      stockFixe
       quantityAsked
       quantityServed
       rejectReason
@@ -37,6 +38,7 @@ type Rupture = {
   productRef: string
   categoryName: string
   unitSymbol: string
+  stockFixe: number
   quantityAsked: number
   quantityServed: number
   rejectReason: string | null
@@ -90,11 +92,11 @@ export function RupturesPanel({
 
   return (
     <>
-      {/* Le compte est porté par le filtre juste à côté ; ce bouton ouvre le
-          détail article par article, avec les motifs et les écarts. */}
-      <Button variant="ghost" size="sm" onClick={() => setOpen(true)}>
+      {/* Chacun prend la couleur de ce qu'il annonce, et ouvre le détail
+          article par article. */}
+      <Button variant={mots.bouton} size="sm" onClick={() => setOpen(true)}>
         {status === 'REJECTED' ? <Ban className="size-3.5" /> : <Pencil className="size-3.5" />}
-        Détail des {mots.pluriel}
+        {count} {count > 1 ? mots.pluriel : mots.singulier}
       </Button>
       {open ? (
         <Liste
@@ -177,23 +179,17 @@ function Liste({
           <div className="max-h-[26rem] overflow-y-auto">
             {/* Les ajustements portent une colonne de plus, plus étroite : le
                 motif des ruptures réclamait de la place, deux nombres non. */}
-            <TableWrap minWidth={status === 'REJECTED' ? '50rem' : '42rem'}>
+            <TableWrap minWidth="46rem">
               <thead>
                 <tr>
+                  {/* Les mêmes colonnes que le tableau d'une commande : on y
+                      lit la même chose, sur plusieurs tickets à la fois. */}
                   <Th className="w-10 text-right">#</Th>
-                  <Th>Ticket</Th>
-                  <Th>Article</Th>
-                  <Th className="text-right">Commandé</Th>
-                  {status === 'REJECTED' ? (
-                    /* Le motif est ce qu'on vient chercher ici : il prend la
-                       place restante plutôt que de se casser mot à mot. */
-                    <Th className="w-full">Motif</Th>
-                  ) : (
-                    <>
-                      <Th className="text-right">Servi</Th>
-                      <Th className="text-right">Écart</Th>
-                    </>
-                  )}
+                  <Th className="w-full">Article</Th>
+                  <Th className="text-right">Stock fixe</Th>
+                  <Th className="text-right">Commande</Th>
+                  <Th className="text-right">Servi</Th>
+                  <Th>État</Th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-[rgb(var(--glass-edge)/0.12)]">
@@ -207,7 +203,7 @@ function Liste({
                       {ouvre ? (
                         <tr>
                           <td
-                            colSpan={status === 'REJECTED' ? 5 : 6}
+                            colSpan={6}
                             className="px-2 py-1.5 text-[0.74rem] font-bold uppercase tracking-[0.06em] sm:px-3"
                             style={{
                               background: `${l.department.color}1f`,
@@ -222,55 +218,52 @@ function Liste({
                         </tr>
                       ) : null}
                       <tr className={status === 'REJECTED' ? 'bg-danger/[0.04]' : 'bg-warn/[0.05]'}>
-                        <Td className="text-right text-[0.75rem] tabular-nums text-fg-subtle">
+                        <Td className="text-right text-[0.78rem] tabular-nums text-fg-subtle">
                           {i + 1}
                         </Td>
-                        <Td className="whitespace-nowrap text-[0.78rem] text-fg-muted">
-                          {/* Sur une période, savoir quel jour a manqué compte
-                              autant que de savoir quoi. */}
-                          {dayTo ? (
-                            <span className="capitalize">{formatShortDay(l.businessDay)}</span>
-                          ) : null}
-                          <span className="ml-1 font-mono text-[0.7rem] text-fg-subtle">
-                            {l.orderReference}
-                          </span>
-                        </Td>
-                        <Td>
-                          <p className="whitespace-nowrap text-[0.83rem] font-medium text-fg">
+                        <Td className="max-w-0">
+                          <p className="truncate text-[0.85rem] font-medium text-fg">
                             {l.productName}
                           </p>
-                          <p className="whitespace-nowrap text-[0.7rem] text-fg-subtle">
-                            {l.categoryName}
+                          <p className="truncate font-mono text-[0.7rem] text-fg-subtle">
+                            {l.productRef}
+                            <span className="ml-2 font-sans">{l.orderReference}</span>
+                            {/* Sur une période, savoir quel jour a manqué
+                                compte autant que de savoir quoi. */}
+                            {dayTo ? (
+                              <span className="ml-2 font-sans capitalize">
+                                {formatShortDay(l.businessDay)}
+                              </span>
+                            ) : null}
                           </p>
+                          {/* Le motif accompagne sa ligne, comme sur la
+                              feuille de l'employé. */}
+                          {l.rejectReason ? (
+                            <p className="mt-0.5 text-[0.75rem] font-medium leading-snug text-danger">
+                              {l.rejectReason}
+                            </p>
+                          ) : null}
+                        </Td>
+                        <Td className="whitespace-nowrap text-right tabular-nums text-fg-muted">
+                          {formatQty(l.stockFixe)} {l.unitSymbol}
                         </Td>
                         <Td className="whitespace-nowrap text-right font-semibold tabular-nums text-fg">
                           {formatQty(l.quantityAsked)} {l.unitSymbol}
                         </Td>
-                        {status === 'REJECTED' ? (
-                          <Td>
-                            {l.rejectReason ? (
-                              <p className="text-[0.78rem] font-medium leading-snug text-danger">
-                                {l.rejectReason}
-                              </p>
-                            ) : (
-                              <p className="text-[0.78rem] italic text-fg-subtle">
-                                aucun motif saisi
-                              </p>
-                            )}
-                          </Td>
-                        ) : (
-                          <>
-                            <Td className="whitespace-nowrap text-right font-semibold tabular-nums text-warn">
+                        <Td className="whitespace-nowrap text-right font-bold tabular-nums">
+                          {status === 'REJECTED' ? (
+                            <span className="text-danger">Rupture</span>
+                          ) : (
+                            <span className="text-warn">
                               {formatQty(l.quantityServed)} {l.unitSymbol}
-                            </Td>
-                            {/* L'écart chiffré : c'est lui qu'on vient lire,
-                                pas la soustraction à faire de tête. */}
-                            <Td className="whitespace-nowrap text-right font-bold tabular-nums text-warn">
-                              {l.quantityServed > l.quantityAsked ? '+' : ''}
-                              {formatQty(l.quantityServed - l.quantityAsked)} {l.unitSymbol}
-                            </Td>
-                          </>
-                        )}
+                            </span>
+                          )}
+                        </Td>
+                        <Td>
+                          <Badge tone={status === 'REJECTED' ? 'danger' : 'warn'}>
+                            {status === 'REJECTED' ? 'Rupture' : 'Ajusté'}
+                          </Badge>
+                        </Td>
                       </tr>
                     </React.Fragment>
                   )

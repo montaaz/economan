@@ -134,6 +134,8 @@ const typeDefs = /* GraphQL */ `
     productRef: String!
     categoryName: String!
     unitSymbol: String!
+    "Cible du rayon au moment de l'envoi."
+    stockFixe: Float!
     quantityAsked: Float!
     "Ce qui a réellement été servi. 0 sur une rupture."
     quantityServed: Float!
@@ -577,6 +579,7 @@ const resolvers = {
           productName: true,
           productRef: true,
           categoryName: true,
+          stockFixe: true,
           quantityAsked: true,
           quantityServed: true,
           rejectReason: true,
@@ -607,6 +610,7 @@ const resolvers = {
         productRef: l.productRef,
         categoryName: l.categoryName,
         unitSymbol: l.unit?.symbol ?? '',
+        stockFixe: Number(l.stockFixe),
         quantityAsked: Number(l.quantityAsked),
         quantityServed: Number(l.quantityServed ?? 0),
         rejectReason: l.rejectReason,

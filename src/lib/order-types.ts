@@ -33,6 +33,11 @@ export type ProcessOrder = {
   status: 'PENDING' | 'ACCEPTED' | 'DELIVERED' | 'RECEIVED' | 'CANCELLED'
   note: string | null
   createdAt: string
+  // Les heures de passage d'une étape à l'autre : « le bon est parti quand ? »
+  // est la question qu'on pose en rouvrant une commande traitée.
+  acceptedAt: string | null
+  deliveredAt: string | null
+  receivedAt: string | null
   lineCount: number
   totalAsked: number
   totalServed: number

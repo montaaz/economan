@@ -314,6 +314,18 @@ export function OrderProcessor({ order }: { order: ProcessOrder }) {
           <Badge tone="neutral" className="capitalize">{formatLongDate(order.businessDay)}</Badge>
           <Badge tone="neutral">{order.lineCount} article{order.lineCount > 1 ? 's' : ''}</Badge>
 
+          {/* Les heures de passage : « le bon est parti quand ? » est la
+              question qu'on pose en rouvrant une commande traitée. */}
+          {order.acceptedAt ? (
+            <Badge tone="neutral">Acceptée à {formatTime(order.acceptedAt)}</Badge>
+          ) : null}
+          {order.deliveredAt ? (
+            <Badge tone="info">Bon émis à {formatTime(order.deliveredAt)}</Badge>
+          ) : null}
+          {order.receivedAt ? (
+            <Badge tone="ok">Reçue à {formatTime(order.receivedAt)}</Badge>
+          ) : null}
+
           {/* Cliquables : un compte qui ne mène nulle part oblige à parcourir
               cent lignes pour retrouver les trois qu'il désigne. Le clic ne
               garde que ces lignes-là ; un second clic rend la liste entière. */}

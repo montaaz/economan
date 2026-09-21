@@ -85,6 +85,10 @@ type Order = Omit<TicketOrder, 'createdBy' | 'lines'> & {
   // Tout le service peut confirmer la réception ; le ticket papier n'en a que
   // faire, l'écran si.
   receivedBy: { fullName: string } | null
+  // Les heures de passage d'une étape à l'autre, pour la frise.
+  acceptedAt: string | null
+  deliveredAt: string | null
+  receivedAt: string | null
   status: 'PENDING' | 'ACCEPTED' | 'DELIVERED' | 'RECEIVED' | 'CANCELLED'
   lineCount: number
   totalAsked: number
@@ -114,7 +118,12 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
   ])
   if (!order) notFound()
 
-  const steps = statusSteps(order.status)
+  const steps = statusSteps(order.status, {
+    createdAt: order.createdAt,
+    acceptedAt: order.acceptedAt,
+    deliveredAt: order.deliveredAt,
+    receivedAt: order.receivedAt,
+  })
 
   // Sa commande, pas encore prise en charge : les deux conditions du serveur.
   const modifiable = order.status === 'PENDING' && order.createdBy.id === String(user.id)
@@ -239,6 +248,13 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
                   >
                     {s.label}
                   </span>
+                  {/* L'heure sous l'étape franchie : la frise disait où en est
+                      la commande, pas depuis quand. */}
+                  {s.at ? (
+                    <span className="w-full text-center text-[0.66rem] tabular-nums text-fg-subtle">
+                      {formatTime(s.at)}
+                    </span>
+                  ) : null}
                 </div>
                 {i < steps.length - 1 ? (
                   <span

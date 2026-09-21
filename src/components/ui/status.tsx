@@ -24,10 +24,30 @@ export function statusLabel(status: OrderStatus): string {
 }
 
 /** Étapes ordonnées, pour la frise d'une commande. */
-export function statusSteps(status: OrderStatus) {
+export function statusSteps(
+  status: OrderStatus,
+  /**
+   * Quand chaque étape a été franchie. Sans ces heures, la frise dit où en est
+   * la commande mais pas depuis quand — or c'est ce qu'on cherche en la
+   * regardant : « le bon est parti à quelle heure ? ».
+   */
+  at?: {
+    createdAt?: string | null
+    acceptedAt?: string | null
+    deliveredAt?: string | null
+    receivedAt?: string | null
+  },
+) {
   const cancelled = status === 'CANCELLED'
   const order: OrderStatus[] = ['PENDING', 'ACCEPTED', 'DELIVERED', 'RECEIVED']
   const currentIndex = cancelled ? -1 : order.indexOf(status)
+  const horodatage: Record<OrderStatus, string | null | undefined> = {
+    PENDING: at?.createdAt,
+    ACCEPTED: at?.acceptedAt,
+    DELIVERED: at?.deliveredAt,
+    RECEIVED: at?.receivedAt,
+    CANCELLED: null,
+  }
 
   return order.map((s, i) => ({
     status: s,
@@ -35,5 +55,6 @@ export function statusSteps(status: OrderStatus) {
     Icon: STATUS[s].Icon,
     done: !cancelled && i <= currentIndex,
     current: !cancelled && i === currentIndex,
+    at: horodatage[s] ?? null,
   }))
 }

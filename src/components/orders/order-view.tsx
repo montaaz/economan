@@ -60,6 +60,18 @@ export function OrderView({ order }: { order: ProcessOrder }) {
           <Badge tone="neutral" className="capitalize">{formatLongDate(order.businessDay)}</Badge>
           <Badge tone="neutral">{order.lineCount} article{order.lineCount > 1 ? 's' : ''}</Badge>
 
+          {/* Les heures de passage d'une étape à l'autre : le pilotage veut
+              savoir quand le bon est parti, pas seulement qu'il est parti. */}
+          {order.acceptedAt ? (
+            <Badge tone="neutral">Acceptée à {formatTime(order.acceptedAt)}</Badge>
+          ) : null}
+          {order.deliveredAt ? (
+            <Badge tone="info">Bon émis à {formatTime(order.deliveredAt)}</Badge>
+          ) : null}
+          {order.receivedAt ? (
+            <Badge tone="ok">Reçue à {formatTime(order.receivedAt)}</Badge>
+          ) : null}
+
           {order.processedBy ? (
             <Badge tone="neutral">Traité par {order.processedBy.fullName}</Badge>
           ) : null}

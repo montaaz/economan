@@ -53,7 +53,8 @@ export function OrderDates({
       {franchies.map((e) => (
         <span key={e.cle} className="flex items-center gap-1.5 whitespace-nowrap">
           <e.Icon className={cn('size-3.5 shrink-0', e.ton)} />
-          <span className="text-[0.78rem] text-fg-muted">Date {e.label.toLowerCase()}</span>
+          {/* « Heure » et non « date » : c'est bien une heure qui suit. */}
+          <span className="text-[0.78rem] text-fg-muted">Heure {e.label.toLowerCase()}</span>
           <span className={cn('text-[0.85rem] font-bold tabular-nums', e.ton)}>
             {formatTime(order[e.cle])}
           </span>

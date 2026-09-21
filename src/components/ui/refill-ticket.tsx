@@ -202,8 +202,14 @@ export function RefillTicketSheet({
                     <span className="font-semibold text-[#b4630f]">
                       {formatQty(l.remaining)}
                     </span>
-                  ) : (
+                  ) : blank ? (
+                    // Sur une feuille à remplir, rien n'est encore sorti : une
+                    // coche annoncerait un solde qui n'a pas eu lieu.
                     <span className="text-[#4a5f7d]">—</span>
+                  ) : (
+                    // Soldé : un tiret ne disait pas si la ligne était close ou
+                    // si l'information manquait. La coche le dit.
+                    <span className="font-bold text-[#1a7f4f]">✔</span>
                   )}
                 </td>
               </tr>

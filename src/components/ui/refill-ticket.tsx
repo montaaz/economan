@@ -17,7 +17,15 @@ export type RefillTicket = {
     productRef: string
     categoryName: string
     unitSymbol: string
+    /** La cible du rayon, figée à l'envoi de la commande. */
+    stockFixe: number
+    quantityAsked: number
+    /** Ce qui est sorti au premier service. */
+    firstServed: number
+    /** Ce qui sort à ce passage. */
     quantity: number
+    /** Ce qui manquera encore après ce passage. */
+    remaining: number
   }[]
 }
 
@@ -80,7 +88,15 @@ export function RefillTicketSheet({ refill }: { refill: RefillTicket }) {
             <th className="px-2 py-1.5 text-left font-semibold">
               Article <span className="font-normal">({lines.length})</span>
             </th>
-            <th className="w-28 px-2 py-1.5 text-right font-semibold">Servi</th>
+            {/* Toute la chaîne : ce que le rayon vise, ce qui a été demandé,
+                ce qui est déjà sorti, ce qui sort ici, ce qui manquera. */}
+            <th className="w-16 px-2 py-1.5 text-right font-semibold">Fixe</th>
+            <th className="w-20 px-2 py-1.5 text-right font-semibold">Commande</th>
+            <th className="w-20 px-2 py-1.5 text-right font-semibold">1ᵉʳ servi</th>
+            <th className="w-24 px-2 py-1.5 text-right font-semibold">
+              {RANGS[refill.rank] ?? `${refill.rank}ᵉ`} service
+            </th>
+            <th className="w-20 px-2 py-1.5 text-right font-semibold">Reste</th>
           </tr>
         </thead>
         <tbody>
@@ -89,7 +105,7 @@ export function RefillTicketSheet({ refill }: { refill: RefillTicket }) {
               {i === 0 || lines[i - 1].categoryName !== l.categoryName ? (
                 <tr>
                   <td
-                    colSpan={3}
+                    colSpan={7}
                     className="border-y border-[#b9c8e0] bg-[#e8eefa] px-2 py-1 text-[0.76rem] font-bold uppercase tracking-[0.06em]"
                   >
                     {l.categoryName}
@@ -102,11 +118,32 @@ export function RefillTicketSheet({ refill }: { refill: RefillTicket }) {
               <tr className="border-b border-[#dbe3ef]">
                 <td className="px-2 py-1 text-right tabular-nums text-[#4a5f7d]">{i + 1}</td>
                 <td className="px-2 py-1 font-medium">{l.productName}</td>
-                <td className="whitespace-nowrap px-2 py-1 text-right font-semibold tabular-nums">
+                <td className="px-2 py-1 text-right tabular-nums text-[#4a5f7d]">
+                  {formatQty(l.stockFixe)}
+                </td>
+                <td className="whitespace-nowrap px-2 py-1 text-right tabular-nums">
+                  {formatQty(l.quantityAsked)}
+                  <span className="ml-1 text-[0.72rem] text-[#4a5f7d]">{l.unitSymbol}</span>
+                </td>
+                <td className="whitespace-nowrap px-2 py-1 text-right tabular-nums text-[#4a5f7d]">
+                  {formatQty(l.firstServed)}
+                </td>
+                <td className="whitespace-nowrap px-2 py-1 text-right font-bold tabular-nums">
                   {formatQty(l.quantity)}
                   <span className="ml-1 text-[0.72rem] font-normal text-[#4a5f7d]">
                     {l.unitSymbol}
                   </span>
+                </td>
+                {/* Ce qui manquera encore : le département saura s'il doit
+                    attendre un passage de plus. */}
+                <td className="whitespace-nowrap px-2 py-1 text-right tabular-nums">
+                  {l.remaining > 0 ? (
+                    <span className="font-semibold text-[#b4630f]">
+                      {formatQty(l.remaining)}
+                    </span>
+                  ) : (
+                    <span className="text-[#4a5f7d]">—</span>
+                  )}
                 </td>
               </tr>
             </React.Fragment>

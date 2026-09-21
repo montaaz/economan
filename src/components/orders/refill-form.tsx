@@ -47,6 +47,8 @@ export type RefillService = {
   lignes: RefillLigne[]
   /** Rang du prochain passage, par commande. */
   rangs: Record<string, number>
+  /** Les passages enregistrés, pour imprimer leur bon. */
+  passages: { id: string; rank: number; orderRef: string }[]
 }
 
 /** Ce qui reste à servir sur une ligne, tous passages confondus. */
@@ -105,6 +107,11 @@ export function RefillForm({ service }: { service: RefillService }) {
 
   // Les passages déjà enregistrés, tous articles confondus : chacun a sa
   // colonne en lecture, avec son X pour l'annuler.
+  // Le dernier passage de chaque commande : c'est lui qu'on imprime, jamais
+  // le premier service — son bon est déjà parti avec la livraison.
+  const rangDernier = Math.max(0, ...service.passages.map((p) => p.rank))
+  const dernierPassage = service.passages.filter((p) => p.rank === rangDernier)
+
   const rangsServis = React.useMemo(() => {
     const v = new Set<number>()
     for (const l of service.lignes) for (const r of l.refills) v.add(r.rank)
@@ -246,6 +253,28 @@ export function RefillForm({ service }: { service: RefillService }) {
 
   return (
     <div className="space-y-3">
+      {/* Le dernier service enregistré : son bon s'imprime dès l'ouverture de
+          la page, sans qu'il faille l'avoir saisi dans la session. */}
+      {bons.length === 0 && dernierPassage.length > 0 ? (
+        <div className="no-print flex flex-wrap items-center gap-2 rounded-xl border border-info/30 bg-info/[0.08] px-4 py-3">
+          <p className="text-[0.85rem] font-medium text-fg">
+            {rangDernier}ᵉ service enregistré — imprimez le bon :
+          </p>
+          {dernierPassage.map((b) => (
+            <a
+              key={b.id}
+              href={`/api/bon-service/${b.id}`}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-info/40 bg-white/70 px-2.5 py-1 text-[0.8rem] font-semibold text-info transition-colors hover:bg-white"
+            >
+              <Printer className="size-3.5" />
+              {b.orderRef}
+            </a>
+          ))}
+        </div>
+      ) : null}
+
       {/* Les bons du passage qu'on vient d'enregistrer : chacun ne porte que
           ce qui sort de ce coup-ci. */}
       {bons.length > 0 ? (

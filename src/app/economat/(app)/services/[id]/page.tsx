@@ -31,7 +31,18 @@ export default async function RefillSheetPage({
           createdBy: { select: { fullName: true } },
         },
       },
-      lines: { include: { orderLine: { include: { unit: true } } } },
+      // Les autres passages de la même ligne : le reste annoncé doit tenir
+      // compte de ce qui est sorti jusqu'ici, pas seulement de ce bon.
+      lines: {
+        include: {
+          orderLine: {
+            include: {
+              unit: true,
+              refills: { select: { quantity: true, refill: { select: { rank: true } } } },
+            },
+          },
+        },
+      },
     },
   })
   if (!refill) notFound()
@@ -39,13 +50,26 @@ export default async function RefillSheetPage({
   const lines = refill.lines
     .slice()
     .sort((a, b) => a.orderLine.sortOrder - b.orderLine.sortOrder)
-    .map((l) => ({
-      productName: l.orderLine.productName,
-      productRef: l.orderLine.productRef,
-      categoryName: l.orderLine.categoryName,
-      unitSymbol: l.orderLine.unit?.symbol ?? '',
-      quantity: Number(l.quantity),
-    }))
+    .map((l) => {
+      const ol = l.orderLine
+      // Ce qui est sorti jusqu'à ce passage inclus : le premier service, plus
+      // les compléments de rang inférieur ou égal.
+      const anterieurs = ol.refills
+        .filter((r) => (r.refill?.rank ?? 0) <= refill.rank)
+        .reduce((n, r) => n + Number(r.quantity), 0)
+      const sorti = Number(ol.quantityServed ?? 0) + anterieurs
+      return {
+        productName: ol.productName,
+        productRef: ol.productRef,
+        categoryName: ol.categoryName,
+        unitSymbol: ol.unit?.symbol ?? '',
+        stockFixe: Number(ol.stockFixe),
+        quantityAsked: Number(ol.quantityAsked),
+        firstServed: Number(ol.quantityServed ?? 0),
+        quantity: Number(l.quantity),
+        remaining: Math.max(Number(ol.quantityAsked) - sorti, 0),
+      }
+    })
 
   return (
     <RefillTicketSheet

@@ -17,6 +17,9 @@ export type BoardOrder = {
   validatedCount: number
   status: 'PENDING' | 'ACCEPTED' | 'DELIVERED' | 'RECEIVED' | 'CANCELLED'
   createdAt: string
+  /** Les passages complémentaires : la page des écarts imprime le dernier. */
+  lastRefillRank: number
+  refills: { id: string; rank: number }[]
   acceptedAt: string | null
   deliveredAt: string | null
   receivedAt: string | null

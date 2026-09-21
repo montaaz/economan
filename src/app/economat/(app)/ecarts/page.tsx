@@ -112,12 +112,15 @@ export default async function EcartsPage({
         bloc = {
           id: o.department.id, nom: o.department.name,
           couleur: o.department.color, icone: o.department.icon,
-          lignes: [], rangs: {},
+          lignes: [], rangs: {}, passages: [],
         }
         services.push(bloc)
       }
       // Le prochain passage de cette commande se numérote après le dernier.
       bloc.rangs[o.id] = o.lastRefillRank
+      for (const r of o.refills) {
+        bloc.passages.push({ id: r.id, rank: r.rank, orderRef: o.reference })
+      }
       for (const l of concernees) {
         bloc.lignes.push({
           id: l.id, orderId: o.id, orderRef: o.reference,

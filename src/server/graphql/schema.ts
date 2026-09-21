@@ -110,6 +110,8 @@ const typeDefs = /* GraphQL */ `
     receivedBy: User
     "Rang du dernier service complémentaire. 1 si le bon initial est le seul."
     lastRefillRank: Int!
+    "Les passages complémentaires, du plus ancien au plus récent."
+    refills: [Refill!]!
     lines: [OrderLine!]!
     lineCount: Int!
     totalAsked: Float!
@@ -328,7 +330,10 @@ const ORDER_INCLUDE = {
   createdBy: { include: { department: true } },
   processedBy: { include: { department: true } },
   receivedBy: { include: { department: true } },
-  refills: { select: { rank: true } },
+  refills: {
+    select: { id: true, rank: true, createdAt: true },
+    orderBy: { rank: 'asc' as const },
+  },
   // `refills` alimente quantityRefilled : sans lui, le reste à servir
   // d'une ligne déjà complétée serait faux.
   lines: {
@@ -525,6 +530,8 @@ const resolvers = {
     // Le prochain passage se numérote après celui-ci.
     lastRefillRank: (o: { refills?: { rank: number }[] }) =>
       (o.refills ?? []).reduce((n, r) => Math.max(n, r.rank), 1),
+    refills: (o: { refills?: { rank: number }[] }) =>
+      (o.refills ?? []).slice().sort((a, b) => a.rank - b.rank),
     lineCount: (o: { lines?: unknown[] }) => o.lines?.length ?? 0,
     rejectedCount: (o: { lines?: { status: string }[] }) =>
       (o.lines ?? []).filter((l) => l.status === 'REJECTED').length,

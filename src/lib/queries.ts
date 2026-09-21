@@ -26,7 +26,8 @@ export const DAY_BOARD_QUERY = /* GraphQL */ `
           acceptedAt
           deliveredAt
           receivedAt
-      lastRefillRank
+          lastRefillRank
+          refills { id rank }
           lineCount
           rejectedCount
           adjustedCount
@@ -55,6 +56,8 @@ export const ORDER_QUERY = /* GraphQL */ `
       deliveredAt
       receivedAt
       lineCount
+      lastRefillRank
+      refills { id rank }
       totalAsked
       totalServed
       department { id name code color icon }

@@ -369,6 +369,94 @@ export async function cancelAcceptance(orderId: number) {
   })
 }
 
+/**
+ * Un service complémentaire : la marchandise manquante est arrivée, l'économat
+ * complète ce qui n'avait pas pu sortir.
+ *
+ * Les quantités s'ajoutent à ce qui a déjà été servi plutôt que de le
+ * remplacer : une ligne commandée 12, servie 0 puis complétée de 5, a reçu 5
+ * en tout et en attend encore 7. Chaque passage garde sa trace, et son propre
+ * bon ne porte que ce qui est sorti ce coup-là.
+ */
+export async function addRefill(params: {
+  orderId: number
+  actorId: number
+  /** Ce qui sort à ce passage, par ligne. Les quantités nulles sont ignorées. */
+  lines: { lineId: number; quantity: number }[]
+}) {
+  const { orderId, actorId } = params
+
+  return prisma.$transaction(async (tx) => {
+    const order = await tx.order.findUnique({
+      where: { id: orderId },
+      select: {
+        status: true,
+        lines: {
+          select: { id: true, quantityAsked: true, quantityServed: true, productName: true },
+        },
+      },
+    })
+    if (!order) throw new WorkflowError('Commande introuvable.')
+    // Avant l'émission du bon, il n'y a rien à compléter : l'économat sert
+    // encore, et corrige directement ses quantités.
+    if (order.status !== 'DELIVERED' && order.status !== 'RECEIVED') {
+      throw new WorkflowError(
+        'Le bon de livraison n’est pas encore émis : complétez les quantités du service en cours.',
+      )
+    }
+
+    const known = new Map(order.lines.map((l) => [l.id, l]))
+    const retenues = params.lines.filter((l) => l.quantity > 0)
+    if (retenues.length === 0) {
+      throw new WorkflowError('Aucune quantité saisie pour ce service.')
+    }
+
+    // Ce qui a déjà été complété lors des passages précédents.
+    const deja = await tx.orderRefillLine.groupBy({
+      by: ['orderLineId'],
+      where: { orderLine: { orderId } },
+      _sum: { quantity: true },
+    })
+    const dejaBy = new Map(deja.map((d) => [d.orderLineId, Number(d._sum.quantity ?? 0)]))
+
+    for (const l of retenues) {
+      const ligne = known.get(l.lineId)
+      if (!ligne) throw new WorkflowError('Ligne inconnue pour cette commande.')
+      if (!Number.isFinite(l.quantity) || l.quantity < 0) {
+        throw new WorkflowError('Quantité invalide.')
+      }
+      // On ne sert jamais plus que commandé, tous passages confondus : la
+      // règle du premier service vaut pour les suivants.
+      const total = Number(ligne.quantityServed ?? 0) + (dejaBy.get(l.lineId) ?? 0) + l.quantity
+      if (total > Number(ligne.quantityAsked)) {
+        const reste = Number(ligne.quantityAsked) - Number(ligne.quantityServed ?? 0)
+          - (dejaBy.get(l.lineId) ?? 0)
+        throw new WorkflowError(
+          `${ligne.productName} : il ne reste que ${reste} à servir sur cette commande.`,
+        )
+      }
+    }
+
+    // Le rang du passage : 2 pour le deuxième service, 3 pour le troisième.
+    const dernier = await tx.orderRefill.findFirst({
+      where: { orderId },
+      orderBy: { rank: 'desc' },
+      select: { rank: true },
+    })
+    const rank = (dernier?.rank ?? 1) + 1
+
+    return tx.orderRefill.create({
+      data: {
+        orderId,
+        rank,
+        createdById: actorId,
+        lines: { create: retenues.map((l) => ({ orderLineId: l.lineId, quantity: l.quantity })) },
+      },
+      select: { id: true, rank: true },
+    })
+  })
+}
+
 export type ServedLine = {
   lineId: number
   status: 'VALIDATED' | 'ADJUSTED' | 'REJECTED'

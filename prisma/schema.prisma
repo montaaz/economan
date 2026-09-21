@@ -136,6 +136,7 @@ model User {
   ordersCreated   Order[] @relation("OrderCreatedBy")
   ordersProcessed Order[] @relation("OrderProcessedBy")
   ordersReceived  Order[] @relation("OrderReceivedBy")
+  refillsCreated  OrderRefill[] @relation("RefillCreatedBy")
 
   @@index([departmentId, isActive])
   @@index([role, isActive])
@@ -216,6 +217,7 @@ model Order {
   processedBy User?      @relation("OrderProcessedBy", fields: [processedById], references: [id], onDelete: SetNull, onUpdate: Cascade)
   receivedBy  User?      @relation("OrderReceivedBy", fields: [receivedById], references: [id], onDelete: SetNull, onUpdate: Cascade)
   lines       OrderLine[]
+  refills     OrderRefill[]
 
   // Un seul numéro de ticket par jour et par département.
   @@unique([businessDay, departmentId, ticketNumber])
@@ -226,6 +228,43 @@ model Order {
   @@index([createdById, createdAt])
   @@index([departmentId, createdAt])
   @@map("orders")
+}
+
+/// Un passage de service complémentaire : la marchandise manquante arrive
+/// après coup, l'économat complète, et chaque passage produit son propre bon.
+/// Le premier service reste porté par `OrderLine.quantityServed` ; ceux-ci
+/// s'y ajoutent sans le réécrire, pour que l'historique soit lisible.
+model OrderRefill {
+  id        Int      @id @default(autoincrement())
+  orderId   Int
+  /// 2 pour le deuxième service, 3 pour le troisième, etc.
+  rank      Int
+  createdAt DateTime @default(now())
+  createdById Int?
+
+  order     Order     @relation(fields: [orderId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  createdBy User?     @relation("RefillCreatedBy", fields: [createdById], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  lines     OrderRefillLine[]
+
+  @@unique([orderId, rank])
+  @@index([orderId])
+  @@map("order_refills")
+}
+
+/// Ce qui est sorti pour une ligne lors d'un passage complémentaire.
+model OrderRefillLine {
+  id          Int     @id @default(autoincrement())
+  refillId    Int
+  orderLineId Int
+  quantity    Decimal @db.Decimal(14, 3)
+
+  refill    OrderRefill @relation(fields: [refillId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  orderLine OrderLine   @relation(fields: [orderLineId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  // Une ligne d'article par passage.
+  @@unique([refillId, orderLineId])
+  @@index([orderLineId])
+  @@map("order_refill_lines")
 }
 
 model OrderLine {
@@ -253,6 +292,7 @@ model OrderLine {
   order   Order   @relation(fields: [orderId], references: [id], onDelete: Cascade, onUpdate: Cascade)
   product Product @relation(fields: [productId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   unit    Unit    @relation(fields: [unitId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  refills OrderRefillLine[]
 
   // Une ligne par article et par commande.
   @@unique([orderId, productId])

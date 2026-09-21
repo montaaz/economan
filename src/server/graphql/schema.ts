@@ -6,7 +6,7 @@ import { businessDay, addDays } from '@/lib/utils'
 import type { SessionUser } from '@/server/auth/session'
 import {
   createOrder, updateOrder, acceptOrder, cancelAcceptance, setServedLines, deliverOrder,
-  receiveOrder, WorkflowError,
+  receiveOrder, addRefill, WorkflowError,
 } from '@/server/services/orders'
 
 export type Ctx = { user: SessionUser | null }
@@ -123,6 +123,25 @@ const typeDefs = /* GraphQL */ `
     ticketCount: Int!
   }
 
+  "Un passage de service complémentaire."
+  type Refill {
+    id: ID!
+    "2 pour le deuxième service, 3 pour le troisième."
+    rank: Int!
+    createdAt: DateTime!
+    createdBy: User
+    lines: [RefillLine!]!
+  }
+
+  type RefillLine {
+    lineId: ID!
+    productName: String!
+    productRef: String!
+    categoryName: String!
+    unitSymbol: String!
+    quantity: Float!
+  }
+
   "Une ligne qui s'écarte de la commande — non livrée ou servie autrement."
   type RuptureLine {
     lineId: ID!
@@ -181,6 +200,7 @@ const typeDefs = /* GraphQL */ `
   "L'employé déclare le stock qu'il a en rayon ; le serveur en déduit la quantité."
   input OrderLineInput { productId: ID!, quantityOnHand: Float! }
   input StockFixeInput { productId: ID!, quantity: Float! }
+  input RefillInput { lineId: ID!, quantity: Float! }
   input ReceivedLineInput { lineId: ID!, quantityReceived: Float! }
   input ServedLineInput {
     lineId: ID!
@@ -221,6 +241,8 @@ const typeDefs = /* GraphQL */ `
     acceptOrder(id: ID!): Order!
     "Rend une commande acceptée au département : elle repasse en attente et redevient modifiable."
     cancelAcceptance(id: ID!): Order!
+    "Service complémentaire : complète une commande déjà livrée. Renvoie le rang du passage."
+    addRefill(id: ID!, lines: [RefillInput!]!): Refill!
     setServedLines(id: ID!, lines: [ServedLineInput!]!): Order!
     deliverOrder(id: ID!): Order!
     "L'employé confirme la réception, en déclarant ce qu'il a compté."
@@ -442,6 +464,32 @@ const resolvers = {
     quantityAsked: (l: { quantityAsked: unknown }) => Number(l.quantityAsked),
     quantityServed: (l: { quantityServed: unknown }) =>
       l.quantityServed === null || l.quantityServed === undefined ? null : Number(l.quantityServed),
+  },
+
+  Refill: {
+    // La ligne de passage ne porte qu'une quantité : le reste vient de la
+    // ligne de commande, figée à l'envoi.
+    lines: (r: {
+      lines?: {
+        orderLineId: number
+        quantity: unknown
+        orderLine: {
+          productName: string; productRef: string; categoryName: string
+          sortOrder: number; unit?: { symbol: string } | null
+        }
+      }[]
+    }) =>
+      (r.lines ?? [])
+        .slice()
+        .sort((a, b) => a.orderLine.sortOrder - b.orderLine.sortOrder)
+        .map((l) => ({
+          lineId: String(l.orderLineId),
+          productName: l.orderLine.productName,
+          productRef: l.orderLine.productRef,
+          categoryName: l.orderLine.categoryName,
+          unitSymbol: l.orderLine.unit?.symbol ?? '',
+          quantity: Number(l.quantity),
+        })),
   },
 
   Order: {
@@ -752,6 +800,28 @@ const resolvers = {
       const u = requireStaff(ctx)
       await run(() => acceptOrder(Number(a.id), u.id))
       return prisma.order.findUniqueOrThrow({ where: { id: Number(a.id) }, include: ORDER_INCLUDE })
+    },
+
+    addRefill: async (
+      _p: unknown,
+      a: { id: string; lines: { lineId: string; quantity: number }[] },
+      ctx: Ctx,
+    ) => {
+      const u = requireStaff(ctx)
+      const refill = await run(() =>
+        addRefill({
+          orderId: Number(a.id),
+          actorId: u.id,
+          lines: a.lines.map((l) => ({ lineId: Number(l.lineId), quantity: l.quantity })),
+        }),
+      )
+      return prisma.orderRefill.findUniqueOrThrow({
+        where: { id: refill.id },
+        include: {
+          createdBy: { include: { department: true } },
+          lines: { include: { orderLine: { include: { unit: true } } } },
+        },
+      })
     },
 
     cancelAcceptance: async (_p: unknown, a: { id: string }, ctx: Ctx) => {

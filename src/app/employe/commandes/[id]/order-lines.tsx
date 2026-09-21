@@ -115,10 +115,10 @@ export function OrderLines({
     setDraft(v)
   }
 
-  // # · Article · Stock fixe · Mon stock · Commande · Servi, plus Reçu et
+  // # · Article · Stock fixe · Mon stock · Commande · Servi, plus Reçu, Écart et
   // Modifier selon le cas. Un bandeau trop court laisserait un trou blanc au
   // bout de la ligne.
-  const colonnes = 6 + (showReceived ? 1 : 0) + (editable ? 1 : 0)
+  const colonnes = 6 + (showReceived ? 2 : 0) + (editable ? 1 : 0)
 
   function ouvrir(l: OrderLine) {
     setEditing(l.id)
@@ -319,6 +319,11 @@ export function OrderLines({
           <Th className="text-right">Commande</Th>
           <Th className="text-right">Servi</Th>
           {showReceived ? <Th className="text-right">Reçu</Th> : null}
+          {/* Le manquant a sa colonne : glissé entre parenthèses derrière le
+              reçu, il se lisait comme une note, pas comme un chiffre à
+              trancher. « Manquant » plutôt qu'« écart » : c'est le mot du
+              rayon, et c'est presque toujours un manque. */}
+          {showReceived ? <Th className="text-right">Manquant</Th> : null}
           {editable ? <Th className="text-right">Modifier</Th> : null}
         </tr>
       </thead>
@@ -403,13 +408,27 @@ export function OrderLines({
                     {l.quantityReceived == null ? (
                       <span className="text-fg-subtle">—</span>
                     ) : (
-                      <span className={cn((l.receiptGap ?? 0) !== 0 && 'font-bold text-warn')}>
+                      <span className={cn('font-medium', (l.receiptGap ?? 0) !== 0 ? 'font-bold text-warn' : 'text-fg')}>
                         {formatQty(l.quantityReceived)} {l.unitSymbol}
-                        {(l.receiptGap ?? 0) !== 0 ? (
-                          <span className="ml-1 text-[0.72rem]">
-                            ({(l.receiptGap ?? 0) > 0 ? '+' : ''}{formatQty(l.receiptGap ?? 0)})
-                          </span>
-                        ) : null}
+                      </span>
+                    )}
+                  </Td>
+                ) : null}
+                {showReceived ? (
+                  <Td className="whitespace-nowrap text-right tabular-nums">
+                    {/* Un manque en rouge, un surplus en orange : le même code
+                        que le panneau de réception. Conforme ou non vérifié,
+                        un tiret — un zéro se lirait comme un chiffre compté. */}
+                    {l.quantityReceived == null || (l.receiptGap ?? 0) === 0 ? (
+                      <span className="text-fg-subtle">—</span>
+                    ) : (
+                      <span
+                        className={cn(
+                          'font-bold',
+                          (l.receiptGap ?? 0) < 0 ? 'text-danger' : 'text-warn',
+                        )}
+                      >
+                        {(l.receiptGap ?? 0) > 0 ? '+' : ''}{formatQty(l.receiptGap ?? 0)} {l.unitSymbol}
                       </span>
                     )}
                   </Td>

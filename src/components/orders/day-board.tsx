@@ -1,11 +1,23 @@
+import * as React from 'react'
 import Link from 'next/link'
-import { Inbox, ChevronRight } from 'lucide-react'
-import { GlassCard, EmptyState } from '@/components/ui/glass'
+import { Inbox, ChevronRight, PackagePlus, PackageCheck, UserCheck, Truck, CheckCircle2, Printer } from 'lucide-react'
+import { GlassCard, EmptyState, Badge } from '@/components/ui/glass'
 import { Icon } from '@/components/ui/icon'
 import { StatusBadge } from '@/components/ui/status'
 import { cn, formatInstantDate, formatShortDay, formatTime } from '@/lib/utils'
 import { DepartmentTotal } from './department-total'
 import { OrderDates } from './order-dates'
+
+/** Un servi complémentaire, tel que le tableau le montre en carte. */
+export type BoardRefill = {
+  id: string
+  rank: number
+  createdAt: string
+  receivedAt: string | null
+  lineCount: number
+  createdBy: { fullName: string } | null
+  receivedBy: { fullName: string } | null
+}
 
 export type BoardOrder = {
   id: string
@@ -15,11 +27,13 @@ export type BoardOrder = {
   rejectedCount: number
   adjustedCount: number
   validatedCount: number
+  /** Lignes comptées en moins à la réception, sans remplacement en route. */
+  missingCount: number
   status: 'PENDING' | 'ACCEPTED' | 'DELIVERED' | 'RECEIVED' | 'CANCELLED'
   createdAt: string
   /** Les passages complémentaires : la page des écarts imprime le dernier. */
   lastRefillRank: number
-  refills: { id: string; rank: number }[]
+  refills: BoardRefill[]
   acceptedAt: string | null
   deliveredAt: string | null
   receivedAt: string | null
@@ -127,13 +141,21 @@ export function DayBoard({ board, basePath }: { board: Board; basePath: string }
 
             <div className="grid gap-2.5 p-3 sm:grid-cols-2 sm:p-3.5 xl:grid-cols-3">
               {g.orders.map((o) => (
-                <TicketCard
-                  key={o.id}
-                  order={o}
-                  color={c}
-                  href={`${basePath}/${o.id}`}
-                  showDay={board.isRange}
-                />
+                <React.Fragment key={o.id}>
+                  <TicketCard
+                    order={o}
+                    color={c}
+                    href={`${basePath}/${o.id}`}
+                    showDay={board.isRange}
+                  />
+                  {/* Un servi complémentaire a sa propre carte, juste après
+                      celle de son ticket — comme sur l'écran du département :
+                      il part à part, se réceptionne à part, et l'économat
+                      doit voir d'un coup d'œil s'il a été signé. */}
+                  {o.refills.map((r) => (
+                    <RefillCard key={r.id} refill={r} order={o} color={c} showDay={board.isRange} />
+                  ))}
+                </React.Fragment>
               ))}
             </div>
 
@@ -280,6 +302,113 @@ function TicketCard({
           ) : null}
 
           <ChevronRight className="ml-auto size-4 shrink-0 text-fg-subtle transition-transform duration-200 group-hover:translate-x-0.5 group-hover:text-accent" />
+        </div>
+      </div>
+    </Link>
+  )
+}
+
+/**
+ * Carte d'un servi complémentaire.
+ *
+ * Même vocabulaire et mêmes teintes que le ticket : livré tant que le
+ * département n'a pas signé, reçu ensuite. Elle ouvre le bon de livraison du
+ * passage, prêt à imprimer.
+ */
+function RefillCard({
+  refill: r, order: o, color, showDay,
+}: {
+  refill: BoardRefill
+  order: BoardOrder
+  color: string
+  showDay?: boolean
+}) {
+  const recu = !!r.receivedAt
+  return (
+    <Link
+      href={`/economat/services/${r.id}`}
+      target="_blank"
+      rel="noreferrer"
+      className={cn(
+        'group relative flex overflow-hidden rounded-xl border transition-[transform,box-shadow,border-color] duration-200',
+        'hover:-translate-y-0.5 hover:shadow-[0_10px_24px_-12px_rgb(var(--shadow-ambient)/0.4)]',
+        CARTE[recu ? 'RECEIVED' : 'DELIVERED'],
+      )}
+    >
+      {/* Le rail : plein dès que le servi est parti, il n'y a rien à
+          mesurer — la carte dit seulement s'il a été reçu. */}
+      <span aria-hidden className="w-1.5 shrink-0 bg-ok" />
+
+      <div className="min-w-0 flex-1 p-3">
+        <div className="flex items-start gap-2.5">
+          <span
+            className="grid size-10 shrink-0 place-items-center rounded-xl text-white shadow-sm sm:size-9"
+            style={{ background: `linear-gradient(140deg, ${color}, ${color}c4)` }}
+          >
+            <PackagePlus className="size-5 sm:size-4" />
+          </span>
+
+          <div className="min-w-0 flex-1">
+            <div className="flex items-start justify-between gap-2">
+              <p className="min-w-0 truncate text-[1rem] font-bold leading-tight text-fg sm:text-[0.92rem]">
+                {r.rank}ᵉ servi
+                {r.createdBy ? (
+                  <span className="ml-1.5 font-semibold text-fg-muted">par {r.createdBy.fullName}</span>
+                ) : null}
+              </p>
+              {recu ? (
+                <Badge tone="ok" icon={<CheckCircle2 className="size-3.5" aria-hidden="true" />}>Reçu</Badge>
+              ) : (
+                <Badge tone="info" icon={<Truck className="size-3.5" aria-hidden="true" />}>Livré</Badge>
+              )}
+            </div>
+            <p className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-[0.88rem] font-semibold tabular-nums text-fg sm:text-[0.82rem]">
+              {showDay ? (
+                <span className="rounded-md bg-[rgb(var(--glass-edge)/0.22)] px-1.5 font-semibold capitalize text-fg">
+                  {formatShortDay(o.businessDay)}
+                </span>
+              ) : null}
+              <span className="truncate">
+                {formatInstantDate(r.createdAt)} à {formatTime(r.createdAt)}
+              </span>
+            </p>
+            {/* Le ticket complété : c'est lui qu'on retrouve sur le bon. */}
+            <p className="truncate font-mono text-[0.82rem] font-bold text-fg sm:text-[0.76rem]">{o.reference}</p>
+            <p className="mt-1 flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-[0.74rem] tabular-nums">
+              <span className="whitespace-nowrap">
+                <span className="font-semibold text-fg">Servi </span>
+                <span className="font-bold text-accent">{formatTime(r.createdAt)}</span>
+              </span>
+              {r.receivedAt ? (
+                <span className="whitespace-nowrap">
+                  <span className="font-semibold text-fg">Réception </span>
+                  <span className="font-bold text-accent">{formatTime(r.receivedAt)}</span>
+                </span>
+              ) : null}
+            </p>
+          </div>
+        </div>
+
+        <div className="mt-2.5 flex flex-wrap items-center gap-x-2.5 gap-y-1.5 border-t border-[rgb(var(--glass-edge)/0.16)] pt-2.5 text-[0.85rem] tabular-nums sm:text-[0.78rem]">
+          <span className="font-medium text-fg">
+            {r.lineCount} article{r.lineCount > 1 ? 's' : ''} complété{r.lineCount > 1 ? 's' : ''}
+          </span>
+          {/* Qui a signé, ou ce qu'on attend encore du département. */}
+          {recu ? (
+            <span className="inline-flex items-center gap-1 rounded-full bg-ok/14 px-1.5 font-medium text-ok">
+              <UserCheck className="size-3.5" />
+              Reçu par {r.receivedBy?.fullName ?? 'le département'}
+            </span>
+          ) : (
+            <span className="inline-flex items-center gap-1 rounded-full bg-info/12 px-1.5 font-medium text-info">
+              <PackageCheck className="size-3.5" />
+              À réceptionner
+            </span>
+          )}
+          <span className="ml-auto inline-flex items-center gap-1 text-fg-subtle transition-colors group-hover:text-accent">
+            <Printer className="size-4 shrink-0" />
+            <span className="text-[0.74rem] font-medium">Bon</span>
+          </span>
         </div>
       </div>
     </Link>

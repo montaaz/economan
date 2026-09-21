@@ -28,7 +28,10 @@ const QUERY = /* GraphQL */ `
         receivedAt
         createdBy { fullName }
         receivedBy { fullName }
-        lines { lineId productName productRef categoryName unitSymbol quantity }
+        lines {
+          lineId productName productRef categoryName unitSymbol
+          stockFixe quantityAsked firstServed quantity remaining rejectReason
+        }
       }
     }
   }

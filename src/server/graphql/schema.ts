@@ -3,6 +3,7 @@ import { createSchema } from 'graphql-yoga'
 import { GraphQLError } from 'graphql'
 import { prisma } from '@/server/db'
 import { businessDay, addDays } from '@/lib/utils'
+import { resteAServir, manquant } from '@/lib/reste'
 import type { SessionUser } from '@/server/auth/session'
 import {
   createOrder, updateOrder, acceptOrder, cancelAcceptance, setServedLines, deliverOrder,
@@ -78,6 +79,10 @@ const typeDefs = /* GraphQL */ `
     quantityRefilledReceived: Float!
     "Servi en tout — premier service plus compléments réceptionnés. Nul tant que rien n'est servi."
     quantityServedTotal: Float
+    "Ce qu'il reste à servir pour que le rayon atteigne sa commande, compléments en route déduits, manquant compris."
+    remaining: Float!
+    "Ce que le rayon a compté en moins par rapport aux registres, et qu'aucun servi de remplacement ne couvre encore."
+    missing: Float!
     "Le détail par passage : quel rang a servi quelle quantité."
     refills: [LineRefill!]!
     productName: String!
@@ -104,6 +109,8 @@ const typeDefs = /* GraphQL */ `
     adjustedCount: Int!
     "Lignes servies exactement comme demandé."
     validatedCount: Int!
+    "Lignes que le département a comptées en moins à la réception, sans remplacement en route."
+    missingCount: Int!
     ticketNumber: Int!
     businessDay: Date!
     status: OrderStatus!
@@ -170,7 +177,17 @@ const typeDefs = /* GraphQL */ `
     productRef: String!
     categoryName: String!
     unitSymbol: String!
+    "Cible du rayon au moment de la commande."
+    stockFixe: Float!
+    quantityAsked: Float!
+    "Ce qui est sorti au premier servi."
+    firstServed: Float!
+    "Ce qui sort à ce passage."
     quantity: Float!
+    "Ce qui reste dû après ce passage, les passages précédents compris."
+    remaining: Float!
+    "Le motif de rupture du premier servi, s'il y en avait un."
+    rejectReason: String
   }
 
   "Une ligne qui s'écarte de la commande — non livrée ou servie autrement."
@@ -555,6 +572,8 @@ const resolvers = {
         ? null
         : Number(l.quantityServed) + refilledReceived(l),
     status: (l: LigneServie) => effectiveStatus(l),
+    remaining: (l: LigneServie & { quantityReceived: unknown }) => resteAServir(l as never),
+    missing: (l: LigneServie & { quantityReceived: unknown }) => manquant(l as never),
     receiptGap: (l: LigneServie & { quantityReceived: unknown }) => {
       // Tant que rien n'est compté, il n'y a pas d'écart à signaler.
       if (l.quantityReceived === null || l.quantityReceived === undefined) return 0
@@ -579,31 +598,48 @@ const resolvers = {
     // Les lignes ne sont chargées que si on les demande : une commande porte
     // ses passages sans leurs lignes, et les charger sur chaque ticket du
     // tableau de bord ferait ramener des quantités que personne n'affiche.
-    lines: async (r: {
-      id: number
-      lines?: {
-        orderLineId: number
-        quantity: unknown
-        orderLine: {
-          productName: string; productRef: string; categoryName: string
-          sortOrder: number; unit?: { symbol: string } | null
-        }
-      }[]
-    }) =>
-      (r.lines ?? await prisma.orderRefillLine.findMany({
+    //
+    // Le reste après ce passage a besoin des passages précédents de chaque
+    // ligne : on recharge toujours depuis la base, quel que soit ce que
+    // l'appelant avait déjà sous la main.
+    lines: async (r: { id: number; rank: number }) => {
+      const lines = await prisma.orderRefillLine.findMany({
         where: { refillId: r.id },
-        include: { orderLine: { include: { unit: true } } },
-      }))
+        include: {
+          orderLine: {
+            include: {
+              unit: true,
+              refills: { select: { quantity: true, refill: { select: { rank: true } } } },
+            },
+          },
+        },
+      })
+      return lines
         .slice()
         .sort((a, b) => a.orderLine.sortOrder - b.orderLine.sortOrder)
-        .map((l) => ({
-          lineId: String(l.orderLineId),
-          productName: l.orderLine.productName,
-          productRef: l.orderLine.productRef,
-          categoryName: l.orderLine.categoryName,
-          unitSymbol: l.orderLine.unit?.symbol ?? '',
-          quantity: Number(l.quantity),
-        })),
+        .map((l) => {
+          const ol = l.orderLine
+          // Sorti jusqu'à ce passage inclus : le premier servi, plus les
+          // compléments de rang inférieur ou égal — le même calcul que le bon.
+          const anterieurs = ol.refills
+            .filter((x) => (x.refill?.rank ?? 0) <= r.rank)
+            .reduce((n, x) => n + Number(x.quantity), 0)
+          const sorti = Number(ol.quantityServed ?? 0) + anterieurs
+          return {
+            lineId: String(l.orderLineId),
+            productName: ol.productName,
+            productRef: ol.productRef,
+            categoryName: ol.categoryName,
+            unitSymbol: ol.unit?.symbol ?? '',
+            stockFixe: Number(ol.stockFixe ?? 0),
+            quantityAsked: Number(ol.quantityAsked),
+            firstServed: Number(ol.quantityServed ?? 0),
+            quantity: Number(l.quantity),
+            remaining: Math.max(Number(ol.quantityAsked) - sorti, 0),
+            rejectReason: ol.rejectReason ?? null,
+          }
+        })
+    },
   },
 
   Order: {
@@ -623,6 +659,8 @@ const resolvers = {
       (o.lines ?? []).filter((l) => effectiveStatus(l) === 'ADJUSTED').length,
     validatedCount: (o: { lines?: LigneServie[] }) =>
       (o.lines ?? []).filter((l) => effectiveStatus(l) === 'VALIDATED').length,
+    missingCount: (o: { lines?: (LigneServie & { quantityReceived: unknown })[] }) =>
+      (o.lines ?? []).filter((l) => manquant(l as never) > 0).length,
     totalAsked: (o: { lines?: { quantityAsked: unknown }[] }) =>
       (o.lines ?? []).reduce((s, l) => s + Number(l.quantityAsked), 0),
     totalServed: (o: { lines?: { quantityServed: unknown }[] }) =>

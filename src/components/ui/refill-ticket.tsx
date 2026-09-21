@@ -59,8 +59,8 @@ export function RefillTicketSheet({
       <header className="flex items-start justify-between gap-4 border-b-2 border-[#0f1e33] pb-2">
         <div>
           <h1 className="text-[1.3rem] font-bold leading-tight">
-            {blank ? 'Feuille de service' : 'Bon de livraison'} —{' '}
-            {RANGS[refill.rank] ?? `${refill.rank}ᵉ`} service
+            {blank ? 'Feuille de servi' : 'Bon de livraison'} —{' '}
+            {RANGS[refill.rank] ?? `${refill.rank}ᵉ`} servi
           </h1>
           <p className="font-mono text-[0.9rem] font-semibold">{o.reference}</p>
         </div>
@@ -105,7 +105,7 @@ export function RefillTicketSheet({
             <th className="w-20 px-2 py-1.5 text-right font-semibold">Commande</th>
             <th className="w-20 px-2 py-1.5 text-right font-semibold">1ᵉʳ servi</th>
             <th className="w-24 px-2 py-1.5 text-right font-semibold">
-              {RANGS[refill.rank] ?? `${refill.rank}ᵉ`} service
+              {RANGS[refill.rank] ?? `${refill.rank}ᵉ`} servi
             </th>
             <th className="w-20 px-2 py-1.5 text-right font-semibold">Reste</th>
           </tr>

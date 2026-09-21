@@ -27,11 +27,21 @@ export const DAY_BOARD_QUERY = /* GraphQL */ `
           deliveredAt
           receivedAt
           lastRefillRank
-          refills { id rank }
+          # Les servis complémentaires : chacun a sa carte à côté du ticket.
+          refills {
+            id
+            rank
+            createdAt
+            receivedAt
+            lineCount
+            createdBy { fullName }
+            receivedBy { fullName }
+          }
           lineCount
           rejectedCount
           adjustedCount
           validatedCount
+          missingCount
           totalAsked
           totalServed
           createdBy { fullName }
@@ -78,6 +88,8 @@ export const ORDER_QUERY = /* GraphQL */ `
         refills { rank quantity }
         quantityReceived
         receiptGap
+        remaining
+        missing
         status
         rejectReason
       }

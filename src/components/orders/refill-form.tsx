@@ -37,6 +37,13 @@ export type RefillLigne = {
   /** Le détail par passage, pour afficher et annuler chacun. */
   refills: { rank: number; quantity: number }[]
   status: 'PENDING' | 'VALIDATED' | 'ADJUSTED' | 'REJECTED'
+  /**
+   * Ce qu'il reste à servir, calculé par le serveur avec la même règle que
+   * sa garde : compléments en route déduits, manquant compris.
+   */
+  remaining: number
+  /** Compté en moins par le rayon à la réception, sans remplacement en route. */
+  manquant: number
 }
 
 export type RefillService = {
@@ -65,7 +72,7 @@ export type RefillService = {
 
 /** Ce qui reste à servir sur une ligne, tous passages confondus. */
 function reste(l: RefillLigne): number {
-  return Math.max(l.quantityAsked - (l.quantityServed ?? 0) - l.quantityRefilled, 0)
+  return l.remaining
 }
 
 /**
@@ -76,7 +83,16 @@ function reste(l: RefillLigne): number {
  * tournée. Chaque commande produit son propre bon, qui ne porte que ce qui
  * sort à ce passage.
  */
-export function RefillForm({ service }: { service: RefillService }) {
+export function RefillForm({
+  service, vue = 'tous',
+}: {
+  service: RefillService
+  /**
+   * La vue des manquants ne sert que ce que le rayon a compté en moins : la
+   * cible d'une ligne y est son manque, pas tout ce qui lui reste dû.
+   */
+  vue?: 'tous' | 'manquant'
+}) {
   const router = useRouter()
   const { push } = useToast()
   const confirmer = useConfirm()
@@ -130,10 +146,24 @@ export function RefillForm({ service }: { service: RefillService }) {
   // relire vingt lignes closes pour trouver celles qui attendent encore.
   // Les rangs, le X d'annulation et le bon restent calculés sur toutes les
   // lignes : un passage entièrement soldé se supprime et s'imprime toujours.
-  const visibles = React.useMemo(
-    () => service.lignes.filter((l) => reste(l) > 0),
-    [service.lignes],
+  /** Ce que ce passage doit couvrir sur une ligne, selon la vue. */
+  const objectif = React.useCallback(
+    (l: RefillLigne) => (vue === 'manquant' ? l.manquant : reste(l)),
+    [vue],
   )
+
+  const visibles = React.useMemo(
+    () => service.lignes.filter((l) => objectif(l) > 0),
+    [service.lignes, objectif],
+  )
+
+  // Sur la vue des manquants, une seule colonne conclut la ligne : ce qui
+  // manque à livrer, qui descend pendant la saisie. Sur la tournée ordinaire
+  // c'est le reste qui conclut, et le manque à livrer ne s'ajoute que si un
+  // rayon a compté en moins — sinon il ne ferait qu'élargir le tableau.
+  const colonneManque = vue === 'manquant' || visibles.some((l) => l.manquant > 0)
+  const colonneReste = vue !== 'manquant'
+  const conclusions = (colonneManque ? 1 : 0) + (colonneReste ? 1 : 0)
 
   // Le rang se déduit de la position, jamais figé à la création : fermer une
   // colonne du milieu renumérote les suivantes, sinon deux « 3ᵉ service »
@@ -219,7 +249,7 @@ export function RefillForm({ service }: { service: RefillService }) {
     const { recus, enAttente } = reception(rang)
     if (enAttente.length === 0) {
       push('error',
-        `Le ${rang}ᵉ service a été réceptionné par le département : il ne peut plus être supprimé.`)
+        `Le ${rang}ᵉ servi a été réceptionné par le département : il ne peut plus être supprimé.`)
       return
     }
     const ids = enAttente.map((p) => p.orderId)
@@ -227,7 +257,7 @@ export function RefillForm({ service }: { service: RefillService }) {
       (l) => ids.includes(l.orderId) && l.refills.some((r) => r.rank === rang),
     ).length
     const ok = await confirmer({
-      title: `Supprimer le ${rang}ᵉ service ?`,
+      title: `Supprimer le ${rang}ᵉ servi ?`,
       message: `Les ${concernees} ligne(s) servies à ce passage seront effacées, et les `
         + 'quantités redeviendront dues.'
         + (recus.length > 0
@@ -241,7 +271,7 @@ export function RefillForm({ service }: { service: RefillService }) {
     setBusy(true)
     try {
       for (const id of ids) await gql(CANCEL_SERVICE, { id, rank: rang })
-      push('success', `Le ${rang}ᵉ service a été supprimé.`)
+      push('success', `Le ${rang}ᵉ servi a été supprimé.`)
       router.refresh()
     } catch (e) {
       push('error', errorMessage(e))
@@ -269,7 +299,7 @@ export function RefillForm({ service }: { service: RefillService }) {
       }
       setBons(crees)
       push('success',
-        `${crees.length} commande(s) complétée(s) — le bon du ${crees[0].rang}ᵉ service est prêt.`)
+        `${crees.length} commande(s) complétée(s) — le bon de livraison du ${crees[0].rang}ᵉ servi est prêt.`)
       // La colonne enregistrée disparaît : son contenu est désormais en base,
       // et le « déjà servi » de chaque ligne l'intègre.
       retirerColonne(cle)
@@ -288,7 +318,7 @@ export function RefillForm({ service }: { service: RefillService }) {
       {bons.length === 0 && dernierPassage.length > 0 ? (
         <div className="no-print flex flex-wrap items-center gap-2 rounded-xl border border-info/30 bg-info/[0.08] px-4 py-3">
           <p className="text-[0.85rem] font-medium text-fg">
-            {rangDernier}ᵉ service enregistré — imprimez le bon :
+            {rangDernier}ᵉ servi enregistré — imprimez le bon de livraison :
           </p>
           {/* Un seul bon pour le département : le même passage touche
               plusieurs commandes du rayon, et deux papiers pour une tournée
@@ -300,7 +330,7 @@ export function RefillForm({ service }: { service: RefillService }) {
             className="inline-flex items-center gap-1.5 rounded-lg border border-info/40 bg-white/70 px-2.5 py-1 text-[0.8rem] font-semibold text-info transition-colors hover:bg-white"
           >
             <Printer className="size-3.5" />
-            Bon du {rangDernier}ᵉ service — {service.nom}
+            Bon de livraison du {rangDernier}ᵉ servi — {service.nom}
           </a>
         </div>
       ) : null}
@@ -310,7 +340,7 @@ export function RefillForm({ service }: { service: RefillService }) {
       {bons.length > 0 ? (
         <div className="no-print flex flex-wrap items-center gap-2 rounded-xl border border-info/30 bg-info/[0.08] px-4 py-3">
           <p className="text-[0.85rem] font-medium text-fg">
-            Service enregistré — imprimez le bon :
+            Servi enregistré — imprimez le bon de livraison :
           </p>
           <a
             href={`/api/bon-service/departement?dep=${service.id}&rang=${bons[0].rang}&jour=${service.jour}`}
@@ -319,7 +349,7 @@ export function RefillForm({ service }: { service: RefillService }) {
             className="inline-flex items-center gap-1.5 rounded-lg border border-info/40 bg-white/70 px-2.5 py-1 text-[0.8rem] font-semibold text-info transition-colors hover:bg-white"
           >
             <Printer className="size-3.5" />
-            Bon du {bons[0].rang}ᵉ service — {service.nom}
+            Bon de livraison du {bons[0].rang}ᵉ servi — {service.nom}
           </a>
         </div>
       ) : null}
@@ -385,7 +415,7 @@ export function RefillForm({ service }: { service: RefillService }) {
                       onClick={() => void enregistrer(c.cle)}
                     >
                       {!busy ? <PackageCheck className="size-4" /> : null}
-                      Enregistrer le {rang}ᵉ service
+                      Enregistrer le {rang}ᵉ servi
                     </Button>
                   </React.Fragment>
                 )
@@ -413,13 +443,13 @@ export function RefillForm({ service }: { service: RefillService }) {
                 return (
                   <Th key={`servi-${rang}`} className="w-32 text-right">
                     <span className="inline-flex items-center gap-1.5">
-                      {rang}ᵉ service
+                      {rang}ᵉ servi
                       {enAttente.length === 0 && recus.length > 0 ? (
                         /* Le département a réceptionné ce passage : la coche
                            remplace le X, il n'y a plus rien à annuler. */
                         <span
                           title={`Réceptionné par ${signature}`}
-                          aria-label={`${rang}e service réceptionné par ${signature}`}
+                          aria-label={`${rang}e servi réceptionné par ${signature}`}
                           className="grid size-5 place-items-center rounded-md bg-ok/15 text-ok"
                         >
                           <Check className="size-3.5" />
@@ -429,8 +459,8 @@ export function RefillForm({ service }: { service: RefillService }) {
                         <button
                           type="button"
                           onClick={() => void annulerService(rang)}
-                          title={`Supprimer le ${rang}ᵉ service`}
-                          aria-label={`Supprimer le ${rang}e service`}
+                          title={`Supprimer le ${rang}ᵉ servi`}
+                          aria-label={`Supprimer le ${rang}e servi`}
                           className="grid size-5 place-items-center rounded-md text-danger transition-colors hover:bg-danger/15"
                         >
                           <X className="size-3.5" />
@@ -443,13 +473,13 @@ export function RefillForm({ service }: { service: RefillService }) {
               {colonnes.map((c) => (
                 <Th key={c.cle} className="w-36 text-right">
                   <span className="inline-flex items-center gap-1.5">
-                    {rangDe(c.cle)}ᵉ service
+                    {rangDe(c.cle)}ᵉ servi
                     {/* Celle-ci n'est qu'une saisie en cours : le X la ferme. */}
                     <button
                       type="button"
                       onClick={() => void fermerColonne(c.cle)}
                       title="Supprimer cette colonne"
-                      aria-label={`Supprimer la colonne du ${rangDe(c.cle)}e service`}
+                      aria-label={`Supprimer la colonne du ${rangDe(c.cle)}e servi`}
                       className="grid size-5 place-items-center rounded-md text-fg-muted transition-colors hover:bg-[rgb(var(--glass-edge)/0.2)] hover:text-fg"
                     >
                       <X className="size-3.5" />
@@ -457,7 +487,8 @@ export function RefillForm({ service }: { service: RefillService }) {
                   </span>
                 </Th>
               ))}
-              <Th className="text-right">Reste</Th>
+              {colonneManque ? <Th className="text-right">Manque à livrer</Th> : null}
+              {colonneReste ? <Th className="text-right">Reste</Th> : null}
               {/* État ferme le tableau : les colonnes de service s'intercalent
                   avant lui, et l'état conclut la ligne — c'est lui qu'on lit
                   après avoir saisi. */}
@@ -469,8 +500,8 @@ export function RefillForm({ service }: { service: RefillService }) {
                   <button
                     type="button"
                     onClick={ajouterColonne}
-                    title="Ajouter un service"
-                    aria-label="Ajouter une colonne de service"
+                    title="Ajouter un servi"
+                    aria-label="Ajouter une colonne de servi"
                     className="grid size-6 place-items-center rounded-lg bg-ok text-white transition-colors hover:bg-ok/85"
                   >
                     <Plus className="size-4" />
@@ -483,15 +514,17 @@ export function RefillForm({ service }: { service: RefillService }) {
             {visibles.length === 0 ? (
               <tr>
                 <td
-                  colSpan={6 + rangsServis.length + colonnes.length}
+                  colSpan={5 + conclusions + rangsServis.length + colonnes.length}
                   className="px-4 py-6 text-center text-[0.85rem] text-fg-muted"
                 >
-                  Tout est soldé : plus rien à servir pour ce rayon.
+                  {vue === 'manquant'
+                    ? 'Rien ne manque : les rayons ont compté tout ce qui leur a été servi.'
+                    : 'Tout est soldé : plus rien à servir pour ce rayon.'}
                 </td>
               </tr>
             ) : null}
             {visibles.map((l, i) => {
-              const r = reste(l)
+              const r = objectif(l)
               // Ce que les colonnes ouvertes ajoutent à cette ligne.
               const enCours = colonnes.reduce(
                 (n, c) => n + toNumber(saisie[String(c.cle)]?.[l.id] ?? ''), 0,
@@ -508,7 +541,7 @@ export function RefillForm({ service }: { service: RefillService }) {
                     <FamilyBand
                       name={l.categoryName}
                       count={groupSize(visibles, i)}
-                      colSpan={6 + rangsServis.length + colonnes.length}
+                      colSpan={5 + conclusions + rangsServis.length + colonnes.length}
                     />
                   ) : null}
                   <tr
@@ -562,7 +595,7 @@ export function RefillForm({ service }: { service: RefillService }) {
                               value={saisie[String(c.cle)]?.[l.id] ?? ''}
                               onChange={(e) => set(c.cle, l.id, e.target.value)}
                               placeholder="0"
-                              aria-label={`${rangDe(c.cle)}e service — ${l.productName}`}
+                              aria-label={`${rangDe(c.cle)}e servi — ${l.productName}`}
                               className="field h-9 w-20 px-2 py-0 text-right text-[0.85rem] tabular-nums"
                             />
                             <span className="w-6 text-left text-[0.78rem] font-medium text-fg-muted">
@@ -572,17 +605,39 @@ export function RefillForm({ service }: { service: RefillService }) {
                         )}
                       </Td>
                     ))}
-                    <Td className="whitespace-nowrap text-right font-bold tabular-nums">
-                      {/* Le reste se met à jour pendant la saisie : on voit
-                          ce qui manquera encore après ce passage. */}
-                      {soldee ? (
-                        <span className="text-ok">—</span>
-                      ) : (
-                        <span className={cn(partiel ? 'text-warn' : 'text-danger')}>
-                          {formatQty(r - enCours)} {l.unitSymbol}
-                        </span>
-                      )}
-                    </Td>
+                    {colonneManque ? (
+                      <Td className="whitespace-nowrap text-right font-bold tabular-nums">
+                        {/* Sur la vue des manquants, le manque descend pendant
+                            la saisie, comme le reste ailleurs : on voit ce
+                            qui manquera encore après ce passage. */}
+                        {vue === 'manquant' ? (
+                          soldee ? (
+                            <span className="text-ok">—</span>
+                          ) : (
+                            <span className={cn(partiel ? 'text-warn' : 'text-danger')}>
+                              {formatQty(Math.max(r - enCours, 0))} {l.unitSymbol}
+                            </span>
+                          )
+                        ) : l.manquant > 0 ? (
+                          <span className="text-danger">{formatQty(l.manquant)} {l.unitSymbol}</span>
+                        ) : (
+                          <span className="text-fg-subtle">—</span>
+                        )}
+                      </Td>
+                    ) : null}
+                    {colonneReste ? (
+                      <Td className="whitespace-nowrap text-right font-bold tabular-nums">
+                        {/* Le reste se met à jour pendant la saisie : on voit
+                            ce qui manquera encore après ce passage. */}
+                        {soldee ? (
+                          <span className="text-ok">—</span>
+                        ) : (
+                          <span className={cn(partiel ? 'text-warn' : 'text-danger')}>
+                            {formatQty(r - enCours)} {l.unitSymbol}
+                          </span>
+                        )}
+                      </Td>
+                    ) : null}
                     <Td>
                       {soldee ? (
                         <Badge tone="ok">Soldé</Badge>
@@ -590,6 +645,11 @@ export function RefillForm({ service }: { service: RefillService }) {
                         /* Une rupture partiellement servie n'en est plus une :
                            elle devient un ajustement. */
                         <Badge tone="warn">Ajusté</Badge>
+                      ) : l.manquant > 0 && l.status !== 'REJECTED' && l.status !== 'ADJUSTED' ? (
+                        /* Servi en entier selon les registres, mais compté en
+                           moins au rayon : ce n'est ni une rupture ni un
+                           ajustement, c'est un manquant. */
+                        <Badge tone="danger">Manquant</Badge>
                       ) : (
                         <Badge tone={l.status === 'REJECTED' ? 'danger' : 'warn'}>
                           {l.status === 'REJECTED' ? 'Rupture' : 'Ajusté'}

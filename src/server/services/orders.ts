@@ -2,6 +2,7 @@ import 'server-only'
 import { prisma } from '@/server/db'
 import { businessDay } from '@/lib/utils'
 import type { SessionUser } from '@/server/auth/session'
+import { resteAServir } from '@/lib/reste'
 
 export class WorkflowError extends Error {}
 
@@ -392,7 +393,10 @@ export async function addRefill(params: {
       select: {
         status: true,
         lines: {
-          select: { id: true, quantityAsked: true, quantityServed: true, productName: true },
+          select: {
+            id: true, quantityAsked: true, quantityServed: true, quantityReceived: true, productName: true,
+            refills: { select: { quantity: true, refill: { select: { receivedAt: true } } } },
+          },
         },
       },
     })
@@ -401,23 +405,15 @@ export async function addRefill(params: {
     // encore, et corrige directement ses quantités.
     if (order.status !== 'DELIVERED' && order.status !== 'RECEIVED') {
       throw new WorkflowError(
-        'Le bon de livraison n’est pas encore émis : complétez les quantités du service en cours.',
+        'Le bon de livraison n’est pas encore émis : complétez les quantités du servi en cours.',
       )
     }
 
     const known = new Map(order.lines.map((l) => [l.id, l]))
     const retenues = params.lines.filter((l) => l.quantity > 0)
     if (retenues.length === 0) {
-      throw new WorkflowError('Aucune quantité saisie pour ce service.')
+      throw new WorkflowError('Aucune quantité saisie pour ce servi.')
     }
-
-    // Ce qui a déjà été complété lors des passages précédents.
-    const deja = await tx.orderRefillLine.groupBy({
-      by: ['orderLineId'],
-      where: { orderLine: { orderId } },
-      _sum: { quantity: true },
-    })
-    const dejaBy = new Map(deja.map((d) => [d.orderLineId, Number(d._sum.quantity ?? 0)]))
 
     for (const l of retenues) {
       const ligne = known.get(l.lineId)
@@ -425,12 +421,13 @@ export async function addRefill(params: {
       if (!Number.isFinite(l.quantity) || l.quantity < 0) {
         throw new WorkflowError('Quantité invalide.')
       }
-      // On ne sert jamais plus que commandé, tous passages confondus : la
-      // règle du premier service vaut pour les suivants.
-      const total = Number(ligne.quantityServed ?? 0) + (dejaBy.get(l.lineId) ?? 0) + l.quantity
-      if (total > Number(ligne.quantityAsked)) {
-        const reste = Number(ligne.quantityAsked) - Number(ligne.quantityServed ?? 0)
-          - (dejaBy.get(l.lineId) ?? 0)
+      // On ne sert jamais plus qu'il ne manque au rayon, tous passages
+      // confondus. La règle vaut « jamais plus que commandé » — sauf pour
+      // remplacer ce que le département a compté en moins à la réception :
+      // ces litres sont sortis du magasin sans arriver au bar, et la
+      // commande n'est servie que quand le rayon les a.
+      const reste = resteAServir(ligne)
+      if (l.quantity > reste) {
         throw new WorkflowError(
           `${ligne.productName} : il ne reste que ${reste} à servir sur cette commande.`,
         )
@@ -488,13 +485,13 @@ export async function cancelService(params: {
         where: { orderId_rank: { orderId, rank } },
         select: { id: true, receivedAt: true },
       })
-      if (!refill) throw new WorkflowError('Ce service n’existe pas sur cette commande.')
+      if (!refill) throw new WorkflowError('Ce servi n’existe pas sur cette commande.')
       // Le département a signé pour cette marchandise : l'effacer réécrirait
       // ce qu'il a reçu. La garde vit ici, pas seulement dans l'écran, pour
       // qu'aucun appel direct ne puisse contourner la confirmation.
       if (refill.receivedAt) {
         throw new WorkflowError(
-          'Ce service a été réceptionné par le département : il ne peut plus être supprimé.',
+          'Ce servi a été réceptionné par le département : il ne peut plus être supprimé.',
         )
       }
       // Supprimer le passage suffit : ses lignes tombent en cascade, et le
@@ -715,14 +712,14 @@ export async function receiveRefill(orderId: number, rank: number, actor: Sessio
         lines: { select: { orderLineId: true, quantity: true, orderLine: { select: { quantityReceived: true } } } },
       },
     })
-    if (!refill) throw new WorkflowError('Ce service n’existe pas sur cette commande.')
+    if (!refill) throw new WorkflowError('Ce servi n’existe pas sur cette commande.')
     if (refill.order.departmentId !== actor.departmentId) {
       throw new WorkflowError('Cette commande ne concerne pas votre département.')
     }
     // Une seule signature : la refaire écraserait le nom et l'heure de la
     // première, qui sont précisément ce qu'on veut pouvoir retrouver.
     if (refill.receivedAt) {
-      throw new WorkflowError('Ce service a déjà été réceptionné.')
+      throw new WorkflowError('Ce servi a déjà été réceptionné.')
     }
 
     // Sur une commande déjà close, le reçu de chaque ligne grandit de ce que

@@ -1,6 +1,6 @@
 import type { Metadata } from 'next'
 import Link from 'next/link'
-import { ArrowLeft, Ban, PackageCheck, Pencil } from 'lucide-react'
+import { ArrowLeft, Ban, PackageCheck, PackageMinus, Pencil } from 'lucide-react'
 import { prisma } from '@/server/db'
 import { executeGraphQL } from '@/server/graphql/execute'
 import { PageHeader } from '@/components/ui/stat'
@@ -30,8 +30,12 @@ export default async function EcartsPage({
   searchParams: Promise<{ jour?: string; jusquau?: string; dep?: string; type?: string }>
 }) {
   const { jour, jusquau, dep, type } = await searchParams
-  // Trois vues : les ruptures seules, les ajustées seules, ou les deux.
-  const vue = type === 'ajuste' ? 'ajuste' : type === 'tous' ? 'tous' : 'rupture'
+  // Quatre vues : les ruptures seules, les ajustées seules, les deux — ou
+  // les manquants, ce que les rayons ont compté en moins à la réception.
+  const vue = type === 'ajuste' ? 'ajuste'
+    : type === 'tous' ? 'tous'
+    : type === 'manquant' ? 'manquant'
+    : 'rupture'
 
   const [data, allDepartments] = await Promise.all([
     executeGraphQL<{ dayBoard: Board }>(DAY_BOARD_QUERY, {
@@ -53,9 +57,10 @@ export default async function EcartsPage({
   const groupes = dep
     ? board.departments.filter((g) => g.department.id === dep)
     : board.departments
-  const concerne = (o: { rejectedCount: number; adjustedCount: number }) =>
+  const concerne = (o: { rejectedCount: number; adjustedCount: number; missingCount: number }) =>
     vue === 'rupture' ? o.rejectedCount > 0
       : vue === 'ajuste' ? o.adjustedCount > 0
+      : vue === 'manquant' ? o.missingCount > 0
       : o.rejectedCount > 0 || o.adjustedCount > 0
   const ids = groupes.flatMap((g) => g.orders.filter(concerne).map((o) => o.id))
 
@@ -69,6 +74,7 @@ export default async function EcartsPage({
         (n, o) => n + (
           vue === 'rupture' ? o.rejectedCount
             : vue === 'ajuste' ? o.adjustedCount
+            : vue === 'manquant' ? o.missingCount
             : o.rejectedCount + o.adjustedCount
         ), 0,
       ),
@@ -88,9 +94,11 @@ export default async function EcartsPage({
   const retenus = vue === 'rupture' ? ['REJECTED']
     : vue === 'ajuste' ? ['ADJUSTED']
     : ['REJECTED', 'ADJUSTED']
-  const lignes = orders.reduce(
-    (n, o) => n + o.lines.filter((l) => retenus.includes(l.status)).length, 0,
-  )
+  const lignes = vue === 'manquant'
+    ? orders.reduce((n, o) => n + o.lines.filter((l) => l.missing > 0).length, 0)
+    : orders.reduce(
+      (n, o) => n + o.lines.filter((l) => retenus.includes(l.status)).length, 0,
+    )
   const ruptures = orders.reduce(
     (n, o) => n + o.lines.filter((l) => l.status === 'REJECTED').length, 0,
   )
@@ -100,12 +108,14 @@ export default async function EcartsPage({
 
   // Sur la vue réunie, les lignes passent au formulaire de service : un bloc
   // par département, toutes commandes confondues.
+  // La vue des manquants passe aussi par le formulaire : ce qui n'est pas
+  // arrivé au rayon se remplace d'un servi, comme une rupture.
   const services: RefillService[] = []
-  if (vue === 'tous') {
+  if (vue === 'tous' || vue === 'manquant') {
     for (const o of orders) {
-      const concernees = o.lines.filter(
-        (l) => l.status === 'REJECTED' || l.status === 'ADJUSTED',
-      )
+      const concernees = vue === 'manquant'
+        ? o.lines.filter((l) => l.missing > 0)
+        : o.lines.filter((l) => l.status === 'REJECTED' || l.status === 'ADJUSTED')
       if (concernees.length === 0) continue
       let bloc = services.find((s) => s.id === o.department.id)
       if (!bloc) {
@@ -131,12 +141,21 @@ export default async function EcartsPage({
           categoryName: l.categoryName, unitSymbol: l.unitSymbol,
           quantityAsked: l.quantityAsked, quantityServed: l.quantityServed,
           quantityRefilled: l.quantityRefilled, refills: l.refills, status: l.status,
+          remaining: l.remaining, manquant: l.missing,
         })
       }
     }
     // Les ajustées d'abord, puis les ruptures, familles groupées dans chaque
     // groupe — le même ordre que la vue de lecture.
     for (const s of services) {
+      // Les manquants ne se trient pas par état : une ligne conforme peut
+      // manquer au rayon. Familles groupées, dans l'ordre de la feuille.
+      if (vue === 'manquant') {
+        const ordre: string[] = []
+        for (const l of s.lignes) if (!ordre.includes(l.categoryName)) ordre.push(l.categoryName)
+        s.lignes = ordre.flatMap((c) => s.lignes.filter((l) => l.categoryName === c))
+        continue
+      }
       s.lignes = (['ADJUSTED', 'REJECTED'] as const).flatMap((etat) => {
         const g = s.lignes.filter((l) => l.status === etat)
         const ordre: string[] = []
@@ -165,6 +184,7 @@ export default async function EcartsPage({
         title={
           vue === 'rupture' ? 'Ruptures de la journée'
             : vue === 'ajuste' ? 'Quantités ajustées'
+            : vue === 'manquant' ? 'Manquants à la réception'
             : 'Écarts de la journée'
         }
         description={
@@ -172,7 +192,9 @@ export default async function EcartsPage({
             ? 'Les lignes non livrées de la journée, regroupées par service.'
             : vue === 'ajuste'
               ? 'Les lignes servies en quantité différente, regroupées par service.'
-              : 'Tout ce qui s’écarte de la commande : d’abord les quantités ajustées, puis les ruptures.'
+              : vue === 'manquant'
+                ? 'Ce que les rayons ont compté en moins à la réception : parti du magasin, jamais arrivé. Un servi de remplacement le couvre.'
+                : 'Tout ce qui s’écarte de la commande : d’abord les quantités ajustées, puis les ruptures.'
         }
       >
         <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -193,8 +215,10 @@ export default async function EcartsPage({
               </Badge>
             </>
           ) : (
-            <Badge tone={vue === 'rupture' ? 'danger' : 'warn'}>
-              {vue === 'rupture' ? <Ban className="size-3.5" /> : <Pencil className="size-3.5" />}
+            <Badge tone={vue === 'rupture' ? 'danger' : vue === 'manquant' ? 'accent' : 'warn'}>
+              {vue === 'rupture' ? <Ban className="size-3.5" />
+                : vue === 'manquant' ? <PackageMinus className="size-3.5" />
+                : <Pencil className="size-3.5" />}
               {lignes} ligne{lignes > 1 ? 's' : ''}
             </Badge>
           )}
@@ -221,6 +245,7 @@ export default async function EcartsPage({
             title={
               vue === 'rupture' ? 'Aucune rupture'
                 : vue === 'ajuste' ? 'Aucun ajustement'
+                : vue === 'manquant' ? 'Aucun manquant'
                 : 'Aucun écart'
             }
             description={
@@ -228,17 +253,19 @@ export default async function EcartsPage({
                 ? 'Tout ce qui a été commandé a pu être servi.'
                 : vue === 'ajuste'
                   ? 'Tout ce qui a été servi correspond à ce qui était commandé.'
-                  : 'Tout a été servi tel que commandé.'
+                  : vue === 'manquant'
+                    ? 'Les rayons ont compté tout ce qui leur a été servi.'
+                    : 'Tout a été servi tel que commandé.'
             }
           />
         </GlassCard>
-      ) : vue === 'tous' ? (
+      ) : vue === 'tous' || vue === 'manquant' ? (
         /* Sur la vue réunie, on ne lit pas : on sert. La marchandise est
            arrivée, et ruptures comme ajustements se complètent d'un même
-           passage. */
+           passage. Les manquants aussi : ils se remplacent d'un servi. */
         <div className="space-y-6">
           {services.map((s) => (
-            <RefillForm key={s.id} service={s} />
+            <RefillForm key={s.id} service={s} vue={vue === 'manquant' ? 'manquant' : 'tous'} />
           ))}
         </div>
       ) : (

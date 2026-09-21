@@ -4,7 +4,7 @@ import { prisma } from '@/server/db'
 import { requireRole } from '@/server/auth/guards'
 import { RefillTicketSheet } from '@/components/ui/refill-ticket'
 
-export const metadata: Metadata = { title: 'Bon de service' }
+export const metadata: Metadata = { title: 'Bon de servi' }
 export const dynamic = 'force-dynamic'
 
 /**

@@ -25,6 +25,10 @@ export type ProcessLine = {
   quantityReceived: number | null
   /** Écart reçu − servi. 0 si conforme ou non vérifié. */
   receiptGap: number
+  /** Ce qu'il reste à servir pour que le rayon atteigne sa commande, manquant compris. */
+  remaining: number
+  /** Compté en moins à la réception, sans servi de remplacement en route. */
+  missing: number
   status: LineStatus
   rejectReason: string | null
 }

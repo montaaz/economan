@@ -131,6 +131,16 @@ export function OrderLines({
       return
     }
     const stock = toNumber(draft)
+    // Un rayon ne contient pas plus que sa cible : au-delà, c'est une faute de
+    // frappe, et le serveur refuse de toute façon.
+    if (ligne.stockFixe > 0 && stock > ligne.stockFixe) {
+      push(
+        'error',
+        `Stock fixe de ${formatQty(ligne.stockFixe)} ${ligne.unitSymbol} : `
+          + 'un rayon ne peut pas en contenir davantage.',
+      )
+      return
+    }
     if (stock === ligne.quantityOnHand) {
       setEditing(null)
       return

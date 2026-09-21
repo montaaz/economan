@@ -154,11 +154,23 @@ export function NewOrderForm({
     [products],
   )
 
-  const setStock = (productId: string, value: string) => {
+  const setStock = (product: CatalogProduct, value: string) => {
     // La virgule des claviers français vaut point décimal.
     const normalised = value.replace(',', '.')
     if (normalised !== '' && !/^\d*\.?\d*$/.test(normalised)) return
-    setOnHand((q) => ({ ...q, [productId]: normalised }))
+    // Un rayon ne contient pas plus que sa cible : au-delà, c'est une faute de
+    // frappe. Le serveur refuse de toute façon, autant le dire tout de suite.
+    if (
+      normalised !== ''
+      && product.stockFixe > 0
+      && Number(normalised) > product.stockFixe
+    ) {
+      push('error',
+        `${product.name} : stock fixe de ${formatQty(product.stockFixe)} `
+        + `${product.baseUnit.symbol}, un rayon ne peut pas en contenir davantage.`)
+      return
+    }
+    setOnHand((q) => ({ ...q, [product.id]: normalised }))
   }
 
   /** « Rien en rayon » : met 0 partout où rien n'est saisi. */
@@ -432,7 +444,7 @@ export function NewOrderForm({
                         }}
                         inputMode="decimal"
                         value={onHand[p.id] ?? ''}
-                        onChange={(e) => setStock(p.id, e.target.value)}
+                        onChange={(e) => setStock(p, e.target.value)}
                         onKeyDown={(e) => onKeyDown(e, i)}
                         placeholder="—"
                         aria-label={`Stock en rayon pour ${p.name}`}
@@ -444,7 +456,7 @@ export function NewOrderForm({
                       />
                       <button
                         type="button"
-                        onClick={() => setStock(p.id, '0')}
+                        onClick={() => setStock(p, '0')}
                         title="Rien en rayon"
                         aria-label={`Rien en rayon pour ${p.name}`}
                         className="h-9 shrink-0 rounded-lg border border-[rgb(var(--glass-edge)/0.3)] bg-white/60 px-2 text-[0.72rem] font-semibold tabular-nums text-fg-muted transition-colors hover:bg-white/90 hover:text-fg"

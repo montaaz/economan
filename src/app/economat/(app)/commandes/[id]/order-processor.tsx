@@ -546,8 +546,18 @@ export function OrderProcessor({ order }: { order: ProcessOrder }) {
                           onChange={(e) => {
                             const v = e.target.value.replace(',', '.')
                             if (v !== '' && !/^\d*\.?\d*$/.test(v)) return
+                            // On ne sert pas plus que commandé : le serveur le
+                            // refuse, autant ne pas laisser taper un chiffre
+                            // qui sera rejeté à l'enregistrement.
+                            if (v !== '' && toNumber(v) > l.quantityAsked) {
+                              push('error',
+                                `${l.productName} : ${formatQty(l.quantityAsked)} `
+                                + `${l.unitSymbol} commandé, on ne peut pas en servir plus.`)
+                              return
+                            }
                             setLine(l.id, { served: v })
                           }}
+                          max={l.quantityAsked}
                           aria-label={`Quantité servie pour ${l.productName}`}
                           className="field h-9 w-24 px-2 py-0 text-right text-[0.85rem] tabular-nums"
                           autoFocus

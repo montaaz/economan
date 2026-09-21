@@ -103,6 +103,20 @@ export async function createOrder(params: {
     // réorganisée demain, le ticket déjà imprimé doit rester lisible tel quel.
     const rangs = await sheetRanks(tx, departmentId, [...seen])
 
+    // Un rayon ne contient pas plus que sa cible : au-delà, le chiffre est une
+    // erreur de saisie. L'accepter donnerait bien 0 à commander, mais figerait
+    // un stock faux dans la ligne — celui que l'économat et l'admin liront.
+    for (const l of params.lines) {
+      const target = parBy.get(l.productId) ?? 0
+      if (target > 0 && l.quantityOnHand > target) {
+        const p = byId.get(l.productId)
+        throw new WorkflowError(
+          `${p?.name ?? 'Un article'} : stock fixe de ${target}, vous avez saisi `
+            + `${l.quantityOnHand}. Un rayon ne peut pas dépasser sa cible.`,
+        )
+      }
+    }
+
     // Quantité = stock fixe − stock compté, jamais négative. Un article sans
     // stock fixe vaut 0 : rien n'est commandé tant que l'admin ne l'a pas réglé.
     const computed = params.lines
@@ -244,6 +258,20 @@ export async function updateOrder(params: {
     const parBy = new Map(pars.map((p) => [p.productId, Number(p.quantity)]))
     const rangs = await sheetRanks(tx, departmentId, [...seen])
 
+    // Un rayon ne contient pas plus que sa cible : au-delà, le chiffre est une
+    // erreur de saisie. L'accepter donnerait bien 0 à commander, mais figerait
+    // un stock faux dans la ligne — celui que l'économat et l'admin liront.
+    for (const l of params.lines) {
+      const target = parBy.get(l.productId) ?? 0
+      if (target > 0 && l.quantityOnHand > target) {
+        const p = byId.get(l.productId)
+        throw new WorkflowError(
+          `${p?.name ?? 'Un article'} : stock fixe de ${target}, vous avez saisi `
+            + `${l.quantityOnHand}. Un rayon ne peut pas dépasser sa cible.`,
+        )
+      }
+    }
+
     // Même calcul qu'à la création : la quantité se déduit du stock fixe lu en
     // base, jamais de ce que le client envoie.
     const computed = params.lines
@@ -372,8 +400,19 @@ export async function setServedLines(orderId: number, actorId: number, served: S
             ? Number(line.quantityAsked)
             : Number(s.quantityServed ?? 0)
 
-      if (s.status === 'ADJUSTED' && (!Number.isFinite(qty) || qty < 0)) {
-        throw new WorkflowError('Quantité servie invalide.')
+      if (s.status === 'ADJUSTED') {
+        if (!Number.isFinite(qty) || qty < 0) {
+          throw new WorkflowError('Quantité servie invalide.')
+        }
+        // On ne sert jamais plus que ce qui a été commandé : la quantité
+        // demandée vaut déjà « stock fixe moins ce qui reste en rayon », donc
+        // en servir davantage ferait dépasser sa cible au département — qui
+        // n'a rien demandé de plus.
+        if (qty > Number(line.quantityAsked)) {
+          throw new WorkflowError(
+            `Impossible de servir plus que la quantité commandée (${Number(line.quantityAsked)}).`,
+          )
+        }
       }
 
       await tx.orderLine.update({

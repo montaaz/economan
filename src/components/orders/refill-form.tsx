@@ -273,6 +273,14 @@ export function RefillForm({ service }: { service: RefillService }) {
               <Th className="text-right">Commande</Th>
               <Th className="text-right">Déjà servi</Th>
               <Th className="text-right">Reste</Th>
+              {colonnes.map((c) => (
+                <Th key={c.cle} className="w-36 text-right">
+                  {c.rang}ᵉ service
+                </Th>
+              ))}
+              {/* État ferme le tableau : les colonnes de service s'intercalent
+                  avant lui, et l'état conclut la ligne — c'est lui qu'on lit
+                  après avoir saisi. */}
               <Th>
                 <span className="inline-flex items-center gap-1.5">
                   État
@@ -289,11 +297,6 @@ export function RefillForm({ service }: { service: RefillService }) {
                   </button>
                 </span>
               </Th>
-              {colonnes.map((c) => (
-                <Th key={c.cle} className="w-32 text-right">
-                  {c.rang}ᵉ service
-                </Th>
-              ))}
             </tr>
           </thead>
           <tbody className="divide-y divide-[rgb(var(--glass-edge)/0.12)]">
@@ -358,6 +361,29 @@ export function RefillForm({ service }: { service: RefillService }) {
                         </span>
                       )}
                     </Td>
+                    {colonnes.map((c) => (
+                      <Td key={c.cle} className="text-right">
+                        {r === 0 ? (
+                          <span className="text-[0.8rem] text-fg-subtle">—</span>
+                        ) : (
+                          /* L'unité auprès du champ : « 16 » seul ne dit pas
+                             si ce sont des kilos ou des unités. */
+                          <span className="inline-flex items-center gap-1.5">
+                            <input
+                              inputMode="decimal"
+                              value={saisie[String(c.cle)]?.[l.id] ?? ''}
+                              onChange={(e) => set(c.cle, l.id, e.target.value)}
+                              placeholder="0"
+                              aria-label={`${c.rang}e service — ${l.productName}`}
+                              className="field h-9 w-20 px-2 py-0 text-right text-[0.85rem] tabular-nums"
+                            />
+                            <span className="w-6 text-left text-[0.78rem] font-medium text-fg-muted">
+                              {l.unitSymbol}
+                            </span>
+                          </span>
+                        )}
+                      </Td>
+                    ))}
                     <Td>
                       {soldee ? (
                         <Badge tone="ok">Soldé</Badge>
@@ -371,22 +397,6 @@ export function RefillForm({ service }: { service: RefillService }) {
                         </Badge>
                       )}
                     </Td>
-                    {colonnes.map((c) => (
-                      <Td key={c.cle} className="text-right">
-                        {r === 0 ? (
-                          <span className="text-[0.8rem] text-fg-subtle">—</span>
-                        ) : (
-                          <input
-                            inputMode="decimal"
-                            value={saisie[String(c.cle)]?.[l.id] ?? ''}
-                            onChange={(e) => set(c.cle, l.id, e.target.value)}
-                            placeholder="0"
-                            aria-label={`${c.rang}e service — ${l.productName}`}
-                            className="field h-9 w-24 px-2 py-0 text-right text-[0.85rem] tabular-nums"
-                          />
-                        )}
-                      </Td>
-                    ))}
                   </tr>
                 </React.Fragment>
               )

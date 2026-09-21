@@ -129,7 +129,7 @@ export default async function EconomatPage({
               passer d'un écran à l'autre pour la faire n'a pas de sens. */}
           {ruptures > 0 && ajustees > 0 ? (
             <Link href={`/economat/ecarts?${lienEcart('tous')}`}>
-              <Button variant="secondary" size="sm">
+              <Button variant="success" size="sm">
                 <Layers className="size-3.5" />
                 Tout ({ruptures + ajustees})
               </Button>

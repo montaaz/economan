@@ -1,5 +1,5 @@
 import * as React from 'react'
-import { formatLongDate, formatQty, formatTime } from '@/lib/utils'
+import { cn, formatLongDate, formatQty, formatTime } from '@/lib/utils'
 
 export type RefillTicket = {
   rank: number
@@ -121,7 +121,13 @@ export function RefillTicketSheet({
           </tr>
         </thead>
         <tbody>
-          {lines.map((l, i) => (
+          {lines.map((l, i) => {
+            // Ce qu'il fallait pour solder la ligne à ce passage. Si ce qui
+            // sort est en deçà, le rayon repart incomplet : c'est le même
+            // écart que sur un bon de livraison, et il porte la même marque.
+            const du = l.quantityAsked - l.firstServed
+            const ecart = l.quantity === null ? 0 : l.quantity - du
+            return (
             <React.Fragment key={`${l.productRef}-${i}`}>
               {i === 0 || lines[i - 1].categoryName !== l.categoryName ? (
                 <tr>
@@ -136,7 +142,15 @@ export function RefillTicketSheet({
                   </td>
                 </tr>
               ) : null}
-              <tr className="border-b border-[#dbe3ef]">
+              <tr
+                className={cn(
+                  'border-b border-[#dbe3ef]',
+                  // Une ligne qui ne se solde pas à ce passage se signale,
+                  // comme sur le bon de commande : sans marque, un bon servi à
+                  // moitié se relit comme conforme.
+                  ecart !== 0 && 'bg-[#fdf1e3]',
+                )}
+              >
                 <td className="px-2 py-1 text-right tabular-nums text-[#4a5f7d]">{i + 1}</td>
                 <td className="px-2 py-1 font-medium">
                   {l.productName}
@@ -166,6 +180,14 @@ export function RefillTicketSheet({
                     <span className="text-[#4a5f7d]">{l.unitSymbol}</span>
                   ) : (
                     <>
+                      {/* Le symbole seul, comme sur le bon de commande :
+                          accoler l'écart à la quantité mettrait deux nombres
+                          côte à côte et on ne saurait plus lequel est sorti. */}
+                      {ecart !== 0 ? (
+                        <span className="mr-1.5 font-bold text-[#b4630f]">
+                          {ecart < 0 ? '▼' : '▲'}
+                        </span>
+                      ) : null}
                       {formatQty(l.quantity)}
                       <span className="ml-1 text-[0.72rem] font-normal text-[#4a5f7d]">
                         {l.unitSymbol}
@@ -186,9 +208,20 @@ export function RefillTicketSheet({
                 </td>
               </tr>
             </React.Fragment>
-          ))}
+            )
+          })}
         </tbody>
       </table>
+
+      {/* Légende : le signe seul ne suffit pas à qui reçoit le bon sans
+          explication. Affichée uniquement s'il y a un écart à lire, et jamais
+          sur une feuille à remplir où rien n'est encore sorti. */}
+      {!blank && lines.some((l) => (l.quantity ?? 0) !== l.quantityAsked - l.firstServed) ? (
+        <p className="mt-3 text-[0.76rem] text-[#4a5f7d]">
+          <span className="font-bold text-[#b4630f]">▼</span> servi en moins qu’il ne restait ·{' '}
+          <span className="font-bold text-[#b4630f]">▲</span> servi en plus
+        </p>
+      ) : null}
 
       <div className="mt-10 flex justify-between gap-8 text-[0.82rem]">
         <div className="flex-1">

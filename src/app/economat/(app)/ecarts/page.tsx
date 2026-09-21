@@ -27,7 +27,8 @@ export default async function EcartsPage({
   searchParams: Promise<{ jour?: string; jusquau?: string; dep?: string; type?: string }>
 }) {
   const { jour, jusquau, dep, type } = await searchParams
-  const rupture = type !== 'ajuste'
+  // Trois vues : les ruptures seules, les ajustées seules, ou les deux.
+  const vue = type === 'ajuste' ? 'ajuste' : type === 'tous' ? 'tous' : 'rupture'
 
   const data = await executeGraphQL<{ dayBoard: Board }>(DAY_BOARD_QUERY, {
     day: jour ?? null,
@@ -40,11 +41,11 @@ export default async function EcartsPage({
   const groupes = dep
     ? board.departments.filter((g) => g.department.id === dep)
     : board.departments
-  const ids = groupes.flatMap((g) =>
-    g.orders
-      .filter((o) => (rupture ? o.rejectedCount > 0 : o.adjustedCount > 0))
-      .map((o) => o.id),
-  )
+  const concerne = (o: { rejectedCount: number; adjustedCount: number }) =>
+    vue === 'rupture' ? o.rejectedCount > 0
+      : vue === 'ajuste' ? o.adjustedCount > 0
+      : o.rejectedCount > 0 || o.adjustedCount > 0
+  const ids = groupes.flatMap((g) => g.orders.filter(concerne).map((o) => o.id))
 
   // Une requête par commande : la fiche a besoin de toutes ses lignes, que le
   // tableau de la journée ne porte pas.
@@ -56,9 +57,17 @@ export default async function EcartsPage({
     )
   ).filter((o): o is ProcessOrder => o !== null)
 
+  const retenus = vue === 'rupture' ? ['REJECTED']
+    : vue === 'ajuste' ? ['ADJUSTED']
+    : ['REJECTED', 'ADJUSTED']
   const lignes = orders.reduce(
-    (n, o) => n + o.lines.filter((l) => l.status === (rupture ? 'REJECTED' : 'ADJUSTED')).length,
-    0,
+    (n, o) => n + o.lines.filter((l) => retenus.includes(l.status)).length, 0,
+  )
+  const ruptures = orders.reduce(
+    (n, o) => n + o.lines.filter((l) => l.status === 'REJECTED').length, 0,
+  )
+  const ajustees = orders.reduce(
+    (n, o) => n + o.lines.filter((l) => l.status === 'ADJUSTED').length, 0,
   )
 
   const retour = new URLSearchParams()
@@ -77,21 +86,42 @@ export default async function EcartsPage({
       </Link>
 
       <PageHeader
-        title={rupture ? 'Ruptures de la journée' : 'Quantités ajustées'}
+        title={
+          vue === 'rupture' ? 'Ruptures de la journée'
+            : vue === 'ajuste' ? 'Quantités ajustées'
+            : 'Écarts de la journée'
+        }
         description={
-          rupture
+          vue === 'rupture'
             ? 'Les lignes non livrées de la journée, regroupées par service.'
-            : 'Les lignes servies en quantité différente, regroupées par service.'
+            : vue === 'ajuste'
+              ? 'Les lignes servies en quantité différente, regroupées par service.'
+              : 'Tout ce qui s’écarte de la commande : d’abord les quantités ajustées, puis les ruptures.'
         }
       >
         <div className="mt-2 flex flex-wrap items-center gap-2">
           <span className="text-[0.9rem] font-semibold capitalize text-fg">
             {formatLongDate(board.day)}
           </span>
-          <Badge tone={rupture ? 'danger' : 'warn'}>
-            {rupture ? <Ban className="size-3.5" /> : <Pencil className="size-3.5" />}
-            {lignes} ligne{lignes > 1 ? 's' : ''}
-          </Badge>
+          {/* Sur la vue réunie, le détail des deux natures : « 27 lignes »
+              seul ne dirait pas ce qu'on va trouver. */}
+          {vue === 'tous' ? (
+            <>
+              <Badge tone="warn">
+                <Pencil className="size-3.5" />
+                {ajustees} ajustée{ajustees > 1 ? 's' : ''}
+              </Badge>
+              <Badge tone="danger">
+                <Ban className="size-3.5" />
+                {ruptures} rupture{ruptures > 1 ? 's' : ''}
+              </Badge>
+            </>
+          ) : (
+            <Badge tone={vue === 'rupture' ? 'danger' : 'warn'}>
+              {vue === 'rupture' ? <Ban className="size-3.5" /> : <Pencil className="size-3.5" />}
+              {lignes} ligne{lignes > 1 ? 's' : ''}
+            </Badge>
+          )}
           <Badge tone="neutral">
             {orders.length} commande{orders.length > 1 ? 's' : ''} touchée
             {orders.length > 1 ? 's' : ''}
@@ -103,16 +133,25 @@ export default async function EcartsPage({
         <GlassCard>
           <EmptyState
             icon={<PackageCheck className="size-6" />}
-            title={rupture ? 'Aucune rupture' : 'Aucun ajustement'}
+            title={
+              vue === 'rupture' ? 'Aucune rupture'
+                : vue === 'ajuste' ? 'Aucun ajustement'
+                : 'Aucun écart'
+            }
             description={
-              rupture
+              vue === 'rupture'
                 ? 'Tout ce qui a été commandé a pu être servi.'
-                : 'Tout ce qui a été servi correspond à ce qui était commandé.'
+                : vue === 'ajuste'
+                  ? 'Tout ce qui a été servi correspond à ce qui était commandé.'
+                  : 'Tout a été servi tel que commandé.'
             }
           />
         </GlassCard>
       ) : (
-        <EcartsParService orders={orders} status={rupture ? 'REJECTED' : 'ADJUSTED'} />
+        <EcartsParService
+          orders={orders}
+          status={vue === 'rupture' ? 'REJECTED' : vue === 'ajuste' ? 'ADJUSTED' : 'TOUS'}
+        />
       )}
     </>
   )

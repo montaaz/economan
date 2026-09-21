@@ -19,9 +19,13 @@ export function EcartsParService({
   orders, status,
 }: {
   orders: ProcessOrder[]
-  status: 'REJECTED' | 'ADJUSTED'
+  /** Un seul écart, ou les deux réunis. */
+  status: 'REJECTED' | 'ADJUSTED' | 'TOUS'
 }) {
-  const rupture = status === 'REJECTED'
+  // Les deux réunis : les ajustées d'abord, les ruptures ensuite. Ce qui a
+  // été servi autrement se corrige ; ce qui n'a pas été livré se recommande.
+  const retenus: ('ADJUSTED' | 'REJECTED')[] =
+    status === 'TOUS' ? ['ADJUSTED', 'REJECTED'] : [status]
 
   // Les commandes arrivent déjà dans l'ordre de la journée : on les regroupe
   // sans les réordonner, pour que les services gardent leur rang habituel.
@@ -29,7 +33,9 @@ export function EcartsParService({
     lignes: (ProcessOrder['lines'][number] & { ref: string; heure: string; id: string })[] }[] = []
 
   for (const o of orders) {
-    const concernees = o.lines.filter((l) => l.status === status)
+    const concernees = o.lines.filter((l) =>
+      retenus.includes(l.status as 'ADJUSTED' | 'REJECTED'),
+    )
     if (concernees.length === 0) continue
     let bloc = services.find((s) => s.id === o.department.id)
     if (!bloc) {
@@ -46,17 +52,28 @@ export function EcartsParService({
 
   // Les lignes viennent de plusieurs tickets : sans ce regroupement, la même
   // famille ouvrait un bandeau par commande. On garde l'ordre d'apparition
-  // des familles, et celui des articles à l'intérieur.
+  // des familles, et celui des articles à l'intérieur. Sur la vue réunie, les
+  // ajustées passent avant les ruptures — d'abord ce qui se corrige, ensuite
+  // ce qui se recommande.
   for (const s of services) {
-    const ordre: string[] = []
-    for (const l of s.lignes) if (!ordre.includes(l.categoryName)) ordre.push(l.categoryName)
-    s.lignes = ordre.flatMap((c) => s.lignes.filter((l) => l.categoryName === c))
+    s.lignes = retenus.flatMap((etat) => {
+      const duGroupe = s.lignes.filter((l) => l.status === etat)
+      const ordre: string[] = []
+      for (const l of duGroupe) if (!ordre.includes(l.categoryName)) ordre.push(l.categoryName)
+      return ordre.flatMap((c) => duGroupe.filter((l) => l.categoryName === c))
+    })
   }
 
   return (
     <div className="space-y-5">
       {services.map((s) => {
-        const parFamille = countByFamily(s.lignes)
+        // Sur la vue réunie, une même famille peut ouvrir deux bandeaux — un
+        // par état. Chacun compte ses propres lignes.
+        const parFamille = new Map<string, number>()
+        for (const l of s.lignes) {
+          const cle = `${l.status}·${l.categoryName}`
+          parFamille.set(cle, (parFamille.get(cle) ?? 0) + 1)
+        }
         // Les tickets du service, pour les rappeler en tête de bloc.
         const tickets = [...new Set(s.lignes.map((l) => l.ref))]
         return (
@@ -119,14 +136,16 @@ export function EcartsParService({
               <tbody className="divide-y divide-[rgb(var(--glass-edge)/0.12)]">
                 {s.lignes.map((l, i) => (
                   <React.Fragment key={`${l.ref}-${l.id}-${i}`}>
-                    {i === 0 || s.lignes[i - 1].categoryName !== l.categoryName ? (
+                    {i === 0
+                      || s.lignes[i - 1].categoryName !== l.categoryName
+                      || s.lignes[i - 1].status !== l.status ? (
                       <FamilyBand
                         name={l.categoryName}
-                        count={parFamille.get(l.categoryName) ?? 0}
+                        count={parFamille.get(`${l.status}·${l.categoryName}`) ?? 0}
                         colSpan={6}
                       />
                     ) : null}
-                    <tr className={cn(rupture ? 'bg-danger/[0.06]' : 'bg-warn/[0.07]')}>
+                    <tr className={cn(l.status === 'REJECTED' ? 'bg-danger/[0.06]' : 'bg-warn/[0.07]')}>
                       <Td className="text-right text-[0.78rem] tabular-nums text-fg-subtle">
                         {i + 1}
                       </Td>
@@ -155,7 +174,7 @@ export function EcartsParService({
                         {formatQty(l.quantityAsked)} {l.unitSymbol}
                       </Td>
                       <Td className="whitespace-nowrap text-right font-bold tabular-nums">
-                        {rupture ? (
+                        {l.status === 'REJECTED' ? (
                           <span className="text-danger">Rupture</span>
                         ) : (
                           <span className="text-warn">
@@ -164,8 +183,8 @@ export function EcartsParService({
                         )}
                       </Td>
                       <Td>
-                        <Badge tone={rupture ? 'danger' : 'warn'}>
-                          {rupture ? 'Rupture' : 'Ajusté'}
+                        <Badge tone={l.status === 'REJECTED' ? 'danger' : 'warn'}>
+                          {l.status === 'REJECTED' ? 'Rupture' : 'Ajusté'}
                         </Badge>
                       </Td>
                     </tr>

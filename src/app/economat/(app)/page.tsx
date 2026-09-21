@@ -6,7 +6,7 @@ import { DayBoard, DayTotals, type Board } from '@/components/orders/day-board'
 import { DayPicker } from '@/components/orders/day-picker'
 import { DepartmentFilter } from '@/components/orders/department-filter'
 import Link from 'next/link'
-import { Ban, Pencil } from 'lucide-react'
+import { Ban, Layers, Pencil } from 'lucide-react'
 import { Badge, Button } from '@/components/ui/glass'
 import { DAY_BOARD_QUERY } from '@/lib/queries'
 import { formatLongDate } from '@/lib/utils'
@@ -68,7 +68,7 @@ export default async function EconomatPage({
   )
 
   // La vue des écarts reprend la journée et le service affichés ici.
-  const lienEcart = (type: 'rupture' | 'ajuste') => {
+  const lienEcart = (type: 'rupture' | 'ajuste' | 'tous') => {
     const p = new URLSearchParams({ jour: board.day, type })
     if (board.isRange) p.set('jusquau', board.dayTo)
     if (selected) p.set('dep', selected)
@@ -121,6 +121,17 @@ export default async function EconomatPage({
               <Button variant="warning" size="sm">
                 <Pencil className="size-3.5" />
                 {ajustees} ajustée{ajustees > 1 ? 's' : ''}
+              </Button>
+            </Link>
+          ) : null}
+
+          {/* Les deux d'un bloc : c'est la même tournée de correction, et
+              passer d'un écran à l'autre pour la faire n'a pas de sens. */}
+          {ruptures > 0 && ajustees > 0 ? (
+            <Link href={`/economat/ecarts?${lienEcart('tous')}`}>
+              <Button variant="secondary" size="sm">
+                <Layers className="size-3.5" />
+                Tout ({ruptures + ajustees})
               </Button>
             </Link>
           ) : null}

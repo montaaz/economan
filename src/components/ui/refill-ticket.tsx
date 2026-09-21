@@ -55,7 +55,7 @@ export function RefillTicketSheet({
   const lines = refill.lines
 
   return (
-    <div className="mx-auto max-w-[190mm] bg-white p-6 text-[0.86rem] text-[#0f1e33]">
+    <div className="mx-auto max-w-[190mm] bg-white px-6 py-4 text-[0.86rem] text-[#0f1e33]">
       <header className="flex items-start justify-between gap-4 border-b-2 border-[#0f1e33] pb-2">
         <div>
           <h1 className="text-[1.3rem] font-bold leading-tight">
@@ -70,40 +70,29 @@ export function RefillTicketSheet({
         </div>
       </header>
 
-      <p className="mt-3 text-center text-[1.6rem] font-bold uppercase tracking-tight">
-        {o.department.name}
-      </p>
-      <p className="text-center text-[1rem] font-bold tabular-nums">
-        {formatTime(refill.createdAt)}
+      {/* Le rayon et l'heure tenaient sur deux lignes centrées, hautes de
+          trois centimètres à elles seules. Sur une feuille qu'on remplit
+          debout au magasin, cette place revient au tableau. */}
+      <p className="mt-2 flex items-baseline justify-center gap-3">
+        <span className="text-[1.3rem] font-bold uppercase tracking-tight">
+          {o.department.name}
+        </span>
+        <span className="text-[0.95rem] font-bold tabular-nums">
+          {formatTime(refill.createdAt)}
+        </span>
       </p>
 
-      <p className="mt-3 flex flex-wrap justify-between gap-x-6 text-[0.85rem]">
+      <p className="mt-1.5 flex flex-wrap justify-between gap-x-6 text-[0.82rem]">
         <span><span className="font-semibold">Demandeur :</span> {o.createdBy.fullName}</span>
         {refill.createdBy ? (
           <span><span className="font-semibold">Servi par :</span> {refill.createdBy.fullName}</span>
         ) : null}
       </p>
 
-      {/* Ce complément vient après un premier bon : le rappeler évite qu'on le
-          prenne pour la commande entière. */}
-      <p className="mt-2 border-l-2 border-[#b4630f] bg-[#fdf1e3] px-2.5 py-1.5 text-[0.82rem]">
-        {/* Un bon peut réunir plusieurs tickets du même rayon. */}
-        {blank ? (
-          <>
-            À servir sur {o.reference.includes('·') ? 'les commandes' : 'la commande'}{' '}
-            <span className="font-mono font-semibold">{o.reference}</span> — notez ce qui sort
-            dans la colonne de droite, puis saisissez-le à l’écran.
-          </>
-        ) : (
-          <>
-            Complément {o.reference.includes('·') ? 'des commandes' : 'de la commande'}{' '}
-            <span className="font-mono font-semibold">{o.reference}</span> — seuls les articles
-            ci-dessous sortent à ce passage.
-          </>
-        )}
-      </p>
-
-      <table className="mt-3 w-full border-collapse">
+      {/* Le bandeau qui rappelait les commandes a disparu : le titre dit déjà
+          quel service c'est, et les références sont juste sous lui. Il
+          repoussait le tableau d'un tiers de page. */}
+      <table className="mt-2 w-full border-collapse">
         <thead>
           <tr className="border-y border-[#0f1e33] bg-[#f0f4fa]">
             <th className="w-8 px-2 py-1.5 text-right font-semibold">#</th>
@@ -162,31 +151,31 @@ export function RefillTicketSheet({
                   ecart !== 0 && 'bg-[#fdf1e3]',
                 )}
               >
-                <td className="px-2 py-1 text-right tabular-nums text-[#4a5f7d]">{i + 1}</td>
-                <td className="px-2 py-1 font-medium">
+                <td className="px-2 py-0.5 text-right tabular-nums text-[#4a5f7d]">{i + 1}</td>
+                <td className="px-2 py-0.5 font-medium">
                   {l.productName}
                   {/* Plusieurs commandes sur un même bon : sans sa référence,
                       une ligne ne dirait pas de laquelle elle vient. Sur sa
                       propre ligne, sans quoi elle coupait le nom en deux. */}
                   {l.orderRef ? (
-                    <span className="block font-mono text-[0.68rem] font-normal text-[#4a5f7d]">
+                    <span className="block font-mono text-[0.66rem] font-normal leading-tight text-[#4a5f7d]">
                       {l.orderRef}
                     </span>
                   ) : null}
                 </td>
-                <td className="px-2 py-1 text-right tabular-nums text-[#4a5f7d]">
+                <td className="px-2 py-0.5 text-right tabular-nums text-[#4a5f7d]">
                   {formatQty(l.stockFixe)}
                 </td>
-                <td className="whitespace-nowrap px-2 py-1 text-right tabular-nums">
+                <td className="whitespace-nowrap px-2 py-0.5 text-right tabular-nums">
                   {formatQty(l.quantityAsked)}
                   <span className="ml-1 text-[0.72rem] text-[#4a5f7d]">{l.unitSymbol}</span>
                 </td>
-                <td className="whitespace-nowrap px-2 py-1 text-right tabular-nums text-[#4a5f7d]">
+                <td className="whitespace-nowrap px-2 py-0.5 text-right tabular-nums text-[#4a5f7d]">
                   {formatQty(l.firstServed)}
                 </td>
                 {/* Sur une feuille de tournée, la case reste vide : c'est au
                     stylo qu'on y note ce qui sort du magasin. */}
-                <td className="whitespace-nowrap border-x border-[#b9c8e0] px-2 py-1 text-right font-bold tabular-nums">
+                <td className="whitespace-nowrap border-x border-[#b9c8e0] px-2 py-0.5 text-right font-bold tabular-nums">
                   {l.quantity === null ? (
                     <span className="text-[#4a5f7d]">{l.unitSymbol}</span>
                   ) : (
@@ -208,7 +197,7 @@ export function RefillTicketSheet({
                 </td>
                 {/* Ce qui manquera encore : le département saura s'il doit
                     attendre un passage de plus. */}
-                <td className="whitespace-nowrap px-2 py-1 text-right tabular-nums">
+                <td className="whitespace-nowrap px-2 py-0.5 text-right tabular-nums">
                   {l.remaining > 0 ? (
                     <span className="font-semibold text-[#b4630f]">
                       {formatQty(l.remaining)}
@@ -240,14 +229,14 @@ export function RefillTicketSheet({
         </p>
       ) : null}
 
-      <div className="mt-10 flex justify-between gap-8 text-[0.82rem]">
+      <div className="mt-6 flex justify-between gap-8 text-[0.82rem]">
         <div className="flex-1">
           <p className="font-semibold">Économat</p>
-          <p className="mt-8 border-t border-[#0f1e33] pt-1">Signature</p>
+          <p className="mt-6 border-t border-[#0f1e33] pt-1">Signature</p>
         </div>
         <div className="flex-1">
           <p className="font-semibold">Réception — {o.department.name}</p>
-          <p className="mt-8 border-t border-[#0f1e33] pt-1">Signature</p>
+          <p className="mt-6 border-t border-[#0f1e33] pt-1">Signature</p>
         </div>
       </div>
     </div>

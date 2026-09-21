@@ -90,11 +90,11 @@ export function RupturesPanel({
 
   return (
     <>
-      {/* Chacun prend la couleur de ce qu'il annonce : un bouton neutre au
-          milieu des compteurs colorés ne se rattachait à rien. */}
-      <Button variant={mots.bouton} size="sm" onClick={() => setOpen(true)}>
+      {/* Le compte est porté par le filtre juste à côté ; ce bouton ouvre le
+          détail article par article, avec les motifs et les écarts. */}
+      <Button variant="ghost" size="sm" onClick={() => setOpen(true)}>
         {status === 'REJECTED' ? <Ban className="size-3.5" /> : <Pencil className="size-3.5" />}
-        {count} {count > 1 ? mots.pluriel : mots.singulier}
+        Détail des {mots.pluriel}
       </Button>
       {open ? (
         <Liste

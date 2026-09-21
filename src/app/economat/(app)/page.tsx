@@ -5,6 +5,7 @@ import { PageHeader } from '@/components/ui/stat'
 import { DayBoard, DayTotals, type Board } from '@/components/orders/day-board'
 import { DayPicker } from '@/components/orders/day-picker'
 import { EcartFilter } from '@/components/orders/ecart-filter'
+import { RupturesPanel } from '@/components/orders/ruptures-panel'
 import { DepartmentFilter } from '@/components/orders/department-filter'
 import { Badge } from '@/components/ui/glass'
 import { DAY_BOARD_QUERY } from '@/lib/queries'
@@ -128,6 +129,23 @@ export default async function EconomatPage({
             dayTo={board.isRange ? board.dayTo : null}
             dep={selected}
             total={parService.reduce((n, g) => n + g.orders.length, 0)}
+          />
+
+          {/* Le filtre dit quelles commandes sont touchées, la fiche dit quels
+              articles : les deux questions se posent, et la seconde n'a pas
+              de réponse dans les cartes. */}
+          <RupturesPanel
+            day={b.day}
+            dayTo={b.isRange ? b.dayTo : null}
+            count={ruptures}
+            departmentId={selected}
+          />
+          <RupturesPanel
+            day={b.day}
+            dayTo={b.isRange ? b.dayTo : null}
+            count={ajustees}
+            departmentId={selected}
+            status="ADJUSTED"
           />
         </div>
       </PageHeader>

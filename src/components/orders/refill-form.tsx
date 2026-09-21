@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import { useRouter } from 'next/navigation'
-import { ListChecks, PackageCheck, Plus, Printer, RotateCcw, X } from 'lucide-react'
+import { PackageCheck, Plus, Printer, RotateCcw, X } from 'lucide-react'
 import { Button, Badge, TableWrap, Th, Td } from '@/components/ui/glass'
 import { Icon } from '@/components/ui/icon'
 import { FamilyBand, countByFamily } from '@/components/ui/family-band'
@@ -79,10 +79,6 @@ export function RefillForm({ service }: { service: RefillService }) {
   // imprime, pas en retrouvant la commande plus tard.
   const [bons, setBons] = React.useState<{ id: string; ref: string; rang: number }[]>([])
 
-  // Une ligne entièrement servie n'attend plus rien : elle sort de la saisie
-  // mais reste visible, pour qu'on voie qu'elle est soldée.
-  const aServir = service.lignes.filter((l) => reste(l) > 0)
-
   const parFamille = countByFamily(service.lignes)
 
   /** Ce qui est déjà saisi sur une ligne, dans les autres colonnes. */
@@ -154,16 +150,6 @@ export function RefillForm({ service }: { service: RefillService }) {
       delete n[String(cle)]
       return n
     })
-  }
-
-  const toutServir = (cle: number) => {
-    const valeurs: Record<string, string> = {}
-    for (const l of aServir) {
-      const dispo = reste(l) - saisiAilleurs(l.id, cle)
-      if (dispo > 0) valeurs[l.id] = String(dispo)
-    }
-    setSaisie((s) => ({ ...s, [String(cle)]: valeurs }))
-    push('info', `${Object.keys(valeurs).length} ligne(s) au reste à servir.`)
   }
 
   const vider = (cle: number) =>
@@ -296,64 +282,6 @@ export function RefillForm({ service }: { service: RefillService }) {
         </div>
       ) : null}
 
-      {/* Une barre par colonne ouverte : chacune part séparément. */}
-      {colonnes.map((c) => {
-        const n = compte(c.cle)
-        const rang = rangDe(c.cle)
-        return (
-          <div
-            key={c.cle}
-            className="no-print flex flex-wrap items-center justify-between gap-3 rounded-xl border border-ok/30 bg-ok/[0.07] px-4 py-3"
-          >
-            <p className="text-[0.85rem] leading-snug text-fg">
-              <span className="font-bold">{rang}ᵉ service</span> — saisissez ce qui sort.
-              {n > 0 ? (
-                <span className="font-semibold text-ok"> {n} ligne{n > 1 ? 's' : ''} saisie{n > 1 ? 's' : ''}</span>
-              ) : (
-                <span className="text-fg-muted"> {aServir.length} ligne(s) en attente</span>
-              )}
-            </p>
-            <div className="flex flex-wrap items-center gap-2">
-              <Button variant="ghost" size="sm" onClick={() => toutServir(c.cle)}>
-                <ListChecks className="size-3.5" />
-                Tout servir
-              </Button>
-              {n > 0 ? (
-                <Button variant="ghost" size="sm" onClick={() => vider(c.cle)}>
-                  <RotateCcw className="size-3.5" />
-                  Vider
-                </Button>
-              ) : null}
-              {/* La feuille de tournée : ce qui reste dû, avec une colonne
-                  vide. On descend au magasin avec, on note au stylo, et on
-                  saisit ensuite d'après ces notes. */}
-              <a
-                href={`/api/feuille-service?dep=${service.id}&rang=${rang}&jour=${service.jour}`}
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-transparent px-3 text-[0.8rem] font-medium text-fg-muted transition-colors hover:bg-[rgb(var(--glass-edge)/0.14)] hover:text-fg"
-              >
-                <Printer className="size-3.5" />
-                Imprimer la feuille
-              </a>
-              <Button variant="ghost" size="sm" onClick={() => void fermerColonne(c.cle)}>
-                <X className="size-3.5" />
-                Supprimer
-              </Button>
-              <Button
-                variant="success"
-                size="sm"
-                loading={busy}
-                onClick={() => void enregistrer(c.cle)}
-              >
-                {!busy ? <PackageCheck className="size-4" /> : null}
-                Enregistrer le {rang}ᵉ service
-              </Button>
-            </div>
-          </div>
-        )
-      })}
-
       <div className="overflow-hidden rounded-[calc(var(--radius)+4px)] border border-[rgb(var(--glass-edge)/0.26)] bg-white/45 backdrop-blur-xl">
         <header
           className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 border-b px-4 py-3 sm:px-5"
@@ -378,6 +306,50 @@ export function RefillForm({ service }: { service: RefillService }) {
               </span>
             </span>
           </h2>
+
+          {/* Les actions d'une colonne ouverte vivent ici : elles portent sur
+              ce tableau, et une barre de plus au-dessus éloignait le geste de
+              son objet. */}
+          {colonnes.length > 0 ? (
+            <div className="no-print flex flex-wrap items-center gap-2">
+              {colonnes.map((c) => {
+                const n = compte(c.cle)
+                const rang = rangDe(c.cle)
+                return (
+                  <React.Fragment key={c.cle}>
+                    <a
+                      href={`/api/feuille-service?dep=${service.id}&rang=${rang}&jour=${service.jour}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-[rgb(var(--glass-edge)/0.3)] bg-white/60 px-3 text-[0.8rem] font-medium text-fg transition-colors hover:bg-white"
+                    >
+                      <Printer className="size-3.5" />
+                      Imprimer la feuille
+                    </a>
+                    {n > 0 ? (
+                      <Button variant="ghost" size="sm" onClick={() => vider(c.cle)}>
+                        <RotateCcw className="size-3.5" />
+                        Vider
+                      </Button>
+                    ) : null}
+                    <Button variant="ghost" size="sm" onClick={() => void fermerColonne(c.cle)}>
+                      <X className="size-3.5" />
+                      Supprimer
+                    </Button>
+                    <Button
+                      variant="success"
+                      size="sm"
+                      loading={busy}
+                      onClick={() => void enregistrer(c.cle)}
+                    >
+                      {!busy ? <PackageCheck className="size-4" /> : null}
+                      Enregistrer le {rang}ᵉ service
+                    </Button>
+                  </React.Fragment>
+                )
+              })}
+            </div>
+          ) : null}
         </header>
 
         <TableWrap minWidth={`${46 + (rangsServis.length + colonnes.length) * 7}rem`}>

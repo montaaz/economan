@@ -72,6 +72,8 @@ const typeDefs = /* GraphQL */ `
     receiptGap: Float!
     "Stock compté par l'employé au moment de l'envoi."
     quantityOnHand: Float!
+    "Ce qui a été complété lors des services suivants, tous passages confondus."
+    quantityRefilled: Float!
     productName: String!
     productRef: String!
     categoryName: String!
@@ -314,7 +316,12 @@ const ORDER_INCLUDE = {
   createdBy: { include: { department: true } },
   processedBy: { include: { department: true } },
   receivedBy: { include: { department: true } },
-  lines: { orderBy: { sortOrder: 'asc' as const }, include: { unit: true } },
+  // `refills` alimente quantityRefilled : sans lui, le reste à servir
+  // d'une ligne déjà complétée serait faux.
+  lines: {
+    orderBy: { sortOrder: 'asc' as const },
+    include: { unit: true, refills: { select: { quantity: true } } },
+  },
 }
 
 function toDate(v: unknown): Date {
@@ -449,6 +456,8 @@ const resolvers = {
   },
 
   OrderLine: {
+    quantityRefilled: (l: { refills?: { quantity: unknown }[] }) =>
+      (l.refills ?? []).reduce((s, r) => s + Number(r.quantity), 0),
     unitSymbol: (l: { unit?: { symbol: string } }) => l.unit?.symbol ?? '',
     stockFixe: (l: { stockFixe: unknown }) => Number(l.stockFixe ?? 0),
     quantityReceived: (l: { quantityReceived: unknown }) =>

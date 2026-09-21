@@ -6,6 +6,7 @@ import { PageHeader } from '@/components/ui/stat'
 import { GlassCard, EmptyState, Badge } from '@/components/ui/glass'
 import { ORDER_QUERY, DAY_BOARD_QUERY } from '@/lib/queries'
 import { EcartsParService } from '@/components/orders/ecarts-par-service'
+import { RefillForm, type RefillService } from '@/components/orders/refill-form'
 import type { ProcessOrder } from '@/lib/order-types'
 import type { Board } from '@/components/orders/day-board'
 import { formatLongDate } from '@/lib/utils'
@@ -69,6 +70,46 @@ export default async function EcartsPage({
   const ajustees = orders.reduce(
     (n, o) => n + o.lines.filter((l) => l.status === 'ADJUSTED').length, 0,
   )
+
+  // Sur la vue réunie, les lignes passent au formulaire de service : un bloc
+  // par département, toutes commandes confondues.
+  const services: RefillService[] = []
+  if (vue === 'tous') {
+    for (const o of orders) {
+      const concernees = o.lines.filter(
+        (l) => l.status === 'REJECTED' || l.status === 'ADJUSTED',
+      )
+      if (concernees.length === 0) continue
+      let bloc = services.find((s) => s.id === o.department.id)
+      if (!bloc) {
+        bloc = {
+          id: o.department.id, nom: o.department.name,
+          couleur: o.department.color, icone: o.department.icon,
+          lignes: [], rangs: {},
+        }
+        services.push(bloc)
+      }
+      for (const l of concernees) {
+        bloc.lignes.push({
+          id: l.id, orderId: o.id, orderRef: o.reference,
+          productName: l.productName, productRef: l.productRef,
+          categoryName: l.categoryName, unitSymbol: l.unitSymbol,
+          quantityAsked: l.quantityAsked, quantityServed: l.quantityServed,
+          quantityRefilled: l.quantityRefilled, status: l.status,
+        })
+      }
+    }
+    // Les ajustées d'abord, puis les ruptures, familles groupées dans chaque
+    // groupe — le même ordre que la vue de lecture.
+    for (const s of services) {
+      s.lignes = (['ADJUSTED', 'REJECTED'] as const).flatMap((etat) => {
+        const g = s.lignes.filter((l) => l.status === etat)
+        const ordre: string[] = []
+        for (const l of g) if (!ordre.includes(l.categoryName)) ordre.push(l.categoryName)
+        return ordre.flatMap((c) => g.filter((l) => l.categoryName === c))
+      })
+    }
+  }
 
   const retour = new URLSearchParams()
   if (jour) retour.set('jour', jour)
@@ -147,10 +188,19 @@ export default async function EcartsPage({
             }
           />
         </GlassCard>
+      ) : vue === 'tous' ? (
+        /* Sur la vue réunie, on ne lit pas : on sert. La marchandise est
+           arrivée, et ruptures comme ajustements se complètent d'un même
+           passage. */
+        <div className="space-y-6">
+          {services.map((s) => (
+            <RefillForm key={s.id} service={s} />
+          ))}
+        </div>
       ) : (
         <EcartsParService
           orders={orders}
-          status={vue === 'rupture' ? 'REJECTED' : vue === 'ajuste' ? 'ADJUSTED' : 'TOUS'}
+          status={vue === 'rupture' ? 'REJECTED' : 'ADJUSTED'}
         />
       )}
     </>

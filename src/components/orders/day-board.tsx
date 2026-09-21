@@ -5,6 +5,7 @@ import { Icon } from '@/components/ui/icon'
 import { StatusBadge } from '@/components/ui/status'
 import { cn, formatInstantDate, formatShortDay, formatTime } from '@/lib/utils'
 import { DepartmentTotal } from './department-total'
+import { OrderDates } from './order-dates'
 
 export type BoardOrder = {
   id: string
@@ -16,6 +17,9 @@ export type BoardOrder = {
   validatedCount: number
   status: 'PENDING' | 'ACCEPTED' | 'DELIVERED' | 'RECEIVED' | 'CANCELLED'
   createdAt: string
+  acceptedAt: string | null
+  deliveredAt: string | null
+  receivedAt: string | null
   lineCount: number
   totalAsked: number
   totalServed: number
@@ -236,6 +240,9 @@ function TicketCard({
               </span>
             </p>
             <p className="truncate font-mono text-[0.78rem] text-fg-subtle sm:text-[0.72rem]">{o.reference}</p>
+            {/* Les quatre moments, nommés : sans intitulé, une suite d'heures
+                ne dit pas de quoi elle parle. */}
+            <OrderDates order={o} compact className="mt-1" />
           </div>
         </div>
 

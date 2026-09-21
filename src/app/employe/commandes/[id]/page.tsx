@@ -11,6 +11,7 @@ import { Ticket, ticketVariant, type TicketOrder } from '@/components/ui/ticket'
 import { formatLongDate, formatTime, cn } from '@/lib/utils'
 import { ReceptionPanel } from './reception-panel'
 import { OrderLines } from './order-lines'
+import { OrderDates } from '@/components/orders/order-dates'
 import { PrintButton } from '@/components/ui/print-button'
 
 export const metadata: Metadata = { title: 'Commande' }
@@ -267,6 +268,13 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
               </div>
             ))}
           </div>
+
+          {/* Les quatre moments, nommés : la frise dit l'étape, ce bloc dit
+              quand chacune a été franchie. */}
+          <OrderDates
+            order={order}
+            className="border-t border-[rgb(var(--glass-edge)/0.16)] px-4 py-2.5 sm:px-5"
+          />
 
           <div className="flex flex-wrap gap-1.5 border-t border-[rgb(var(--glass-edge)/0.16)] px-4 py-3 sm:px-5">
             {/* Le nombre d'articles suffit : cumuler des unités, des kilos et

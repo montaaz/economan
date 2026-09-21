@@ -5,6 +5,7 @@ import { executeGraphQL } from '@/server/graphql/execute'
 import { PageHeader } from '@/components/ui/stat'
 import { GlassCard, Button, EmptyState, Badge } from '@/components/ui/glass'
 import { StatusBadge } from '@/components/ui/status'
+import { OrderDates } from '@/components/orders/order-dates'
 import { cn, formatInstantDate, formatLongDate, formatTime } from '@/lib/utils'
 
 export const metadata: Metadata = { title: 'Commandes du département' }
@@ -20,6 +21,9 @@ const QUERY = /* GraphQL */ `
       status
       createdAt
       lineCount
+      acceptedAt
+      deliveredAt
+      receivedAt
       rejectedCount
       adjustedCount
       validatedCount
@@ -39,6 +43,9 @@ type Order = {
   status: 'PENDING' | 'ACCEPTED' | 'DELIVERED' | 'RECEIVED' | 'CANCELLED'
   createdAt: string
   lineCount: number
+  acceptedAt: string | null
+  deliveredAt: string | null
+  receivedAt: string | null
   rejectedCount: number
   adjustedCount: number
   validatedCount: number
@@ -138,6 +145,10 @@ export default async function MyOrdersPage() {
                           </div>
                           <StatusBadge status={o.status} />
                         </div>
+
+                        {/* Les quatre moments, nommés : sans intitulé, une
+                            suite d'heures ne dit pas de quoi elle parle. */}
+                        <OrderDates order={o} compact />
 
                         <p className="flex items-center gap-2">
                           <span className="grid size-7 shrink-0 place-items-center rounded-lg bg-accent/12 text-[0.78rem] font-bold tabular-nums text-accent">

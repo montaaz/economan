@@ -23,6 +23,9 @@ export const DAY_BOARD_QUERY = /* GraphQL */ `
           businessDay
           status
           createdAt
+          acceptedAt
+          deliveredAt
+          receivedAt
           lineCount
           rejectedCount
           adjustedCount

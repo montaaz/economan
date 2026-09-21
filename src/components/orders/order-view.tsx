@@ -3,6 +3,7 @@ import { GlassCard, Badge, TableWrap, Th, Td } from '@/components/ui/glass'
 import { FamilyBand, countByFamily } from '@/components/ui/family-band'
 import { Icon } from '@/components/ui/icon'
 import { StatusBadge } from '@/components/ui/status'
+import { OrderDates } from './order-dates'
 import { cn, formatLongDate, formatQty, formatTime } from '@/lib/utils'
 import type { ProcessOrder } from '@/lib/order-types'
 
@@ -56,21 +57,15 @@ export function OrderView({ order }: { order: ProcessOrder }) {
           <StatusBadge status={order.status} />
         </div>
 
+        {/* Les quatre moments de la commande, nommés. */}
+        <OrderDates
+          order={order}
+          className="border-b border-[rgb(var(--glass-edge)/0.16)] px-4 py-2.5 sm:px-5"
+        />
+
         <div className="flex flex-wrap items-center gap-1.5 px-4 py-3 sm:px-5">
           <Badge tone="neutral" className="capitalize">{formatLongDate(order.businessDay)}</Badge>
           <Badge tone="neutral">{order.lineCount} article{order.lineCount > 1 ? 's' : ''}</Badge>
-
-          {/* Les heures de passage d'une étape à l'autre : le pilotage veut
-              savoir quand le bon est parti, pas seulement qu'il est parti. */}
-          {order.acceptedAt ? (
-            <Badge tone="neutral">Acceptée à {formatTime(order.acceptedAt)}</Badge>
-          ) : null}
-          {order.deliveredAt ? (
-            <Badge tone="info">Bon émis à {formatTime(order.deliveredAt)}</Badge>
-          ) : null}
-          {order.receivedAt ? (
-            <Badge tone="ok">Reçue à {formatTime(order.receivedAt)}</Badge>
-          ) : null}
 
           {order.processedBy ? (
             <Badge tone="neutral">Traité par {order.processedBy.fullName}</Badge>

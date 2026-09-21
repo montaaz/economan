@@ -9,6 +9,7 @@ import {
 import { GlassCard, Button, Badge, TableWrap, Th, Td } from '@/components/ui/glass'
 import { FamilyBand, countByFamily } from '@/components/ui/family-band'
 import { FilterBadge, FilterReset } from '@/components/ui/filter-badge'
+import { OrderDates } from '@/components/orders/order-dates'
 import { Icon } from '@/components/ui/icon'
 import { useToast } from '@/components/ui/toast'
 import { useConfirm } from '@/components/ui/confirm'
@@ -310,21 +311,17 @@ export function OrderProcessor({ order }: { order: ProcessOrder }) {
           <StatusBadge status={order.status} />
         </div>
 
+        {/* Les quatre moments de la commande, nommés : « 23:12 » seul ne dit
+            pas de quoi il est l'heure. */}
+        <OrderDates
+          order={order}
+          className="border-b border-[rgb(var(--glass-edge)/0.16)] px-4 py-2.5 sm:px-5"
+        />
+
         <div className="flex flex-wrap items-center gap-1.5 px-4 py-3 sm:px-5">
           <Badge tone="neutral" className="capitalize">{formatLongDate(order.businessDay)}</Badge>
           <Badge tone="neutral">{order.lineCount} article{order.lineCount > 1 ? 's' : ''}</Badge>
 
-          {/* Les heures de passage : « le bon est parti quand ? » est la
-              question qu'on pose en rouvrant une commande traitée. */}
-          {order.acceptedAt ? (
-            <Badge tone="neutral">Acceptée à {formatTime(order.acceptedAt)}</Badge>
-          ) : null}
-          {order.deliveredAt ? (
-            <Badge tone="info">Bon émis à {formatTime(order.deliveredAt)}</Badge>
-          ) : null}
-          {order.receivedAt ? (
-            <Badge tone="ok">Reçue à {formatTime(order.receivedAt)}</Badge>
-          ) : null}
 
           {/* Cliquables : un compte qui ne mène nulle part oblige à parcourir
               cent lignes pour retrouver les trois qu'il désigne. Le clic ne

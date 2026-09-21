@@ -4,9 +4,10 @@ import { executeGraphQL } from '@/server/graphql/execute'
 import { PageHeader } from '@/components/ui/stat'
 import { DayBoard, DayTotals, type Board } from '@/components/orders/day-board'
 import { DayPicker } from '@/components/orders/day-picker'
-import { RupturesPanel } from '@/components/orders/ruptures-panel'
 import { DepartmentFilter } from '@/components/orders/department-filter'
-import { Badge } from '@/components/ui/glass'
+import Link from 'next/link'
+import { Ban, Pencil } from 'lucide-react'
+import { Badge, Button } from '@/components/ui/glass'
 import { DAY_BOARD_QUERY } from '@/lib/queries'
 import { formatLongDate } from '@/lib/utils'
 
@@ -66,6 +67,14 @@ export default async function EconomatPage({
     (n, g) => n + g.orders.reduce((m, o) => m + o.adjustedCount, 0), 0,
   )
 
+  // La vue des écarts reprend la journée et le service affichés ici.
+  const lienEcart = (type: 'rupture' | 'ajuste') => {
+    const p = new URLSearchParams({ jour: board.day, type })
+    if (board.isRange) p.set('jusquau', board.dayTo)
+    if (selected) p.set('dep', selected)
+    return p.toString()
+  }
+
   return (
     <>
       <PageHeader
@@ -96,21 +105,25 @@ export default async function EconomatPage({
           {/* Les ruptures sont visibles ticket par ticket ; rien ne les
               rassemblait. Pour savoir ce qui a manqué au magasin dans la
               journée, il fallait ouvrir chaque commande de chaque service. */}
-          {/* Le compte ouvre le détail article par article : savoir qu'il y
-              a onze ruptures sans pouvoir les lire n'apprend rien. */}
-          <RupturesPanel
-            day={b.day}
-            dayTo={b.isRange ? b.dayTo : null}
-            count={ruptures}
-            departmentId={selected}
-          />
-          <RupturesPanel
-            day={b.day}
-            dayTo={b.isRange ? b.dayTo : null}
-            count={ajustees}
-            departmentId={selected}
-            status="ADJUSTED"
-          />
+          {/* Le compte mène aux fiches complètes des commandes touchées :
+              savoir qu'il y a onze ruptures sans voir les tickets n'apprend
+              rien à qui doit les traiter. */}
+          {ruptures > 0 ? (
+            <Link href={`/economat/ecarts?${lienEcart('rupture')}`}>
+              <Button variant="danger" size="sm">
+                <Ban className="size-3.5" />
+                {ruptures} rupture{ruptures > 1 ? 's' : ''}
+              </Button>
+            </Link>
+          ) : null}
+          {ajustees > 0 ? (
+            <Link href={`/economat/ecarts?${lienEcart('ajuste')}`}>
+              <Button variant="warning" size="sm">
+                <Pencil className="size-3.5" />
+                {ajustees} ajustée{ajustees > 1 ? 's' : ''}
+              </Button>
+            </Link>
+          ) : null}
         </div>
       </PageHeader>
 

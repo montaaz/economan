@@ -151,8 +151,10 @@ export function DayBoard({ board, basePath }: { board: Board; basePath: string }
 const CARTE: Record<BoardOrder['status'], string> = {
   PENDING: 'bg-warn/[0.20] border-warn/40',
   ACCEPTED: 'bg-danger/[0.16] border-danger/40',
-  DELIVERED: 'bg-ok/[0.20] border-ok/40',
-  RECEIVED: 'bg-info/[0.16] border-info/40',
+  // Bleu et vert foncés : une teinte claire poussée en opacité se délave au
+  // lieu de foncer, d'où ces couleurs posées explicitement.
+  DELIVERED: 'bg-[#1e4d8f]/[0.24] border-[#1e4d8f]/50',
+  RECEIVED: 'bg-[#0b6b4a]/[0.24] border-[#0b6b4a]/50',
   CANCELLED: 'bg-[rgb(var(--glass-edge)/0.16)] border-[rgb(var(--glass-edge)/0.35)]',
 }
 

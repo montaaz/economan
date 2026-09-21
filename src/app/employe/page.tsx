@@ -58,8 +58,10 @@ type Order = {
 const CARTE: Record<string, string> = {
   PENDING: '!bg-warn/[0.28] !border-warn/45',
   ACCEPTED: '!bg-danger/[0.22] !border-danger/45',
-  DELIVERED: '!bg-ok/[0.26] !border-ok/45',
-  RECEIVED: '!bg-info/[0.22] !border-info/45',
+  // Bleu et vert foncés : une teinte claire poussée en opacité se délave au
+  // lieu de foncer, d'où ces couleurs posées explicitement.
+  DELIVERED: '!bg-[#1e4d8f]/[0.30] !border-[#1e4d8f]/55',
+  RECEIVED: '!bg-[#0b6b4a]/[0.30] !border-[#0b6b4a]/55',
   CANCELLED: '!bg-[rgb(var(--glass-edge)/0.18)] !border-[rgb(var(--glass-edge)/0.35)]',
 }
 

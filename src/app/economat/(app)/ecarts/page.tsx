@@ -165,10 +165,6 @@ export default async function EcartsPage({
               {lignes} ligne{lignes > 1 ? 's' : ''}
             </Badge>
           )}
-          <Badge tone="neutral">
-            {orders.length} commande{orders.length > 1 ? 's' : ''} touchée
-            {orders.length > 1 ? 's' : ''}
-          </Badge>
         </div>
       </PageHeader>
 

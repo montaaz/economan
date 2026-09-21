@@ -324,9 +324,21 @@ export function RefillForm({ service }: { service: RefillService }) {
                   Vider
                 </Button>
               ) : null}
-              <Button variant="ghost" size="sm" onClick={() => retirerColonne(c.cle)}>
+              {/* La feuille de tournée : ce qui reste dû, avec une colonne
+                  vide. On descend au magasin avec, on note au stylo, et on
+                  saisit ensuite d'après ces notes. */}
+              <a
+                href={`/api/feuille-service?dep=${service.id}&rang=${rang}&jour=${service.jour}`}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-transparent px-3 text-[0.8rem] font-medium text-fg-muted transition-colors hover:bg-[rgb(var(--glass-edge)/0.14)] hover:text-fg"
+              >
+                <Printer className="size-3.5" />
+                Imprimer la feuille
+              </a>
+              <Button variant="ghost" size="sm" onClick={() => void fermerColonne(c.cle)}>
                 <X className="size-3.5" />
-                Fermer
+                Supprimer
               </Button>
               <Button
                 variant="success"

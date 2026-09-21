@@ -22,8 +22,8 @@ export type RefillTicket = {
     quantityAsked: number
     /** Ce qui est sorti au premier service. */
     firstServed: number
-    /** Ce qui sort à ce passage. */
-    quantity: number
+    /** Ce qui sort à ce passage ; nul sur une feuille à remplir. */
+    quantity: number | null
     /** Ce qui manquera encore après ce passage. */
     remaining: number
     /** Le ticket dont vient la ligne : un bon réunit plusieurs commandes. */
@@ -40,7 +40,13 @@ const RANGS = ['', '', 'deuxième', 'troisième', 'quatrième', 'cinquième', 's
  * marchandise ne lit que ce qu'il a dans les mains, pas les cent articles de
  * la commande d'origine.
  */
-export function RefillTicketSheet({ refill }: { refill: RefillTicket }) {
+export function RefillTicketSheet({
+  refill, blank,
+}: {
+  refill: RefillTicket
+  /** Feuille de tournée : la colonne du service reste vide pour le stylo. */
+  blank?: boolean
+}) {
   const o = refill.order
   // Les familles regroupées, comme sur tous les autres bons.
   const ordre: string[] = []
@@ -52,7 +58,8 @@ export function RefillTicketSheet({ refill }: { refill: RefillTicket }) {
       <header className="flex items-start justify-between gap-4 border-b-2 border-[#0f1e33] pb-2">
         <div>
           <h1 className="text-[1.3rem] font-bold leading-tight">
-            Bon de livraison — {RANGS[refill.rank] ?? `${refill.rank}ᵉ`} service
+            {blank ? 'Feuille de service' : 'Bon de livraison'} —{' '}
+            {RANGS[refill.rank] ?? `${refill.rank}ᵉ`} service
           </h1>
           <p className="font-mono text-[0.9rem] font-semibold">{o.reference}</p>
         </div>
@@ -80,9 +87,19 @@ export function RefillTicketSheet({ refill }: { refill: RefillTicket }) {
           prenne pour la commande entière. */}
       <p className="mt-2 border-l-2 border-[#b4630f] bg-[#fdf1e3] px-2.5 py-1.5 text-[0.82rem]">
         {/* Un bon peut réunir plusieurs tickets du même rayon. */}
-        Complément {o.reference.includes('·') ? 'des commandes' : 'de la commande'}{' '}
-        <span className="font-mono font-semibold">{o.reference}</span> — seuls les articles
-        ci-dessous sortent à ce passage.
+        {blank ? (
+          <>
+            À servir sur {o.reference.includes('·') ? 'les commandes' : 'la commande'}{' '}
+            <span className="font-mono font-semibold">{o.reference}</span> — notez ce qui sort
+            dans la colonne de droite, puis saisissez-le à l’écran.
+          </>
+        ) : (
+          <>
+            Complément {o.reference.includes('·') ? 'des commandes' : 'de la commande'}{' '}
+            <span className="font-mono font-semibold">{o.reference}</span> — seuls les articles
+            ci-dessous sortent à ce passage.
+          </>
+        )}
       </p>
 
       <table className="mt-3 w-full border-collapse">
@@ -142,11 +159,19 @@ export function RefillTicketSheet({ refill }: { refill: RefillTicket }) {
                 <td className="whitespace-nowrap px-2 py-1 text-right tabular-nums text-[#4a5f7d]">
                   {formatQty(l.firstServed)}
                 </td>
-                <td className="whitespace-nowrap px-2 py-1 text-right font-bold tabular-nums">
-                  {formatQty(l.quantity)}
-                  <span className="ml-1 text-[0.72rem] font-normal text-[#4a5f7d]">
-                    {l.unitSymbol}
-                  </span>
+                {/* Sur une feuille de tournée, la case reste vide : c'est au
+                    stylo qu'on y note ce qui sort du magasin. */}
+                <td className="whitespace-nowrap border-x border-[#b9c8e0] px-2 py-1 text-right font-bold tabular-nums">
+                  {l.quantity === null ? (
+                    <span className="text-[#4a5f7d]">{l.unitSymbol}</span>
+                  ) : (
+                    <>
+                      {formatQty(l.quantity)}
+                      <span className="ml-1 text-[0.72rem] font-normal text-[#4a5f7d]">
+                        {l.unitSymbol}
+                      </span>
+                    </>
+                  )}
                 </td>
                 {/* Ce qui manquera encore : le département saura s'il doit
                     attendre un passage de plus. */}

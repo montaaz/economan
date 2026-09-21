@@ -1,9 +1,9 @@
 import Link from 'next/link'
 import { History } from 'lucide-react'
 import { prisma } from '@/server/db'
-import { GlassCard, Badge, EmptyState, TableWrap, Th, Td } from '@/components/ui/glass'
+import { GlassCard, EmptyState, TableWrap, Th, Td } from '@/components/ui/glass'
 import { StatusBadge } from '@/components/ui/status'
-import { formatLongDate, formatQty, formatTime } from '@/lib/utils'
+import { formatLongDate, formatTime } from '@/lib/utils'
 
 /**
  * Historique global : une ligne par ticket, la plus récente d'abord.
@@ -18,7 +18,12 @@ export async function OrderHistory({ basePath, take = 200 }: { basePath: string;
       id: true, reference: true, ticketNumber: true, businessDay: true, status: true, createdAt: true,
       department: { select: { name: true, color: true } },
       createdBy: { select: { fullName: true } },
-      lines: { select: { quantityAsked: true, quantityServed: true } },
+      // Qui a confirmé la réception : n'importe quel employé du service peut
+      // le faire, et ce n'est pas toujours celui qui a passé la commande.
+      receivedBy: { select: { fullName: true } },
+      // Seul le nombre de lignes est lu : les charger toutes pour les compter
+      // ramenait des milliers de quantités que le tableau n'affiche plus.
+      _count: { select: { lines: true } },
     },
   })
 
@@ -44,16 +49,13 @@ export async function OrderHistory({ basePath, take = 200 }: { basePath: string;
             <Th className="text-right">Ticket</Th>
             <Th>Référence</Th>
             <Th>Demandeur</Th>
+            <Th>Réceptionné par</Th>
             <Th className="text-right">Lignes</Th>
-            <Th className="text-right">Commande</Th>
-            <Th className="text-right">Servi</Th>
             <Th>État</Th>
           </tr>
         </thead>
         <tbody className="divide-y divide-[rgb(var(--glass-edge)/0.12)]">
           {orders.map((o) => {
-            const asked = o.lines.reduce((s, l) => s + Number(l.quantityAsked), 0)
-            const servedTotal = o.lines.reduce((s, l) => s + Number(l.quantityServed ?? 0), 0)
             return (
               <tr key={o.id} className="transition-colors hover:bg-[rgb(var(--glass-edge)/0.08)]">
                 <Td className="whitespace-nowrap capitalize text-fg-muted">
@@ -71,9 +73,12 @@ export async function OrderHistory({ basePath, take = 200 }: { basePath: string;
                 <Td className="text-right tabular-nums font-semibold text-fg">{o.ticketNumber}</Td>
                 <Td className="whitespace-nowrap font-mono text-[0.78rem] text-fg-muted">{o.reference}</Td>
                 <Td className="whitespace-nowrap text-fg-muted">{o.createdBy.fullName}</Td>
-                <Td className="text-right tabular-nums text-fg-muted">{o.lines.length}</Td>
-                <Td className="text-right tabular-nums text-fg-muted">{formatQty(asked)}</Td>
-                <Td className="text-right font-medium tabular-nums text-fg">{formatQty(servedTotal)}</Td>
+                {/* Tant que le service n'a pas confirmé, la case reste vide :
+                    écrire un nom laisserait croire que le dossier est clos. */}
+                <Td className="whitespace-nowrap text-fg-muted">
+                  {o.receivedBy ? o.receivedBy.fullName : <span className="text-fg-subtle">—</span>}
+                </Td>
+                <Td className="text-right tabular-nums text-fg-muted">{o._count.lines}</Td>
                 <Td><StatusBadge status={o.status} /></Td>
               </tr>
             )

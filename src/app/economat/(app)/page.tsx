@@ -56,9 +56,12 @@ export default async function EconomatPage({
 
   // Le compte est déjà dans le tableau : inutile d'une requête de plus pour
   // décider si le bouton a lieu d'être.
-  // Le compte suit le filtre, comme le reste de l'écran.
+  // Les comptes suivent le filtre, comme le reste de l'écran.
   const ruptures = shown.reduce(
     (n, g) => n + g.orders.reduce((m, o) => m + o.rejectedCount, 0), 0,
+  )
+  const ajustees = shown.reduce(
+    (n, g) => n + g.orders.reduce((m, o) => m + o.adjustedCount, 0), 0,
   )
 
   return (
@@ -96,6 +99,15 @@ export default async function EconomatPage({
             dayTo={b.isRange ? b.dayTo : null}
             count={ruptures}
             departmentId={selected}
+          />
+          {/* Les quantités ajustées sont l'autre écart à la commande : elles
+              se consultent de la même façon. */}
+          <RupturesPanel
+            day={b.day}
+            dayTo={b.isRange ? b.dayTo : null}
+            count={ajustees}
+            departmentId={selected}
+            status="ADJUSTED"
           />
         </div>
       </PageHeader>

@@ -123,7 +123,7 @@ const typeDefs = /* GraphQL */ `
     ticketCount: Int!
   }
 
-  "Une ligne non livrée, avec son motif et le département qui l'attendait."
+  "Une ligne qui s'écarte de la commande — non livrée ou servie autrement."
   type RuptureLine {
     lineId: ID!
     orderId: ID!
@@ -135,6 +135,8 @@ const typeDefs = /* GraphQL */ `
     categoryName: String!
     unitSymbol: String!
     quantityAsked: Float!
+    "Ce qui a réellement été servi. 0 sur une rupture."
+    quantityServed: Float!
     "Motif saisi par l'économat, s'il l'a renseigné."
     rejectReason: String
   }
@@ -206,8 +208,8 @@ const typeDefs = /* GraphQL */ `
     dayArticlesByDepartment(day: Date, dayTo: Date): [DayDepartmentArticles!]!
     "Stock fixe d'un département, tous ses articles — écran d'administration."
     stockFixeMatrix(departmentId: ID!): [StockFixeLine!]!
-    "Lignes non livrées d'une journée ou d'une période. Sans departmentId, tous les services."
-    dayRuptures(day: Date, dayTo: Date, departmentId: ID): [RuptureLine!]!
+    "Lignes non livrées ou ajustées d'une journée. Sans departmentId, tous les services."
+    dayRuptures(day: Date, dayTo: Date, departmentId: ID, status: LineStatus): [RuptureLine!]!
   }
 
   type Mutation {
@@ -553,14 +555,16 @@ const resolvers = {
 
     dayRuptures: async (
       _p: unknown,
-      a: { day?: string; dayTo?: string; departmentId?: string },
+      a: { day?: string; dayTo?: string; departmentId?: string; status?: 'REJECTED' | 'ADJUSTED' },
       ctx: Ctx,
     ) => {
       requireStaff(ctx)
       const period = resolvePeriod(a.day, a.dayTo)
       const lines = await prisma.orderLine.findMany({
         where: {
-          status: 'REJECTED',
+          // Les ruptures par défaut ; les ajustements sur demande. Ce sont les
+          // deux écarts à la commande, qui se consultent de la même façon.
+          status: a.status ?? 'REJECTED',
           order: {
             businessDay: periodFilter(period),
             // La liste suit le filtre de l'écran : montrer les ruptures des
@@ -574,6 +578,7 @@ const resolvers = {
           productRef: true,
           categoryName: true,
           quantityAsked: true,
+          quantityServed: true,
           rejectReason: true,
           sortOrder: true,
           unit: { select: { symbol: true } },
@@ -603,6 +608,7 @@ const resolvers = {
         categoryName: l.categoryName,
         unitSymbol: l.unit?.symbol ?? '',
         quantityAsked: Number(l.quantityAsked),
+        quantityServed: Number(l.quantityServed ?? 0),
         rejectReason: l.rejectReason,
       }))
     },

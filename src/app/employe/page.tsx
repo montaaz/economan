@@ -1,6 +1,9 @@
+import * as React from 'react'
 import type { Metadata } from 'next'
 import Link from 'next/link'
-import { ClipboardList, PlusCircle, PackageCheck, UserCheck } from 'lucide-react'
+import {
+  ClipboardList, PlusCircle, PackageCheck, UserCheck, PackagePlus, Truck, CheckCircle2,
+} from 'lucide-react'
 import { executeGraphQL } from '@/server/graphql/execute'
 import { PageHeader } from '@/components/ui/stat'
 import { GlassCard, Button, EmptyState, Badge } from '@/components/ui/glass'
@@ -24,6 +27,17 @@ const QUERY = /* GraphQL */ `
       acceptedAt
       deliveredAt
       receivedAt
+      # Les services complémentaires : chacun a sa carte, à côté de celle de
+      # la commande, et se réceptionne à part.
+      refills {
+        id
+        rank
+        createdAt
+        receivedAt
+        lineCount
+        createdBy { fullName }
+        receivedBy { fullName }
+      }
       rejectedCount
       adjustedCount
       validatedCount
@@ -34,6 +48,16 @@ const QUERY = /* GraphQL */ `
     }
   }
 `
+
+type Refill = {
+  id: string
+  rank: number
+  createdAt: string
+  receivedAt: string | null
+  lineCount: number
+  createdBy: { fullName: string } | null
+  receivedBy: { fullName: string } | null
+}
 
 type Order = {
   id: string
@@ -46,6 +70,7 @@ type Order = {
   acceptedAt: string | null
   deliveredAt: string | null
   receivedAt: string | null
+  refills: Refill[]
   rejectedCount: number
   adjustedCount: number
   validatedCount: number
@@ -126,7 +151,8 @@ export default async function MyOrdersPage() {
               </h2>
               <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
                 {orders.map((o) => (
-                  <Link key={o.id} href={`/employe/commandes/${o.id}`}>
+                  <React.Fragment key={o.id}>
+                  <Link href={`/employe/commandes/${o.id}`}>
                     {/* La carte entière prend la couleur de son état : sur une
                         liste, repérer ce qui attend encore quelque chose se
                         faisait en lisant chaque pastille une par une. */}
@@ -206,6 +232,96 @@ export default async function MyOrdersPage() {
                       </div>
                     </GlassCard>
                   </Link>
+
+                  {/* Un servi complémentaire a sa propre carte, juste après
+                      celle de sa commande : il arrive à part, se réceptionne à
+                      part, et une ligne dans la carte de la commande ne
+                      disait ni quand ni par qui. La carte ouvre le servi seul,
+                      pas la commande entière : le barman compte ce qui vient
+                      d'arriver, pas cent lignes déjà reçues. */}
+                  {o.refills.map((r) => (
+                    <Link key={r.id} href={`/employe/commandes/${o.id}/servi/${r.rank}`}>
+                      <GlassCard
+                        hover
+                        className={cn('h-full', CARTE[r.receivedAt ? 'RECEIVED' : 'DELIVERED'])}
+                      >
+                        <div className="space-y-3 p-4">
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="min-w-0">
+                              <p className="truncate text-[0.95rem] font-bold leading-tight text-fg">
+                                {r.rank}ᵉ servi
+                                {r.createdBy ? (
+                                  <span className="ml-1.5 font-semibold text-fg-muted">
+                                    par {r.createdBy.fullName}
+                                  </span>
+                                ) : null}
+                              </p>
+                              <p className="mt-0.5 text-[0.88rem] font-semibold tabular-nums text-fg">
+                                {formatInstantDate(r.createdAt)} à {formatTime(r.createdAt)}
+                              </p>
+                            </div>
+                            {/* Le même vocabulaire que la commande, au masculin :
+                                un service est livré tant que personne n'a
+                                signé, reçu ensuite. */}
+                            {r.receivedAt ? (
+                              <Badge tone="ok" icon={<CheckCircle2 className="size-3.5" aria-hidden="true" />}>
+                                Reçu
+                              </Badge>
+                            ) : (
+                              <Badge tone="info" icon={<Truck className="size-3.5" aria-hidden="true" />}>
+                                Livré
+                              </Badge>
+                            )}
+                          </div>
+
+                          <p className="flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-[0.74rem] tabular-nums">
+                            <span className="whitespace-nowrap">
+                              <span className="font-semibold text-fg">Servi </span>
+                              <span className="font-bold text-accent">{formatTime(r.createdAt)}</span>
+                            </span>
+                            {r.receivedAt ? (
+                              <span className="whitespace-nowrap">
+                                <span className="font-semibold text-fg">Réception </span>
+                                <span className="font-bold text-accent">{formatTime(r.receivedAt)}</span>
+                              </span>
+                            ) : null}
+                          </p>
+
+                          {/* Le ticket de la commande complétée : c'est lui
+                              qu'on retrouve sur le bon qui accompagne la
+                              marchandise. */}
+                          <p className="flex items-center gap-2">
+                            <span className="grid size-7 shrink-0 place-items-center rounded-lg bg-accent/12 text-accent">
+                              <PackagePlus className="size-4" />
+                            </span>
+                            <span className="truncate font-mono text-[0.85rem] font-bold text-fg">
+                              {o.reference}
+                            </span>
+                          </p>
+
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <Badge tone="neutral">
+                              {r.lineCount} article{r.lineCount > 1 ? 's' : ''} complété
+                              {r.lineCount > 1 ? 's' : ''}
+                            </Badge>
+                          </div>
+
+                          {r.receivedAt ? (
+                            <p className="flex items-center gap-1.5 rounded-lg bg-info/10 px-2.5 py-1.5 text-[0.78rem] font-medium text-info">
+                              <UserCheck className="size-4 shrink-0" />
+                              Reçu par {r.receivedBy?.fullName ?? 'le département'}
+                            </p>
+                          ) : (
+                            <p className="flex items-center gap-1.5 rounded-lg bg-info/10 px-2.5 py-1.5 text-[0.78rem] font-medium text-info">
+                              <PackageCheck className="size-4 shrink-0" />
+                              À confirmer en réception
+                            </p>
+                          )}
+                        </div>
+                      </GlassCard>
+                    </Link>
+                  ))}
+                  </React.Fragment>
                 ))}
               </div>
             </section>

@@ -10,6 +10,7 @@ import { StatusBadge, statusSteps } from '@/components/ui/status'
 import { Ticket, ticketVariant, type TicketOrder } from '@/components/ui/ticket'
 import { formatLongDate, formatTime, cn } from '@/lib/utils'
 import { ReceptionPanel } from './reception-panel'
+import { RefillReception, type RefillView } from './refill-reception'
 import { OrderLines } from './order-lines'
 import { OrderDates } from '@/components/orders/order-dates'
 import { PrintButton } from '@/components/ui/print-button'
@@ -37,6 +38,17 @@ const QUERY = /* GraphQL */ `
       createdBy { id fullName }
       processedBy { fullName }
       receivedBy { fullName }
+      # Les services complémentaires : la marchandise manquante arrivée après
+      # coup, que le département réceptionne un par un.
+      refills {
+        id
+        rank
+        createdAt
+        receivedAt
+        createdBy { fullName }
+        receivedBy { fullName }
+        lines { lineId productName productRef categoryName unitSymbol quantity }
+      }
       lines {
         id
         productId
@@ -47,7 +59,9 @@ const QUERY = /* GraphQL */ `
         stockFixe
         quantityOnHand
         quantityAsked
-        quantityServed
+        # Servi en tout, compléments reçus compris : c'est ce que le rayon a
+        # vraiment, et ce que la réception compare au compté.
+        quantityServed: quantityServedTotal
         quantityReceived
         receiptGap
         status
@@ -90,6 +104,7 @@ type Order = Omit<TicketOrder, 'createdBy' | 'lines'> & {
   acceptedAt: string | null
   deliveredAt: string | null
   receivedAt: string | null
+  refills: RefillView[]
   status: 'PENDING' | 'ACCEPTED' | 'DELIVERED' | 'RECEIVED' | 'CANCELLED'
   lineCount: number
   totalAsked: number
@@ -118,6 +133,13 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
     executeGraphQL<{ order: Order | null; myCatalog: CatalogEntry[] }>(QUERY, { id }),
   ])
   if (!order) notFound()
+
+  // Une rupture soldée par un complément reçu n'a plus de motif à montrer :
+  // « sera disponible dans 2 jours » sous une ligne servie en entier
+  // contredirait la ligne.
+  order.lines = order.lines.map((l) =>
+    l.status === 'VALIDATED' && l.rejectReason ? { ...l, rejectReason: null } : l,
+  )
 
   const steps = statusSteps(order.status, {
     createdAt: order.createdAt,
@@ -321,6 +343,13 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
           />
         </GlassCard>
         )}
+
+        {/* Les passages complémentaires, chacun avec sa propre réception : la
+            commande a pu être close depuis longtemps quand le complément
+            arrive, et signer pour lui ne doit pas dépendre d'elle. */}
+        {order.refills.map((r) => (
+          <RefillReception key={r.id} orderId={order.id} refill={r} />
+        ))}
       </div>
 
       {/* Version papier */}

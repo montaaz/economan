@@ -119,7 +119,10 @@ export default async function EcartsPage({
       // Le prochain passage de cette commande se numérote après le dernier.
       bloc.rangs[o.id] = o.lastRefillRank
       for (const r of o.refills) {
-        bloc.passages.push({ id: r.id, rank: r.rank, orderRef: o.reference })
+        bloc.passages.push({
+          id: r.id, rank: r.rank, orderId: o.id, orderRef: o.reference,
+          receivedAt: r.receivedAt, receivedBy: r.receivedBy,
+        })
       }
       for (const l of concernees) {
         bloc.lignes.push({

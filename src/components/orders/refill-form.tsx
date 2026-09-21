@@ -2,14 +2,14 @@
 
 import * as React from 'react'
 import { useRouter } from 'next/navigation'
-import { PackageCheck, Plus, Printer, RotateCcw, X } from 'lucide-react'
+import { Check, PackageCheck, Plus, Printer, RotateCcw, X } from 'lucide-react'
 import { Button, Badge, TableWrap, Th, Td } from '@/components/ui/glass'
 import { Icon } from '@/components/ui/icon'
 import { FamilyBand, groupSize } from '@/components/ui/family-band'
 import { useToast } from '@/components/ui/toast'
 import { useConfirm } from '@/components/ui/confirm'
 import { gql, errorMessage } from '@/lib/graphql-client'
-import { cn, formatQty, toNumber } from '@/lib/utils'
+import { cn, formatQty, formatTime, toNumber } from '@/lib/utils'
 
 const ADD_REFILL = /* GraphQL */ `
   mutation AddRefill($id: ID!, $lines: [RefillInput!]!) {
@@ -47,8 +47,18 @@ export type RefillService = {
   lignes: RefillLigne[]
   /** Rang du prochain passage, par commande. */
   rangs: Record<string, number>
-  /** Les passages enregistrés, pour imprimer leur bon. */
-  passages: { id: string; rank: number; orderRef: string }[]
+  /**
+   * Les passages enregistrés, pour imprimer leur bon — et savoir lesquels le
+   * département a déjà réceptionnés : ceux-là ne se suppriment plus.
+   */
+  passages: {
+    id: string
+    rank: number
+    orderId: string
+    orderRef: string
+    receivedAt: string | null
+    receivedBy: { fullName: string } | null
+  }[]
   /** La journée affichée, pour cibler le bon du département. */
   jour: string
 }
@@ -115,6 +125,16 @@ export function RefillForm({ service }: { service: RefillService }) {
     return [...v].sort((a, b) => a - b)
   }, [service.lignes])
 
+  // Une ligne soldée n'a plus rien à servir : elle sort du tableau dès que
+  // son reste tombe à zéro, réceptionnée ou non. La garder en vert faisait
+  // relire vingt lignes closes pour trouver celles qui attendent encore.
+  // Les rangs, le X d'annulation et le bon restent calculés sur toutes les
+  // lignes : un passage entièrement soldé se supprime et s'imprime toujours.
+  const visibles = React.useMemo(
+    () => service.lignes.filter((l) => reste(l) > 0),
+    [service.lignes],
+  )
+
   // Le rang se déduit de la position, jamais figé à la création : fermer une
   // colonne du milieu renumérote les suivantes, sinon deux « 3ᵉ service »
   // coexistaient après une fermeture puis une réouverture.
@@ -171,19 +191,48 @@ export function RefillForm({ service }: { service: RefillService }) {
     [...parCommande(cle).values()].reduce((n, c) => n + c.lines.length, 0)
 
   /**
+   * Les passages d'un rang, séparés selon que le département les a signés.
+   *
+   * Un même rang touche plusieurs tickets du rayon, et chacun se réceptionne
+   * de son côté : un passage peut être reçu sur une commande et pas encore
+   * sur l'autre.
+   */
+  const reception = (rang: number) => {
+    const passages = service.passages.filter((p) => p.rank === rang)
+    return {
+      recus: passages.filter((p) => p.receivedAt),
+      enAttente: passages.filter((p) => !p.receivedAt),
+    }
+  }
+
+  /**
    * Annule un passage complémentaire, après confirmation.
    *
    * Le premier service n'est pas concerné : son bon est parti, la marchandise
    * est sortie du magasin, et l'effacer ferait mentir un papier qui circule.
+   *
+   * Un passage que le département a réceptionné ne s'efface pas non plus : il
+   * a signé pour cette marchandise, et le serveur refuserait de toute façon.
+   * Seuls les tickets encore en attente de réception sont touchés.
    */
   const annulerService = async (rang: number) => {
+    const { recus, enAttente } = reception(rang)
+    if (enAttente.length === 0) {
+      push('error',
+        `Le ${rang}ᵉ service a été réceptionné par le département : il ne peut plus être supprimé.`)
+      return
+    }
+    const ids = enAttente.map((p) => p.orderId)
     const concernees = service.lignes.filter(
-      (l) => l.refills.some((r) => r.rank === rang),
+      (l) => ids.includes(l.orderId) && l.refills.some((r) => r.rank === rang),
     ).length
     const ok = await confirmer({
       title: `Supprimer le ${rang}ᵉ service ?`,
       message: `Les ${concernees} ligne(s) servies à ce passage seront effacées, et les `
-        + 'quantités redeviendront dues.',
+        + 'quantités redeviendront dues.'
+        + (recus.length > 0
+          ? ` ${recus.length} ticket(s) déjà réceptionné(s) à ce passage seront conservés.`
+          : ''),
       confirmLabel: 'Supprimer',
       tone: 'danger',
     })
@@ -191,12 +240,6 @@ export function RefillForm({ service }: { service: RefillService }) {
 
     setBusy(true)
     try {
-      // Un même rang peut porter sur plusieurs tickets du département.
-      const ids = [...new Set(
-        service.lignes
-          .filter((l) => l.refills.some((r) => r.rank === rang))
-          .map((l) => l.orderId),
-      )]
       for (const id of ids) await gql(CANCEL_SERVICE, { id, rank: rang })
       push('success', `Le ${rang}ᵉ service a été supprimé.`)
       router.refresh()
@@ -301,7 +344,7 @@ export function RefillForm({ service }: { service: RefillService }) {
                 {service.nom}
               </span>
               <span className="block text-[0.85rem] font-medium text-fg sm:text-[0.78rem]">
-                {service.lignes.length} ligne{service.lignes.length > 1 ? 's' : ''} en écart
+                {visibles.length} ligne{visibles.length > 1 ? 's' : ''} en écart
               </span>
             </span>
           </h2>
@@ -361,23 +404,42 @@ export function RefillForm({ service }: { service: RefillService }) {
               {/* Les passages s'intercalent entre le premier service et le
                   reste : la ligne se lit alors dans l'ordre où elle s'est
                   jouée, et le reste conclut. */}
-              {rangsServis.map((rang) => (
-                <Th key={`servi-${rang}`} className="w-32 text-right">
-                  <span className="inline-flex items-center gap-1.5">
-                    {rang}ᵉ service
-                    {/* Ce passage est enregistré : le X l'annule en base. */}
-                    <button
-                      type="button"
-                      onClick={() => void annulerService(rang)}
-                      title={`Supprimer le ${rang}ᵉ service`}
-                      aria-label={`Supprimer le ${rang}e service`}
-                      className="grid size-5 place-items-center rounded-md text-danger transition-colors hover:bg-danger/15"
-                    >
-                      <X className="size-3.5" />
-                    </button>
-                  </span>
-                </Th>
-              ))}
+              {rangsServis.map((rang) => {
+                const { recus, enAttente } = reception(rang)
+                // Qui a signé, et quand : le nom se lit au survol de la coche.
+                const signature = recus
+                  .map((p) => `${p.receivedBy?.fullName ?? 'le département'} à ${formatTime(p.receivedAt)}`)
+                  .join(', ')
+                return (
+                  <Th key={`servi-${rang}`} className="w-32 text-right">
+                    <span className="inline-flex items-center gap-1.5">
+                      {rang}ᵉ service
+                      {enAttente.length === 0 && recus.length > 0 ? (
+                        /* Le département a réceptionné ce passage : la coche
+                           remplace le X, il n'y a plus rien à annuler. */
+                        <span
+                          title={`Réceptionné par ${signature}`}
+                          aria-label={`${rang}e service réceptionné par ${signature}`}
+                          className="grid size-5 place-items-center rounded-md bg-ok/15 text-ok"
+                        >
+                          <Check className="size-3.5" />
+                        </span>
+                      ) : (
+                        /* Ce passage est enregistré : le X l'annule en base. */
+                        <button
+                          type="button"
+                          onClick={() => void annulerService(rang)}
+                          title={`Supprimer le ${rang}ᵉ service`}
+                          aria-label={`Supprimer le ${rang}e service`}
+                          className="grid size-5 place-items-center rounded-md text-danger transition-colors hover:bg-danger/15"
+                        >
+                          <X className="size-3.5" />
+                        </button>
+                      )}
+                    </span>
+                  </Th>
+                )
+              })}
               {colonnes.map((c) => (
                 <Th key={c.cle} className="w-36 text-right">
                   <span className="inline-flex items-center gap-1.5">
@@ -418,7 +480,17 @@ export function RefillForm({ service }: { service: RefillService }) {
             </tr>
           </thead>
           <tbody className="divide-y divide-[rgb(var(--glass-edge)/0.12)]">
-            {service.lignes.map((l, i) => {
+            {visibles.length === 0 ? (
+              <tr>
+                <td
+                  colSpan={6 + rangsServis.length + colonnes.length}
+                  className="px-4 py-6 text-center text-[0.85rem] text-fg-muted"
+                >
+                  Tout est soldé : plus rien à servir pour ce rayon.
+                </td>
+              </tr>
+            ) : null}
+            {visibles.map((l, i) => {
               const r = reste(l)
               // Ce que les colonnes ouvertes ajoutent à cette ligne.
               const enCours = colonnes.reduce(
@@ -432,10 +504,10 @@ export function RefillForm({ service }: { service: RefillService }) {
               const partiel = enCours > 0 && enCours < r
               return (
                 <React.Fragment key={l.id}>
-                  {i === 0 || service.lignes[i - 1].categoryName !== l.categoryName ? (
+                  {i === 0 || visibles[i - 1].categoryName !== l.categoryName ? (
                     <FamilyBand
                       name={l.categoryName}
-                      count={groupSize(service.lignes, i)}
+                      count={groupSize(visibles, i)}
                       colSpan={6 + rangsServis.length + colonnes.length}
                     />
                   ) : null}

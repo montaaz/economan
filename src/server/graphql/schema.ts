@@ -6,7 +6,7 @@ import { businessDay, addDays } from '@/lib/utils'
 import type { SessionUser } from '@/server/auth/session'
 import {
   createOrder, updateOrder, acceptOrder, cancelAcceptance, setServedLines, deliverOrder,
-  receiveOrder, addRefill, cancelService, WorkflowError,
+  receiveOrder, addRefill, cancelService, receiveRefill, WorkflowError,
 } from '@/server/services/orders'
 
 export type Ctx = { user: SessionUser | null }
@@ -74,6 +74,10 @@ const typeDefs = /* GraphQL */ `
     quantityOnHand: Float!
     "Ce qui a été complété lors des services suivants, tous passages confondus."
     quantityRefilled: Float!
+    "Complété par des servis que le département a réceptionnés : ce qui est réellement au rayon."
+    quantityRefilledReceived: Float!
+    "Servi en tout — premier service plus compléments réceptionnés. Nul tant que rien n'est servi."
+    quantityServedTotal: Float
     "Le détail par passage : quel rang a servi quelle quantité."
     refills: [LineRefill!]!
     productName: String!
@@ -82,6 +86,11 @@ const typeDefs = /* GraphQL */ `
     unitSymbol: String!
     quantityAsked: Float!
     quantityServed: Float
+    """
+    L'état de la ligne une fois les compléments réceptionnés pris en compte :
+    une rupture complétée et signée par le département n'en est plus une.
+    Un servi seulement préparé ne change rien tant qu'il n'est pas reçu.
+    """
     status: LineStatus!
     rejectReason: String
   }
@@ -112,6 +121,8 @@ const typeDefs = /* GraphQL */ `
     lastRefillRank: Int!
     "Les passages complémentaires, du plus ancien au plus récent."
     refills: [Refill!]!
+    "Passages complémentaires que le département n'a pas encore réceptionnés."
+    refillsToReceive: Int!
     lines: [OrderLine!]!
     lineCount: Int!
     totalAsked: Float!
@@ -144,6 +155,12 @@ const typeDefs = /* GraphQL */ `
     rank: Int!
     createdAt: DateTime!
     createdBy: User
+    "Quand le département a confirmé avoir reçu ce passage. Nul tant qu'il ne l'a pas fait."
+    receivedAt: DateTime
+    "Qui l'a confirmé — pas forcément celui qui a réceptionné la commande."
+    receivedBy: User
+    "Nombre d'articles sortis à ce passage."
+    lineCount: Int!
     lines: [RefillLine!]!
   }
 
@@ -263,6 +280,8 @@ const typeDefs = /* GraphQL */ `
     deliverOrder(id: ID!): Order!
     "L'employé confirme la réception, en déclarant ce qu'il a compté."
     receiveOrder(id: ID!, lines: [ReceivedLineInput!]): Order!
+    "Le département confirme la réception d'un service complémentaire, indépendamment de la commande."
+    receiveRefill(id: ID!, rank: Int!): Order!
     "Administration : règle le stock fixe d'un département."
     setStockFixe(departmentId: ID!, lines: [StockFixeInput!]!): Int!
   }
@@ -325,13 +344,50 @@ async function departmentCatalog(departmentId: number) {
   })
 }
 
+/** Une ligne de commande avec ses compléments, telle que Prisma la charge. */
+type LigneServie = {
+  status: string
+  quantityAsked: unknown
+  quantityServed: unknown
+  refills?: { quantity: unknown; refill?: { receivedAt?: Date | null } | null }[]
+}
+
+/** Ce que les servis complémentaires réceptionnés ont apporté à une ligne. */
+function refilledReceived(l: LigneServie): number {
+  return (l.refills ?? [])
+    .filter((r) => r.refill?.receivedAt)
+    .reduce((n, r) => n + Number(r.quantity), 0)
+}
+
+/**
+ * L'état d'une ligne, compléments reçus compris.
+ *
+ * Une rupture complétée par un servi que le département a signé n'en est plus
+ * une : la marchandise est au rayon. Complétée en partie, elle devient un
+ * ajustement. Un servi seulement préparé ne change rien : rien n'est encore
+ * arrivé, et l'économat doit pouvoir le voir encore — et l'annuler.
+ */
+function effectiveStatus(l: LigneServie): string {
+  if (l.status !== 'REJECTED' && l.status !== 'ADJUSTED') return l.status
+  const recu = refilledReceived(l)
+  if (recu <= 0) return l.status
+  const total = Number(l.quantityServed ?? 0) + recu
+  return total >= Number(l.quantityAsked) ? 'VALIDATED' : 'ADJUSTED'
+}
+
 const ORDER_INCLUDE = {
   department: true,
   createdBy: { include: { department: true } },
   processedBy: { include: { department: true } },
   receivedBy: { include: { department: true } },
+  // Qui a servi et qui a réceptionné chaque passage : l'écran du département
+  // les affiche, et le compte des passages à réceptionner en dépend.
   refills: {
-    select: { id: true, rank: true, createdAt: true },
+    select: {
+      id: true, rank: true, createdAt: true, receivedAt: true,
+      createdBy: { include: { department: true } },
+      receivedBy: { include: { department: true } },
+    },
     orderBy: { rank: 'asc' as const },
   },
   // `refills` alimente quantityRefilled : sans lui, le reste à servir
@@ -340,7 +396,11 @@ const ORDER_INCLUDE = {
     orderBy: { sortOrder: 'asc' as const },
     include: {
       unit: true,
-      refills: { select: { quantity: true, refill: { select: { rank: true } } } },
+      // `receivedAt` décide de l'état effectif : seul un complément reçu
+      // efface une rupture.
+      refills: {
+        select: { quantity: true, refill: { select: { rank: true, receivedAt: true } } },
+      },
     },
   },
 }
@@ -489,10 +549,18 @@ const resolvers = {
       l.quantityReceived === null || l.quantityReceived === undefined
         ? null
         : Number(l.quantityReceived),
-    receiptGap: (l: { quantityReceived: unknown; quantityServed: unknown }) => {
+    quantityRefilledReceived: (l: LigneServie) => refilledReceived(l),
+    quantityServedTotal: (l: LigneServie) =>
+      l.quantityServed === null || l.quantityServed === undefined
+        ? null
+        : Number(l.quantityServed) + refilledReceived(l),
+    status: (l: LigneServie) => effectiveStatus(l),
+    receiptGap: (l: LigneServie & { quantityReceived: unknown }) => {
       // Tant que rien n'est compté, il n'y a pas d'écart à signaler.
       if (l.quantityReceived === null || l.quantityReceived === undefined) return 0
-      return Number(l.quantityReceived) - Number(l.quantityServed ?? 0)
+      // Le reçu s'additionne à chaque servi signé : l'écart se mesure donc
+      // contre tout ce qui a été servi et reçu, pas contre le premier passage.
+      return Number(l.quantityReceived) - Number(l.quantityServed ?? 0) - refilledReceived(l)
     },
     quantityOnHand: (l: { quantityOnHand: unknown }) => Number(l.quantityOnHand ?? 0),
     quantityAsked: (l: { quantityAsked: unknown }) => Number(l.quantityAsked),
@@ -501,9 +569,18 @@ const resolvers = {
   },
 
   Refill: {
+    // Une carte de la liste ne montre que le nombre : compter en base évite
+    // de charger les lignes de chaque passage pour les jeter ensuite.
+    lineCount: async (r: { id: number; lines?: unknown[] }) =>
+      r.lines ? r.lines.length : prisma.orderRefillLine.count({ where: { refillId: r.id } }),
     // La ligne de passage ne porte qu'une quantité : le reste vient de la
     // ligne de commande, figée à l'envoi.
-    lines: (r: {
+    //
+    // Les lignes ne sont chargées que si on les demande : une commande porte
+    // ses passages sans leurs lignes, et les charger sur chaque ticket du
+    // tableau de bord ferait ramener des quantités que personne n'affiche.
+    lines: async (r: {
+      id: number
       lines?: {
         orderLineId: number
         quantity: unknown
@@ -513,7 +590,10 @@ const resolvers = {
         }
       }[]
     }) =>
-      (r.lines ?? [])
+      (r.lines ?? await prisma.orderRefillLine.findMany({
+        where: { refillId: r.id },
+        include: { orderLine: { include: { unit: true } } },
+      }))
         .slice()
         .sort((a, b) => a.orderLine.sortOrder - b.orderLine.sortOrder)
         .map((l) => ({
@@ -532,13 +612,17 @@ const resolvers = {
       (o.refills ?? []).reduce((n, r) => Math.max(n, r.rank), 1),
     refills: (o: { refills?: { rank: number }[] }) =>
       (o.refills ?? []).slice().sort((a, b) => a.rank - b.rank),
+    refillsToReceive: (o: { refills?: { receivedAt: unknown }[] }) =>
+      (o.refills ?? []).filter((r) => !r.receivedAt).length,
     lineCount: (o: { lines?: unknown[] }) => o.lines?.length ?? 0,
-    rejectedCount: (o: { lines?: { status: string }[] }) =>
-      (o.lines ?? []).filter((l) => l.status === 'REJECTED').length,
-    adjustedCount: (o: { lines?: { status: string }[] }) =>
-      (o.lines ?? []).filter((l) => l.status === 'ADJUSTED').length,
-    validatedCount: (o: { lines?: { status: string }[] }) =>
-      (o.lines ?? []).filter((l) => l.status === 'VALIDATED').length,
+    // Les comptes suivent l'état effectif : une rupture reçue en complément
+    // sort du rouge, et le « Tout » de la journée redescend d'autant.
+    rejectedCount: (o: { lines?: LigneServie[] }) =>
+      (o.lines ?? []).filter((l) => effectiveStatus(l) === 'REJECTED').length,
+    adjustedCount: (o: { lines?: LigneServie[] }) =>
+      (o.lines ?? []).filter((l) => effectiveStatus(l) === 'ADJUSTED').length,
+    validatedCount: (o: { lines?: LigneServie[] }) =>
+      (o.lines ?? []).filter((l) => effectiveStatus(l) === 'VALIDATED').length,
     totalAsked: (o: { lines?: { quantityAsked: unknown }[] }) =>
       (o.lines ?? []).reduce((s, l) => s + Number(l.quantityAsked), 0),
     totalServed: (o: { lines?: { quantityServed: unknown }[] }) =>
@@ -663,6 +747,7 @@ const resolvers = {
         },
         select: {
           id: true,
+          status: true,
           productName: true,
           productRef: true,
           categoryName: true,
@@ -672,6 +757,7 @@ const resolvers = {
           rejectReason: true,
           sortOrder: true,
           unit: { select: { symbol: true } },
+          refills: { select: { quantity: true, refill: { select: { receivedAt: true } } } },
           order: {
             select: {
               id: true, reference: true, businessDay: true,
@@ -687,7 +773,9 @@ const resolvers = {
           { sortOrder: 'asc' },
         ],
       })
-      return lines.map((l) => ({
+      // Même règle que les comptes : une rupture complétée et reçue n'y
+      // figure plus, une rupture complétée en partie passe en ajustée.
+      return lines.filter((l) => effectiveStatus(l) === (a.status ?? 'REJECTED')).map((l) => ({
         lineId: String(l.id),
         orderId: String(l.order.id),
         orderReference: l.order.reference,
@@ -962,6 +1050,12 @@ const resolvers = {
           })),
         ),
       )
+      return prisma.order.findUniqueOrThrow({ where: { id: Number(a.id) }, include: ORDER_INCLUDE })
+    },
+
+    receiveRefill: async (_p: unknown, a: { id: string; rank: number }, ctx: Ctx) => {
+      const u = requireEmployee(ctx)
+      await run(() => receiveRefill(Number(a.id), a.rank, u))
       return prisma.order.findUniqueOrThrow({ where: { id: Number(a.id) }, include: ORDER_INCLUDE })
     },
   },

@@ -44,8 +44,16 @@ export type ProcessOrder = {
   receivedAt: string | null
   /** Rang du dernier service complémentaire ; 1 si aucun. */
   lastRefillRank: number
-  /** Les passages, pour imprimer le bon du dernier. */
-  refills: { id: string; rank: number }[]
+  /**
+   * Les passages, pour imprimer le bon du dernier — et savoir lesquels le
+   * département a déjà réceptionnés : ceux-là ne se suppriment plus.
+   */
+  refills: {
+    id: string
+    rank: number
+    receivedAt: string | null
+    receivedBy: { fullName: string } | null
+  }[]
   lineCount: number
   totalAsked: number
   totalServed: number

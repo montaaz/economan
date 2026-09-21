@@ -57,7 +57,7 @@ export const ORDER_QUERY = /* GraphQL */ `
       receivedAt
       lineCount
       lastRefillRank
-      refills { id rank }
+      refills { id rank receivedAt receivedBy { fullName } }
       totalAsked
       totalServed
       department { id name code color icon }

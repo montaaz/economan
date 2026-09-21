@@ -137,6 +137,7 @@ model User {
   ordersProcessed Order[] @relation("OrderProcessedBy")
   ordersReceived  Order[] @relation("OrderReceivedBy")
   refillsCreated  OrderRefill[] @relation("RefillCreatedBy")
+  refillsReceived OrderRefill[] @relation("RefillReceivedBy")
 
   @@index([departmentId, isActive])
   @@index([role, isActive])
@@ -241,9 +242,15 @@ model OrderRefill {
   rank      Int
   createdAt DateTime @default(now())
   createdById Int?
+  /// Réception du passage, indépendante de celle de la commande : la marchandise
+  /// arrive plus tard, et la commande d'origine a pu être reçue depuis longtemps.
+  /// Une fois ce champ posé, le passage ne peut plus être supprimé.
+  receivedAt   DateTime?
+  receivedById Int?
 
   order     Order     @relation(fields: [orderId], references: [id], onDelete: Cascade, onUpdate: Cascade)
   createdBy User?     @relation("RefillCreatedBy", fields: [createdById], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  receivedBy User?    @relation("RefillReceivedBy", fields: [receivedById], references: [id], onDelete: SetNull, onUpdate: Cascade)
   lines     OrderRefillLine[]
 
   @@unique([orderId, rank])

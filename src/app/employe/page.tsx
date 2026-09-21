@@ -120,7 +120,7 @@ export default async function MyOrdersPage() {
             <section key={day}>
               <h2 className="mb-2.5 px-0.5 text-[0.9rem] font-semibold capitalize tracking-tight text-fg">
                 {formatLongDate(day)}
-                <span className="ml-2 text-[0.8rem] font-normal tabular-nums text-fg-subtle">
+                <span className="ml-2 text-[0.82rem] font-semibold tabular-nums text-fg">
                   {orders.length} commande{orders.length > 1 ? 's' : ''}
                 </span>
               </h2>
@@ -139,7 +139,9 @@ export default async function MyOrdersPage() {
                             <p className="truncate text-[0.95rem] font-bold leading-tight text-fg">
                               {o.createdBy.fullName}
                             </p>
-                            <p className="mt-0.5 text-[0.82rem] tabular-nums text-fg-muted">
+                            {/* En noir et gras : sur les fonds colorés des
+                                cartes, le gris se lisait mal. */}
+                            <p className="mt-0.5 text-[0.88rem] font-semibold tabular-nums text-fg">
                               {formatInstantDate(o.createdAt)} à {formatTime(o.createdAt)}
                             </p>
                           </div>
@@ -154,7 +156,7 @@ export default async function MyOrdersPage() {
                           <span className="grid size-7 shrink-0 place-items-center rounded-lg bg-accent/12 text-[0.78rem] font-bold tabular-nums text-accent">
                             {o.ticketNumber}
                           </span>
-                          <span className="truncate font-mono text-[0.8rem] font-semibold text-fg-muted">
+                          <span className="truncate font-mono text-[0.85rem] font-bold text-fg">
                             {o.reference}
                           </span>
                         </p>

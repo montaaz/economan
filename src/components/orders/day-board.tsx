@@ -102,7 +102,7 @@ export function DayBoard({ board, basePath }: { board: Board; basePath: string }
                   <span className="block truncate text-[1.15rem] font-bold leading-tight tracking-tight text-fg sm:text-[1.05rem]">
                     {g.department.name}
                   </span>
-                  <span className="block text-[0.85rem] tabular-nums text-fg-muted sm:text-[0.78rem]">
+                  <span className="block text-[0.85rem] font-medium tabular-nums text-fg sm:text-[0.78rem]">
                     {g.orderCount} ticket{g.orderCount > 1 ? 's' : ''} · {g.lineCount} ligne
                     {g.lineCount > 1 ? 's' : ''}
                     {board.isRange ? ` · ${joursCouverts(g.orders)} jour${joursCouverts(g.orders) > 1 ? 's' : ''}` : ''}
@@ -118,7 +118,7 @@ export function DayBoard({ board, basePath }: { board: Board; basePath: string }
                     ? Math.min(100, Math.round((g.totalServed / g.totalAsked) * 100))
                     : 0}%
                 </span>
-                <span className="text-fg-subtle"> servi</span>
+                <span className="font-medium text-fg"> servi</span>
               </p>
             </header>
 
@@ -227,7 +227,9 @@ function TicketCard({
               </p>
               <StatusBadge status={o.status} />
             </div>
-            <p className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-[0.85rem] tabular-nums text-fg-muted sm:text-[0.78rem]">
+            {/* En noir et gras : sur les fonds colorés des cartes, le gris se
+                lisait mal. */}
+            <p className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-[0.88rem] font-semibold tabular-nums text-fg sm:text-[0.82rem]">
               {/* Sur une période, deux tickets numérotés « 1 » coexistent :
                   sans sa journée, la carte devient ambiguë. */}
               {showDay ? (
@@ -239,7 +241,7 @@ function TicketCard({
                 {formatInstantDate(o.createdAt)} à {formatTime(o.createdAt)}
               </span>
             </p>
-            <p className="truncate font-mono text-[0.78rem] text-fg-subtle sm:text-[0.72rem]">{o.reference}</p>
+            <p className="truncate font-mono text-[0.82rem] font-bold text-fg sm:text-[0.76rem]">{o.reference}</p>
             {/* Les quatre moments, nommés : sans intitulé, une suite d'heures
                 ne dit pas de quoi elle parle. */}
             <OrderDates order={o} compact className="mt-1" />
@@ -250,9 +252,9 @@ function TicketCard({
           <span className={cn('font-bold', rien ? 'text-warn' : 'text-ok')}>
             {part}
             <span className={rien ? 'text-warn/70' : 'text-ok/70'}>%</span>
-            <span className="font-normal text-fg-subtle"> servi</span>
+            <span className="font-medium text-fg"> servi</span>
           </span>
-          <span className="text-fg-subtle">
+          <span className="font-medium text-fg">
             {o.lineCount} article{o.lineCount > 1 ? 's' : ''}
           </span>
           {/* Ce qui cloche se signale ici, pas dans le détail. */}

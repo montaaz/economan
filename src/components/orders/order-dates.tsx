@@ -15,11 +15,16 @@ export type OrderDates = {
  * l'étape au-dessus. Chaque date porte donc son intitulé, et l'ensemble se lit
  * sans rien reconstituer.
  */
+// Toutes les heures en bleu : ce sont quatre moments d'une même chronologie,
+// et leur donner chacune une couleur laissait croire à quatre natures.
+// L'icône suffit à distinguer les étapes.
+const HEURE = 'text-accent'
+
 const ETAPES = [
-  { cle: 'createdAt', label: 'Commande', Icon: Clock, ton: 'text-fg-muted' },
-  { cle: 'acceptedAt', label: 'Acceptation', Icon: PackageOpen, ton: 'text-accent' },
-  { cle: 'deliveredAt', label: 'Livraison', Icon: Truck, ton: 'text-info' },
-  { cle: 'receivedAt', label: 'Réception', Icon: CheckCircle2, ton: 'text-ok' },
+  { cle: 'createdAt', label: 'Commande', Icon: Clock },
+  { cle: 'acceptedAt', label: 'Acceptation', Icon: PackageOpen },
+  { cle: 'deliveredAt', label: 'Livraison', Icon: Truck },
+  { cle: 'receivedAt', label: 'Réception', Icon: CheckCircle2 },
 ] as const
 
 export function OrderDates({
@@ -43,7 +48,7 @@ export function OrderDates({
             {/* L'intitulé en noir et gras : en gris clair il se lisait mal
                 sur les fonds colorés des cartes. */}
             <span className="font-semibold text-fg">{e.label} </span>
-            <span className={cn('font-bold', e.ton)}>{formatTime(order[e.cle])}</span>
+            <span className={cn('font-bold', HEURE)}>{formatTime(order[e.cle])}</span>
           </span>
         ))}
       </p>
@@ -54,12 +59,12 @@ export function OrderDates({
     <div className={cn('flex flex-wrap items-center gap-x-4 gap-y-1.5', className)}>
       {franchies.map((e) => (
         <span key={e.cle} className="flex items-center gap-1.5 whitespace-nowrap">
-          <e.Icon className={cn('size-3.5 shrink-0', e.ton)} />
+          <e.Icon className={cn('size-3.5 shrink-0', HEURE)} />
           {/* « Heure » et non « date » : c'est bien une heure qui suit. */}
           <span className="text-[0.78rem] font-semibold text-fg">
             Heure {e.label.toLowerCase()}
           </span>
-          <span className={cn('text-[0.85rem] font-bold tabular-nums', e.ton)}>
+          <span className={cn('text-[0.85rem] font-bold tabular-nums', HEURE)}>
             {formatTime(order[e.cle])}
           </span>
         </span>

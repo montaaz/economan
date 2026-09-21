@@ -151,7 +151,10 @@ export function Spinner({ className }: { className?: string }) {
 export type Tone = 'neutral' | 'accent' | 'ok' | 'warn' | 'danger' | 'info'
 
 const TONES: Record<Tone, string> = {
-  neutral: 'bg-[rgb(var(--glass-edge)/0.16)] text-fg-muted border-[rgb(var(--glass-edge)/0.28)]',
+  // Texte en noir : ces badges portent des informations à lire — un nombre
+  // d'articles, une journée — et le gris les rendait illisibles sur les fonds
+  // colorés des cartes.
+  neutral: 'bg-[rgb(var(--glass-edge)/0.16)] text-fg border-[rgb(var(--glass-edge)/0.28)]',
   accent: 'bg-accent/12 text-accent border-accent/28',
   ok: 'bg-ok/12 text-ok border-ok/30',
   warn: 'bg-warn/14 text-warn border-warn/32',

@@ -97,7 +97,7 @@ export default async function EcartsPage({
           productName: l.productName, productRef: l.productRef,
           categoryName: l.categoryName, unitSymbol: l.unitSymbol,
           quantityAsked: l.quantityAsked, quantityServed: l.quantityServed,
-          quantityRefilled: l.quantityRefilled, status: l.status,
+          quantityRefilled: l.quantityRefilled, refills: l.refills, status: l.status,
         })
       }
     }

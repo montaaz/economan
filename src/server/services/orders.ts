@@ -457,6 +457,57 @@ export async function addRefill(params: {
   })
 }
 
+/**
+ * Annule un service sur une commande.
+ *
+ * `rank` vaut 1 pour le premier service — celui porté par les lignes de la
+ * commande — et 2, 3… pour les passages complémentaires.
+ *
+ * Annuler le premier remet les quantités servies à zéro : les lignes
+ * redeviennent entièrement dues. Un bon déjà imprimé ne correspondra plus à ce
+ * que dit l'application, mais c'est un choix assumé : mieux vaut corriger une
+ * erreur de saisie que de vivre avec.
+ */
+export async function cancelService(params: {
+  orderId: number
+  rank: number
+  /** Restreint l'annulation à ces lignes ; toutes si absent. */
+  lineIds?: number[]
+}) {
+  const { orderId, rank } = params
+
+  return prisma.$transaction(async (tx) => {
+    const order = await tx.order.findUnique({
+      where: { id: orderId },
+      select: { id: true, status: true },
+    })
+    if (!order) throw new WorkflowError('Commande introuvable.')
+
+    if (rank > 1) {
+      const refill = await tx.orderRefill.findUnique({
+        where: { orderId_rank: { orderId, rank } },
+        select: { id: true },
+      })
+      if (!refill) throw new WorkflowError('Ce service n’existe pas sur cette commande.')
+      // Supprimer le passage suffit : ses lignes tombent en cascade, et le
+      // cumul de chaque article se recalcule à partir de ce qui reste.
+      await tx.orderRefill.delete({ where: { id: refill.id } })
+      return { orderId, rank }
+    }
+
+    // Premier service : les quantités vivent sur les lignes de la commande.
+    // On les remet à zéro et on rend chaque ligne à son état d'attente.
+    await tx.orderLine.updateMany({
+      where: {
+        orderId,
+        ...(params.lineIds?.length ? { id: { in: params.lineIds } } : {}),
+      },
+      data: { quantityServed: null, status: 'PENDING', rejectReason: null },
+    })
+    return { orderId, rank }
+  })
+}
+
 export type ServedLine = {
   lineId: number
   status: 'VALIDATED' | 'ADJUSTED' | 'REJECTED'

@@ -6,7 +6,7 @@ import { businessDay, addDays } from '@/lib/utils'
 import type { SessionUser } from '@/server/auth/session'
 import {
   createOrder, updateOrder, acceptOrder, cancelAcceptance, setServedLines, deliverOrder,
-  receiveOrder, addRefill, WorkflowError,
+  receiveOrder, addRefill, cancelService, WorkflowError,
 } from '@/server/services/orders'
 
 export type Ctx = { user: SessionUser | null }
@@ -74,6 +74,8 @@ const typeDefs = /* GraphQL */ `
     quantityOnHand: Float!
     "Ce qui a été complété lors des services suivants, tous passages confondus."
     quantityRefilled: Float!
+    "Le détail par passage : quel rang a servi quelle quantité."
+    refills: [LineRefill!]!
     productName: String!
     productRef: String!
     categoryName: String!
@@ -125,6 +127,12 @@ const typeDefs = /* GraphQL */ `
     quantityServed: Float!
     "Nombre de tickets du jour où l'article figure."
     ticketCount: Int!
+  }
+
+  "Ce qu'un passage a servi sur une ligne."
+  type LineRefill {
+    rank: Int!
+    quantity: Float!
   }
 
   "Un passage de service complémentaire."
@@ -247,6 +255,8 @@ const typeDefs = /* GraphQL */ `
     cancelAcceptance(id: ID!): Order!
     "Service complémentaire : complète une commande déjà livrée. Renvoie le rang du passage."
     addRefill(id: ID!, lines: [RefillInput!]!): Refill!
+    "Annule un service. rank = 1 pour le service initial, 2 et plus pour les compléments."
+    cancelService(id: ID!, rank: Int!): Order!
     setServedLines(id: ID!, lines: [ServedLineInput!]!): Order!
     deliverOrder(id: ID!): Order!
     "L'employé confirme la réception, en déclarant ce qu'il a compté."
@@ -323,7 +333,10 @@ const ORDER_INCLUDE = {
   // d'une ligne déjà complétée serait faux.
   lines: {
     orderBy: { sortOrder: 'asc' as const },
-    include: { unit: true, refills: { select: { quantity: true } } },
+    include: {
+      unit: true,
+      refills: { select: { quantity: true, refill: { select: { rank: true } } } },
+    },
   },
 }
 
@@ -461,6 +474,10 @@ const resolvers = {
   OrderLine: {
     quantityRefilled: (l: { refills?: { quantity: unknown }[] }) =>
       (l.refills ?? []).reduce((s, r) => s + Number(r.quantity), 0),
+    refills: (l: { refills?: { quantity: unknown; refill?: { rank: number } }[] }) =>
+      (l.refills ?? [])
+        .map((r) => ({ rank: r.refill?.rank ?? 0, quantity: Number(r.quantity) }))
+        .sort((a, b) => a.rank - b.rank),
     unitSymbol: (l: { unit?: { symbol: string } }) => l.unit?.symbol ?? '',
     stockFixe: (l: { stockFixe: unknown }) => Number(l.stockFixe ?? 0),
     quantityReceived: (l: { quantityReceived: unknown }) =>
@@ -837,6 +854,12 @@ const resolvers = {
           lines: { include: { orderLine: { include: { unit: true } } } },
         },
       })
+    },
+
+    cancelService: async (_p: unknown, a: { id: string; rank: number }, ctx: Ctx) => {
+      requireStaff(ctx)
+      await run(() => cancelService({ orderId: Number(a.id), rank: a.rank }))
+      return prisma.order.findUniqueOrThrow({ where: { id: Number(a.id) }, include: ORDER_INCLUDE })
     },
 
     cancelAcceptance: async (_p: unknown, a: { id: string }, ctx: Ctx) => {

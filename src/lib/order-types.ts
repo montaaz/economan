@@ -19,6 +19,8 @@ export type ProcessLine = {
   quantityServed: number | null
   /** Ce qui a été complété lors des services suivants. */
   quantityRefilled: number
+  /** Le détail par passage, pour pouvoir en annuler un seul. */
+  refills: { rank: number; quantity: number }[]
   /** Compté par l'employé à la réception ; nul tant qu'il n'a pas vérifié. */
   quantityReceived: number | null
   /** Écart reçu − servi. 0 si conforme ou non vérifié. */

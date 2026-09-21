@@ -7,12 +7,19 @@ import { Button, Badge, TableWrap, Th, Td } from '@/components/ui/glass'
 import { Icon } from '@/components/ui/icon'
 import { FamilyBand, countByFamily } from '@/components/ui/family-band'
 import { useToast } from '@/components/ui/toast'
+import { useConfirm } from '@/components/ui/confirm'
 import { gql, errorMessage } from '@/lib/graphql-client'
 import { cn, formatQty, toNumber } from '@/lib/utils'
 
 const ADD_REFILL = /* GraphQL */ `
   mutation AddRefill($id: ID!, $lines: [RefillInput!]!) {
     addRefill(id: $id, lines: $lines) { id rank }
+  }
+`
+
+const CANCEL_SERVICE = /* GraphQL */ `
+  mutation CancelService($id: ID!, $rank: Int!) {
+    cancelService(id: $id, rank: $rank) { id }
   }
 `
 
@@ -27,6 +34,8 @@ export type RefillLigne = {
   quantityAsked: number
   quantityServed: number | null
   quantityRefilled: number
+  /** Le détail par passage, pour afficher et annuler chacun. */
+  refills: { rank: number; quantity: number }[]
   status: 'PENDING' | 'VALIDATED' | 'ADJUSTED' | 'REJECTED'
 }
 
@@ -56,6 +65,7 @@ function reste(l: RefillLigne): number {
 export function RefillForm({ service }: { service: RefillService }) {
   const router = useRouter()
   const { push } = useToast()
+  const confirmer = useConfirm()
   const [busy, setBusy] = React.useState(false)
   // Une colonne par passage à préparer. Le « + » en ouvre une nouvelle : on
   // peut ainsi préparer le 2ᵉ et le 3ᵉ service côte à côte, et comparer.
@@ -93,14 +103,40 @@ export function RefillForm({ service }: { service: RefillService }) {
     setSaisie((s) => ({ ...s, [String(cle)]: { ...(s[String(cle)] ?? {}), [id]: n } }))
   }
 
+  // Les passages déjà enregistrés, tous articles confondus : chacun a sa
+  // colonne en lecture, avec son X pour l'annuler.
+  const rangsServis = React.useMemo(() => {
+    const v = new Set<number>()
+    for (const l of service.lignes) for (const r of l.refills) v.add(r.rank)
+    return [...v].sort((a, b) => a - b)
+  }, [service.lignes])
+
   // Le rang se déduit de la position, jamais figé à la création : fermer une
   // colonne du milieu renumérote les suivantes, sinon deux « 3ᵉ service »
   // coexistaient après une fermeture puis une réouverture.
-  const base = Math.max(1, ...Object.values(service.rangs))
+  // Le prochain rang tient compte des passages déjà enregistrés, y compris
+  // ceux que la page vient de recharger : sinon une colonne ouverte porterait
+  // le même numéro qu'un service existant.
+  const base = Math.max(1, ...Object.values(service.rangs), ...rangsServis)
   const rangDe = (cle: number) => base + colonnes.findIndex((c) => c.cle === cle) + 1
 
   const ajouterColonne = () =>
     setColonnes((c) => [...c, { cle: Date.now() + c.length }])
+
+  /** Ferme une colonne de saisie ; confirme si elle porte des quantités. */
+  const fermerColonne = async (cle: number) => {
+    if (compte(cle) > 0) {
+      const ok = await confirmer({
+        title: 'Supprimer cette colonne ?',
+        message: `${compte(cle)} ligne(s) y sont saisies. Elles seront perdues : rien `
+          + 'n’a encore été enregistré.',
+        confirmLabel: 'Supprimer',
+        tone: 'warn',
+      })
+      if (!ok) return
+    }
+    retirerColonne(cle)
+  }
 
   const retirerColonne = (cle: number) => {
     setColonnes((c) => c.filter((x) => x.cle !== cle))
@@ -139,6 +175,43 @@ export function RefillForm({ service }: { service: RefillService }) {
 
   const compte = (cle: number) =>
     [...parCommande(cle).values()].reduce((n, c) => n + c.lines.length, 0)
+
+  /**
+   * Annule un passage complémentaire, après confirmation.
+   *
+   * Le premier service n'est pas concerné : son bon est parti, la marchandise
+   * est sortie du magasin, et l'effacer ferait mentir un papier qui circule.
+   */
+  const annulerService = async (rang: number) => {
+    const concernees = service.lignes.filter(
+      (l) => l.refills.some((r) => r.rank === rang),
+    ).length
+    const ok = await confirmer({
+      title: `Supprimer le ${rang}ᵉ service ?`,
+      message: `Les ${concernees} ligne(s) servies à ce passage seront effacées, et les `
+        + 'quantités redeviendront dues.',
+      confirmLabel: 'Supprimer',
+      tone: 'danger',
+    })
+    if (!ok) return
+
+    setBusy(true)
+    try {
+      // Un même rang peut porter sur plusieurs tickets du département.
+      const ids = [...new Set(
+        service.lignes
+          .filter((l) => l.refills.some((r) => r.rank === rang))
+          .map((l) => l.orderId),
+      )]
+      for (const id of ids) await gql(CANCEL_SERVICE, { id, rank: rang })
+      push('success', `Le ${rang}ᵉ service a été supprimé.`)
+      router.refresh()
+    } catch (e) {
+      push('error', errorMessage(e))
+    } finally {
+      setBusy(false)
+    }
+  }
 
   const enregistrer = async (cle: number) => {
     const groupes = parCommande(cle)
@@ -267,7 +340,7 @@ export function RefillForm({ service }: { service: RefillService }) {
           </h2>
         </header>
 
-        <TableWrap minWidth={`${46 + colonnes.length * 7}rem`}>
+        <TableWrap minWidth={`${46 + (rangsServis.length + colonnes.length) * 7}rem`}>
           <thead>
             <tr>
               <Th className="w-10 text-right">#</Th>
@@ -277,9 +350,38 @@ export function RefillForm({ service }: { service: RefillService }) {
               {/* Les passages s'intercalent entre le premier service et le
                   reste : la ligne se lit alors dans l'ordre où elle s'est
                   jouée, et le reste conclut. */}
+              {rangsServis.map((rang) => (
+                <Th key={`servi-${rang}`} className="w-32 text-right">
+                  <span className="inline-flex items-center gap-1.5">
+                    {rang}ᵉ service
+                    {/* Ce passage est enregistré : le X l'annule en base. */}
+                    <button
+                      type="button"
+                      onClick={() => void annulerService(rang)}
+                      title={`Supprimer le ${rang}ᵉ service`}
+                      aria-label={`Supprimer le ${rang}e service`}
+                      className="grid size-5 place-items-center rounded-md text-danger transition-colors hover:bg-danger/15"
+                    >
+                      <X className="size-3.5" />
+                    </button>
+                  </span>
+                </Th>
+              ))}
               {colonnes.map((c) => (
                 <Th key={c.cle} className="w-36 text-right">
-                  {rangDe(c.cle)}ᵉ service
+                  <span className="inline-flex items-center gap-1.5">
+                    {rangDe(c.cle)}ᵉ service
+                    {/* Celle-ci n'est qu'une saisie en cours : le X la ferme. */}
+                    <button
+                      type="button"
+                      onClick={() => void fermerColonne(c.cle)}
+                      title="Supprimer cette colonne"
+                      aria-label={`Supprimer la colonne du ${rangDe(c.cle)}e service`}
+                      className="grid size-5 place-items-center rounded-md text-fg-muted transition-colors hover:bg-[rgb(var(--glass-edge)/0.2)] hover:text-fg"
+                    >
+                      <X className="size-3.5" />
+                    </button>
+                  </span>
                 </Th>
               ))}
               <Th className="text-right">Reste</Th>
@@ -323,7 +425,7 @@ export function RefillForm({ service }: { service: RefillService }) {
                     <FamilyBand
                       name={l.categoryName}
                       count={parFamille.get(l.categoryName) ?? 0}
-                      colSpan={6 + colonnes.length}
+                      colSpan={6 + rangsServis.length + colonnes.length}
                     />
                   ) : null}
                   <tr
@@ -353,6 +455,17 @@ export function RefillForm({ service }: { service: RefillService }) {
                     <Td className="whitespace-nowrap text-right tabular-nums text-fg-muted">
                       {formatQty(servi)} {l.unitSymbol}
                     </Td>
+                    {rangsServis.map((rang) => {
+                      const q = l.refills.find((x) => x.rank === rang)?.quantity ?? 0
+                      return (
+                        <Td
+                          key={`servi-${rang}`}
+                          className="whitespace-nowrap text-right tabular-nums text-fg-muted"
+                        >
+                          {q > 0 ? `${formatQty(q)} ${l.unitSymbol}` : '—'}
+                        </Td>
+                      )
+                    })}
                     {colonnes.map((c) => (
                       <Td key={c.cle} className="text-right">
                         {r === 0 ? (

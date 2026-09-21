@@ -1,12 +1,14 @@
 import type { Metadata } from 'next'
 import Link from 'next/link'
 import { ArrowLeft, Ban, PackageCheck, Pencil } from 'lucide-react'
+import { prisma } from '@/server/db'
 import { executeGraphQL } from '@/server/graphql/execute'
 import { PageHeader } from '@/components/ui/stat'
 import { GlassCard, EmptyState, Badge } from '@/components/ui/glass'
 import { ORDER_QUERY, DAY_BOARD_QUERY } from '@/lib/queries'
 import { EcartsParService } from '@/components/orders/ecarts-par-service'
 import { RefillForm, type RefillService } from '@/components/orders/refill-form'
+import { DepartmentFilter } from '@/components/orders/department-filter'
 import type { ProcessOrder } from '@/lib/order-types'
 import type { Board } from '@/components/orders/day-board'
 import { formatLongDate } from '@/lib/utils'
@@ -31,10 +33,19 @@ export default async function EcartsPage({
   // Trois vues : les ruptures seules, les ajustées seules, ou les deux.
   const vue = type === 'ajuste' ? 'ajuste' : type === 'tous' ? 'tous' : 'rupture'
 
-  const data = await executeGraphQL<{ dayBoard: Board }>(DAY_BOARD_QUERY, {
-    day: jour ?? null,
-    dayTo: jusquau ?? null,
-  })
+  const [data, allDepartments] = await Promise.all([
+    executeGraphQL<{ dayBoard: Board }>(DAY_BOARD_QUERY, {
+      day: jour ?? null,
+      dayTo: jusquau ?? null,
+    }),
+    // Tous les services actifs, pour que la barre ne disparaisse pas quand un
+    // seul est concerné.
+    prisma.department.findMany({
+      where: { isActive: true },
+      orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
+      select: { id: true, name: true, color: true, icon: true },
+    }),
+  ])
   const board = data.dayBoard
 
   // Les commandes concernées, dans l'ordre de la journée. Le filtre par
@@ -47,6 +58,22 @@ export default async function EcartsPage({
       : vue === 'ajuste' ? o.adjustedCount > 0
       : o.rejectedCount > 0 || o.adjustedCount > 0
   const ids = groupes.flatMap((g) => g.orders.filter(concerne).map((o) => o.id))
+
+  // Les pastilles comptent les lignes en écart, pas les tickets : c'est ce
+  // qu'on vient servir. Le compte porte sur toute la journée, pas sur la vue
+  // filtrée, sinon le service choisi serait le seul à afficher un nombre.
+  const ecartsParService = new Map(
+    board.departments.map((g) => [
+      g.department.id,
+      g.orders.reduce(
+        (n, o) => n + (
+          vue === 'rupture' ? o.rejectedCount
+            : vue === 'ajuste' ? o.adjustedCount
+            : o.rejectedCount + o.adjustedCount
+        ), 0,
+      ),
+    ]),
+  )
 
   // Une requête par commande : la fiche a besoin de toutes ses lignes, que le
   // tableau de la journée ne porte pas.
@@ -167,6 +194,19 @@ export default async function EcartsPage({
           )}
         </div>
       </PageHeader>
+
+      <DepartmentFilter
+        departments={allDepartments.map((d) => ({
+          id: String(d.id), name: d.name, color: d.color, icon: d.icon,
+        }))}
+        groups={board.departments}
+        counts={ecartsParService}
+        current={dep ?? null}
+        basePath="/economat/ecarts"
+        day={board.day}
+        dayTo={board.isRange ? board.dayTo : null}
+        keep={{ type }}
+      />
 
       {orders.length === 0 ? (
         <GlassCard>

@@ -17,11 +17,16 @@ import type { BoardGroup } from './day-board'
  * creux, au moment précis où l'on cherche qui n'a rien passé.
  */
 export function DepartmentFilter({
-  departments, groups, current, basePath, day, dayTo, keep,
+  departments, groups, counts, current, basePath, day, dayTo, keep,
 }: {
   /** Tous les départements actifs, qu'ils aient commandé ou non. */
   departments: { id: string; name: string; color: string; icon: string | null }[]
   groups: BoardGroup[]
+  /**
+   * Ce que chaque pastille annonce, si ce n'est pas le nombre de tickets.
+   * L'écran des écarts compte des lignes à servir, pas des commandes.
+   */
+  counts?: Map<string, number>
   /** Identifiant du département filtré, null pour « tous ». */
   current: string | null
   basePath: string
@@ -33,7 +38,7 @@ export function DepartmentFilter({
   const router = useRouter()
 
   // Compteur de tickets par département, 0 pour ceux qui n'ont rien commandé.
-  const ticketsBy = new Map(groups.map((g) => [g.department.id, g.orderCount]))
+  const ticketsBy = counts ?? new Map(groups.map((g) => [g.department.id, g.orderCount]))
 
   function go(dep: string | null) {
     const p = new URLSearchParams({ jour: day })
@@ -45,7 +50,9 @@ export function DepartmentFilter({
     router.push(`${basePath}?${p}`)
   }
 
-  const totalTickets = groups.reduce((n, g) => n + g.orderCount, 0)
+  const totalTickets = counts
+    ? [...counts.values()].reduce((n, v) => n + v, 0)
+    : groups.reduce((n, g) => n + g.orderCount, 0)
 
   return (
     <div className="scroll-x -mx-1 mb-4 flex gap-2 px-1 pb-1">

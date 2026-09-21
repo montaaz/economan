@@ -17,7 +17,7 @@ import type { BoardGroup } from './day-board'
  * creux, au moment précis où l'on cherche qui n'a rien passé.
  */
 export function DepartmentFilter({
-  departments, groups, current, basePath, day, dayTo,
+  departments, groups, current, basePath, day, dayTo, keep,
 }: {
   /** Tous les départements actifs, qu'ils aient commandé ou non. */
   departments: { id: string; name: string; color: string; icon: string | null }[]
@@ -27,6 +27,8 @@ export function DepartmentFilter({
   basePath: string
   day: string
   dayTo?: string | null
+  /** Autres filtres actifs à conserver en changeant de service. */
+  keep?: Record<string, string | null | undefined>
 }) {
   const router = useRouter()
 
@@ -37,6 +39,9 @@ export function DepartmentFilter({
     const p = new URLSearchParams({ jour: day })
     if (dayTo) p.set('jusquau', dayTo)
     if (dep) p.set('dep', dep)
+    // Changer de service ne doit pas lever le filtre par écart : on reste
+    // dans la même question, posée à un autre rayon.
+    for (const [k, v] of Object.entries(keep ?? {})) if (v) p.set(k, v)
     router.push(`${basePath}?${p}`)
   }
 

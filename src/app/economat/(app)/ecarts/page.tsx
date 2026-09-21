@@ -5,7 +5,8 @@ import { executeGraphQL } from '@/server/graphql/execute'
 import { PageHeader } from '@/components/ui/stat'
 import { GlassCard, EmptyState, Badge } from '@/components/ui/glass'
 import { ORDER_QUERY, DAY_BOARD_QUERY } from '@/lib/queries'
-import { OrderProcessor, type ProcessOrder } from '../commandes/[id]/order-processor'
+import { EcartsParService } from '@/components/orders/ecarts-par-service'
+import type { ProcessOrder } from '@/lib/order-types'
 import type { Board } from '@/components/orders/day-board'
 import { formatLongDate } from '@/lib/utils'
 
@@ -79,8 +80,8 @@ export default async function EcartsPage({
         title={rupture ? 'Ruptures de la journée' : 'Quantités ajustées'}
         description={
           rupture
-            ? 'Chaque commande touchée, avec ses seules lignes non livrées.'
-            : 'Chaque commande touchée, avec ses seules lignes servies en quantité différente.'
+            ? 'Les lignes non livrées de la journée, regroupées par service.'
+            : 'Les lignes servies en quantité différente, regroupées par service.'
         }
       >
         <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -111,15 +112,7 @@ export default async function EcartsPage({
           />
         </GlassCard>
       ) : (
-        <div className="space-y-6">
-          {orders.map((o) => (
-            <OrderProcessor
-              key={o.id}
-              order={o}
-              filtreInitial={rupture ? 'REJECTED' : 'ADJUSTED'}
-            />
-          ))}
-        </div>
+        <EcartsParService orders={orders} status={rupture ? 'REJECTED' : 'ADJUSTED'} />
       )}
     </>
   )

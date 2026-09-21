@@ -35,13 +35,7 @@ const DELIVER = /* GraphQL */ `mutation Deliver($id: ID!) { deliverOrder(id: $id
 
 type Draft = { status: LineStatus; served: string; reason: string }
 
-export function OrderProcessor({
-  order, filtreInitial,
-}: {
-  order: ProcessOrder
-  /** Ouvre la fiche déjà filtrée — utilisé par la vue « toutes les ruptures ». */
-  filtreInitial?: LineStatus | null
-}) {
+export function OrderProcessor({ order }: { order: ProcessOrder }) {
   const router = useRouter()
   const { push } = useToast()
   const confirmer = useConfirm()
@@ -111,7 +105,7 @@ export function OrderProcessor({
   // Filtre par état : cliquer sur « 3 rupture(s) » ne laisse que ces trois
   // lignes. Sur cent articles, les chercher une à une était le travail que ce
   // compteur devait justement épargner.
-  const [filtre, setFiltre] = React.useState<LineStatus | null>(filtreInitial ?? null)
+  const [filtre, setFiltre] = React.useState<LineStatus | null>(null)
 
   // Le rang est celui de la feuille, figé avant tout filtrage : renuméroter
   // de 1 à n une liste filtrée ferait que « l'article 16 » ne désignerait plus

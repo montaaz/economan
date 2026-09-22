@@ -65,5 +65,6 @@ export async function destroySession() {
 export function homeForRole(role: Role): string {
   if (role === 'ADMIN') return '/admin'
   if (role === 'ECONOMAN') return '/economat'
+  if (role === 'CONTROLEUR') return '/controle/z'
   return '/employe'
 }

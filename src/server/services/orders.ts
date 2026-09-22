@@ -394,8 +394,8 @@ export async function addRefill(params: {
         status: true,
         lines: {
           select: {
-            id: true, quantityAsked: true, quantityServed: true, quantityReceived: true, productName: true,
-            refills: { select: { quantity: true, refill: { select: { receivedAt: true } } } },
+            id: true, quantityAsked: true, quantityServed: true, productName: true,
+            refills: { select: { quantity: true } },
           },
         },
       },
@@ -421,11 +421,8 @@ export async function addRefill(params: {
       if (!Number.isFinite(l.quantity) || l.quantity < 0) {
         throw new WorkflowError('Quantité invalide.')
       }
-      // On ne sert jamais plus qu'il ne manque au rayon, tous passages
-      // confondus. La règle vaut « jamais plus que commandé » — sauf pour
-      // remplacer ce que le département a compté en moins à la réception :
-      // ces litres sont sortis du magasin sans arriver au bar, et la
-      // commande n'est servie que quand le rayon les a.
+      // On ne sert jamais plus que commandé, tous passages confondus : la
+      // règle du premier servi vaut pour les suivants.
       const reste = resteAServir(ligne)
       if (l.quantity > reste) {
         throw new WorkflowError(
@@ -611,37 +608,19 @@ export async function deliverOrder(orderId: number, actorId: number) {
   })
 }
 
-/// Ce que l'employé déclare avoir compté, ligne par ligne.
-export type ReceivedLine = { lineId: number; quantityReceived: number }
-
 /**
  * L'employé confirme la réception — le dossier se clôt.
  *
- * Les quantités comptées sont facultatives : une commande peut être reçue sans
- * vérification détaillée. Quand elles sont fournies, chaque ligne conserve ce
- * qui a été réellement reçu, et l'écart avec la quantité servie reste lisible
- * par l'économat et la direction.
+ * Pas de comptage ligne par ligne : le département signe pour la livraison
+ * d'un bloc, et laisse au besoin une remarque à l'économat — « il manque un
+ * carton », « les bouteilles sont arrivées cassées ». Une phrase suffit là
+ * où cent cases à remplir décourageaient de vérifier.
  */
-export async function receiveOrder(
-  orderId: number,
-  actor: SessionUser,
-  received?: ReceivedLine[],
-) {
+export async function receiveOrder(orderId: number, actor: SessionUser, note?: string | null) {
   return prisma.$transaction(async (tx) => {
     const order = await tx.order.findUnique({
       where: { id: orderId },
-      select: {
-        status: true,
-        departmentId: true,
-        lines: {
-          select: {
-            id: true, quantityServed: true, status: true,
-            // Un complément déjà signé avant la commande elle-même : il est
-            // au rayon, le reçu par défaut doit le compter.
-            refills: { select: { quantity: true, refill: { select: { receivedAt: true } } } },
-          },
-        },
-      },
+      select: { status: true, departmentId: true },
     })
     if (!order) throw new WorkflowError('Commande introuvable.')
     if (order.departmentId !== actor.departmentId) {
@@ -651,42 +630,17 @@ export async function receiveOrder(
       throw new WorkflowError('Cette commande n’a pas encore été livrée.')
     }
 
-    const known = new Map(order.lines.map((l) => [l.id, l]))
-
-    if (received && received.length > 0) {
-      for (const r of received) {
-        if (!known.has(r.lineId)) {
-          throw new WorkflowError('Ligne inconnue pour cette commande.')
-        }
-        if (!Number.isFinite(r.quantityReceived) || r.quantityReceived < 0) {
-          throw new WorkflowError('Quantité reçue invalide.')
-        }
-        await tx.orderLine.update({
-          where: { id: r.lineId },
-          data: { quantityReceived: r.quantityReceived },
-        })
-      }
-    } else {
-      // Sans vérification détaillée, on considère reçu ce qui a été servi :
-      // la colonne ne doit pas rester vide et laisser croire à un oubli.
-      for (const l of order.lines) {
-        const complements = l.refills
-          .filter((r) => r.refill.receivedAt)
-          .reduce((n, r) => n + Number(r.quantity), 0)
-        if (l.status === 'REJECTED' && complements === 0) continue
-        await tx.orderLine.update({
-          where: { id: l.id },
-          data: { quantityReceived: Number(l.quantityServed ?? 0) + complements },
-        })
-      }
-    }
-
     // Qui a réceptionné : n'importe quel employé du service peut confirmer,
     // et ce n'est pas toujours l'auteur de la commande. Sans ce nom, on ne
     // saurait plus à qui demander ce qui s'est passé à la livraison.
     return tx.order.update({
       where: { id: orderId },
-      data: { status: 'RECEIVED', receivedAt: new Date(), receivedById: actor.id },
+      data: {
+        status: 'RECEIVED',
+        receivedAt: new Date(),
+        receivedById: actor.id,
+        receptionNote: note?.trim() || null,
+      },
       select: { id: true },
     })
   })
@@ -701,16 +655,16 @@ export async function receiveOrder(
  * au rayon — et l'économat pourrait effacer un passage dont la marchandise
  * est déjà en cuisine.
  */
-export async function receiveRefill(orderId: number, rank: number, actor: SessionUser) {
+export async function receiveRefill(
+  orderId: number,
+  rank: number,
+  actor: SessionUser,
+  note?: string | null,
+) {
   return prisma.$transaction(async (tx) => {
     const refill = await tx.orderRefill.findUnique({
       where: { orderId_rank: { orderId, rank } },
-      select: {
-        id: true,
-        receivedAt: true,
-        order: { select: { departmentId: true, status: true } },
-        lines: { select: { orderLineId: true, quantity: true, orderLine: { select: { quantityReceived: true } } } },
-      },
+      select: { id: true, receivedAt: true, order: { select: { departmentId: true } } },
     })
     if (!refill) throw new WorkflowError('Ce servi n’existe pas sur cette commande.')
     if (refill.order.departmentId !== actor.departmentId) {
@@ -721,24 +675,9 @@ export async function receiveRefill(orderId: number, rank: number, actor: Sessio
     if (refill.receivedAt) {
       throw new WorkflowError('Ce servi a déjà été réceptionné.')
     }
-
-    // Sur une commande déjà close, le reçu de chaque ligne grandit de ce que
-    // ce servi apporte : sans cela, la colonne « Reçu » resterait en deçà du
-    // servi et afficherait un écart que personne n'a constaté. Sur une
-    // commande encore à réceptionner, c'est sa propre réception qui comptera
-    // le complément, avec le reste.
-    if (refill.order.status === 'RECEIVED') {
-      for (const l of refill.lines) {
-        await tx.orderLine.update({
-          where: { id: l.orderLineId },
-          data: { quantityReceived: Number(l.orderLine.quantityReceived ?? 0) + Number(l.quantity) },
-        })
-      }
-    }
-
     return tx.orderRefill.update({
       where: { id: refill.id },
-      data: { receivedAt: new Date(), receivedById: actor.id },
+      data: { receivedAt: new Date(), receivedById: actor.id, receptionNote: note?.trim() || null },
       select: { id: true, rank: true },
     })
   })

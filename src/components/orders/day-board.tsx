@@ -1,6 +1,8 @@
 import * as React from 'react'
 import Link from 'next/link'
-import { Inbox, ChevronRight, PackagePlus, PackageCheck, UserCheck, Truck, CheckCircle2, Printer } from 'lucide-react'
+import {
+  Inbox, ChevronRight, PackagePlus, PackageCheck, UserCheck, Truck, CheckCircle2, Printer, MessageSquareWarning,
+} from 'lucide-react'
 import { GlassCard, EmptyState, Badge } from '@/components/ui/glass'
 import { Icon } from '@/components/ui/icon'
 import { StatusBadge } from '@/components/ui/status'
@@ -14,6 +16,7 @@ export type BoardRefill = {
   rank: number
   createdAt: string
   receivedAt: string | null
+  receptionNote: string | null
   lineCount: number
   createdBy: { fullName: string } | null
   receivedBy: { fullName: string } | null
@@ -27,8 +30,8 @@ export type BoardOrder = {
   rejectedCount: number
   adjustedCount: number
   validatedCount: number
-  /** Lignes comptées en moins à la réception, sans remplacement en route. */
-  missingCount: number
+  /** Remarque du département à la réception, s'il en a laissé une. */
+  receptionNote: string | null
   status: 'PENDING' | 'ACCEPTED' | 'DELIVERED' | 'RECEIVED' | 'CANCELLED'
   createdAt: string
   /** Les passages complémentaires : la page des écarts imprime le dernier. */
@@ -270,6 +273,14 @@ function TicketCard({
             {/* Les quatre moments, nommés : sans intitulé, une suite d'heures
                 ne dit pas de quoi elle parle. */}
             <OrderDates order={o} compact className="mt-1" />
+            {/* La remarque du département à la réception : c'est le seul
+                signal qu'il envoie quand quelque chose n'allait pas. */}
+            {o.receptionNote ? (
+              <p className="mt-1 flex items-start gap-1 text-[0.76rem] font-medium leading-snug text-danger">
+                <MessageSquareWarning className="mt-px size-3.5 shrink-0" />
+                {o.receptionNote}
+              </p>
+            ) : null}
           </div>
         </div>
 
@@ -374,6 +385,12 @@ function RefillCard({
             </p>
             {/* Le ticket complété : c'est lui qu'on retrouve sur le bon. */}
             <p className="truncate font-mono text-[0.82rem] font-bold text-fg sm:text-[0.76rem]">{o.reference}</p>
+            {r.receptionNote ? (
+              <p className="mt-1 flex items-start gap-1 text-[0.76rem] font-medium leading-snug text-danger">
+                <MessageSquareWarning className="mt-px size-3.5 shrink-0" />
+                {r.receptionNote}
+              </p>
+            ) : null}
             <p className="mt-1 flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-[0.74rem] tabular-nums">
               <span className="whitespace-nowrap">
                 <span className="font-semibold text-fg">Servi </span>

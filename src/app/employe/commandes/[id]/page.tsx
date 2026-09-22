@@ -10,7 +10,6 @@ import { StatusBadge, statusSteps } from '@/components/ui/status'
 import { Ticket, ticketVariant, type TicketOrder } from '@/components/ui/ticket'
 import { formatLongDate, formatTime, cn } from '@/lib/utils'
 import { ReceptionPanel } from './reception-panel'
-import { RefillReception, type RefillView } from './refill-reception'
 import { OrderLines } from './order-lines'
 import { OrderDates } from '@/components/orders/order-dates'
 import { PrintButton } from '@/components/ui/print-button'
@@ -31,6 +30,7 @@ const QUERY = /* GraphQL */ `
       acceptedAt
       deliveredAt
       receivedAt
+      receptionNote
       lineCount
       totalAsked
       totalServed
@@ -38,20 +38,6 @@ const QUERY = /* GraphQL */ `
       createdBy { id fullName }
       processedBy { fullName }
       receivedBy { fullName }
-      # Les services complémentaires : la marchandise manquante arrivée après
-      # coup, que le département réceptionne un par un.
-      refills {
-        id
-        rank
-        createdAt
-        receivedAt
-        createdBy { fullName }
-        receivedBy { fullName }
-        lines {
-          lineId productName productRef categoryName unitSymbol
-          stockFixe quantityAsked firstServed quantity remaining rejectReason
-        }
-      }
       lines {
         id
         productId
@@ -65,8 +51,6 @@ const QUERY = /* GraphQL */ `
         # Servi en tout, compléments reçus compris : c'est ce que le rayon a
         # vraiment, et ce que la réception compare au compté.
         quantityServed: quantityServedTotal
-        quantityReceived
-        receiptGap
         status
         rejectReason
       }
@@ -107,7 +91,7 @@ type Order = Omit<TicketOrder, 'createdBy' | 'lines'> & {
   acceptedAt: string | null
   deliveredAt: string | null
   receivedAt: string | null
-  refills: RefillView[]
+  receptionNote: string | null
   status: 'PENDING' | 'ACCEPTED' | 'DELIVERED' | 'RECEIVED' | 'CANCELLED'
   lineCount: number
   totalAsked: number
@@ -181,8 +165,6 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
           quantityOnHand: p.stockFixe,
           quantityAsked: 0,
           quantityServed: null,
-          quantityReceived: null,
-          receiptGap: null,
           status: 'PENDING' as const,
           rejectReason: null,
         }
@@ -324,6 +306,14 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
             ) : null}
           </div>
 
+          {/* La remarque laissée à la réception : ce qui n'allait pas, en
+              une phrase. Elle reste lisible par tout le service. */}
+          {order.receptionNote ? (
+            <p className="border-t border-[rgb(var(--glass-edge)/0.16)] px-4 py-3 text-[0.83rem] font-medium text-danger sm:px-5">
+              Remarque à la réception : {order.receptionNote}
+            </p>
+          ) : null}
+
           {order.note ? (
             <p className="border-t border-[rgb(var(--glass-edge)/0.16)] px-4 py-3 text-[0.83rem] italic text-fg-muted sm:px-5">
               {order.note}
@@ -331,28 +321,14 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
           ) : null}
         </GlassCard>
 
-        {/* À la réception, le panneau de vérification liste déjà tous les
-            articles avec les mêmes colonnes : afficher le tableau de détail
-            en dessous doublait la feuille sur 109 lignes. */}
-        {order.status === 'DELIVERED' ? (
-          <ReceptionPanel orderId={order.id} lines={order.lines} />
-        ) : (
+        {/* À la livraison, la confirmation vient au-dessus de la feuille : un
+            bouton et une remarque, puis le détail des lignes tel qu'il a été
+            servi. */}
+        {order.status === 'DELIVERED' ? <ReceptionPanel orderId={order.id} /> : null}
         <GlassCard overflowVisible>
-          <OrderLines
-            orderId={order.id}
-            lines={lignes}
-            editable={modifiable}
-            showReceived={order.status === 'RECEIVED'}
-          />
+          <OrderLines orderId={order.id} lines={lignes} editable={modifiable} />
         </GlassCard>
-        )}
 
-        {/* Les passages complémentaires, chacun avec sa propre réception : la
-            commande a pu être close depuis longtemps quand le complément
-            arrive, et signer pour lui ne doit pas dépendre d'elle. */}
-        {order.refills.map((r) => (
-          <RefillReception key={r.id} orderId={order.id} refill={r} />
-        ))}
       </div>
 
       {/* Version papier */}

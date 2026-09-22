@@ -41,6 +41,21 @@ const ECONOMAN: NavGroup[] = [
   },
 ]
 
+const CONTROLEUR: NavGroup[] = [
+  {
+    title: 'Contrôle de gestion',
+    items: [
+      { href: '/controle/z', label: 'Note Z', shortLabel: 'Z', icon: 'Receipt', primary: true },
+      { href: '/controle', label: 'Contrôle des stocks', shortLabel: 'Stocks', icon: 'ClipboardCheck', primary: true },
+      { href: '/controle/historique', label: 'Historique des Z', shortLabel: 'Historique', icon: 'History', primary: true },
+    ],
+  },
+  {
+    title: 'Mon compte',
+    items: [{ href: '/controle/compte', label: 'Empreinte & sécurité', shortLabel: 'Compte', icon: 'Fingerprint', primary: true }],
+  },
+]
+
 const ADMIN: NavGroup[] = [
   {
     title: 'Pilotage',
@@ -54,6 +69,7 @@ const ADMIN: NavGroup[] = [
     items: [
       { href: '/admin/departements', label: 'Départements', shortLabel: 'Départ.', icon: 'Building2', primary: true },
       { href: '/admin/stock-fixe', label: 'Stock fixe', shortLabel: 'Stock', icon: 'Target', primary: true },
+      { href: '/admin/carte', label: 'Carte de vente', shortLabel: 'Carte', icon: 'Receipt' },
       { href: '/admin/utilisateurs', label: 'Utilisateurs', shortLabel: 'Agents', icon: 'Users', primary: true },
     ],
   },
@@ -62,6 +78,7 @@ const ADMIN: NavGroup[] = [
 export function navForRole(role: Role): NavGroup[] {
   if (role === 'ADMIN') return ADMIN
   if (role === 'ECONOMAN') return ECONOMAN
+  if (role === 'CONTROLEUR') return CONTROLEUR
   return EMPLOYEE
 }
 
@@ -72,5 +89,6 @@ export function primaryNav(role: Role): NavItem[] {
 export const ROLE_LABEL: Record<Role, string> = {
   EMPLOYEE: 'Employé',
   ECONOMAN: 'Économat',
+  CONTROLEUR: 'Contrôle de gestion',
   ADMIN: 'Administrateur',
 }

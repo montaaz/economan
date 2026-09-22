@@ -5,7 +5,6 @@ import { useRouter } from 'next/navigation'
 import { PackageCheck, UserCheck, MessageSquareWarning } from 'lucide-react'
 import { GlassCard, Button, Badge, TableWrap, Th, Td } from '@/components/ui/glass'
 import { FamilyBand, countByFamily } from '@/components/ui/family-band'
-import { FilterBadge, FilterReset } from '@/components/ui/filter-badge'
 import { useToast } from '@/components/ui/toast'
 import { gql, errorMessage } from '@/lib/graphql-client'
 import { cn, formatInstantDate, formatQty, formatTime } from '@/lib/utils'
@@ -15,6 +14,7 @@ export type RefillView = {
   rank: number
   createdAt: string
   receivedAt: string | null
+  receptionNote: string | null
   createdBy: { fullName: string } | null
   receivedBy: { fullName: string } | null
   lines: {
@@ -33,8 +33,8 @@ export type RefillView = {
 }
 
 const RECEIVE_REFILL = /* GraphQL */ `
-  mutation ReceiveRefill($id: ID!, $rank: Int!) {
-    receiveRefill(id: $id, rank: $rank) { id refillsToReceive }
+  mutation ReceiveRefill($id: ID!, $rank: Int!, $note: String) {
+    receiveRefill(id: $id, rank: $rank, note: $note) { id refillsToReceive }
   }
 `
 
@@ -50,31 +50,18 @@ export function RefillReception({ orderId, refill }: { orderId: string; refill: 
   const router = useRouter()
   const { push } = useToast()
   const [busy, setBusy] = React.useState(false)
+  const [note, setNote] = React.useState('')
 
-  // Après ce passage, une ligne est soit soldée, soit encore due.
-  const [etat, setEtat] = React.useState<'SOLDE' | 'DU' | null>(null)
-  const counts = React.useMemo(() => ({
-    soldes: refill.lines.filter((l) => l.remaining === 0).length,
-    dus: refill.lines.filter((l) => l.remaining > 0).length,
-  }), [refill.lines])
-
-  // Le rang est celui de la feuille, figé avant tout filtrage.
-  const numerotees = React.useMemo(
+  const affichees = React.useMemo(
     () => refill.lines.map((l, i) => ({ ...l, rang: i + 1 })),
     [refill.lines],
-  )
-  const affichees = React.useMemo(
-    () => etat === null
-      ? numerotees
-      : numerotees.filter((l) => (etat === 'SOLDE' ? l.remaining === 0 : l.remaining > 0)),
-    [numerotees, etat],
   )
   const parFamille = React.useMemo(() => countByFamily(affichees), [affichees])
 
   const confirmer = async () => {
     setBusy(true)
     try {
-      await gql(RECEIVE_REFILL, { id: orderId, rank: refill.rank })
+      await gql(RECEIVE_REFILL, { id: orderId, rank: refill.rank, note: note.trim() || null })
       push('success', `Réception du ${refill.rank}ᵉ servi confirmée.`)
       router.refresh()
     } catch (e) {
@@ -114,53 +101,40 @@ export function RefillReception({ orderId, refill }: { orderId: string; refill: 
             </Badge>
           )}
         </div>
+        {/* La remarque laissée à la réception : ce qui n'allait pas. */}
+        {refill.receptionNote ? (
+          <p className="border-t border-[rgb(var(--glass-edge)/0.16)] px-4 py-3 text-[0.83rem] font-medium text-danger sm:px-5">
+            Remarque à la réception : {refill.receptionNote}
+          </p>
+        ) : null}
       </GlassCard>
 
       <div className="no-print space-y-3">
-        {/* Le même bandeau qu'à la réception d'une commande : la consigne,
-            les compteurs qui filtrent, et le bouton qui conclut. */}
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-info/30 bg-info/[0.07] px-4 py-3">
-          <p className="text-[0.83rem] leading-snug text-fg-muted">
-            {refill.receivedAt
-              ? 'Ce servi a été réceptionné. Voici ce qui est arrivé avec lui.'
-              : 'Vérifiez ce qui arrive avec ce servi, puis confirmez la réception.'}
-          </p>
-          <div className="flex shrink-0 flex-wrap items-center gap-2">
-            {counts.dus > 0 ? (
-              <FilterBadge
-                tone="warn"
-                actif={etat === 'DU'}
-                onClick={() => setEtat(etat === 'DU' ? null : 'DU')}
-                label={etat === 'DU'
-                  ? 'Afficher de nouveau tous les articles'
-                  : `N’afficher que les ${counts.dus} article(s) encore dus après ce servi`}
-              >
-                {counts.dus} encore du{counts.dus > 1 ? 's' : ''}
-              </FilterBadge>
-            ) : null}
-            {counts.soldes > 0 ? (
-              <FilterBadge
-                tone="ok"
-                actif={etat === 'SOLDE'}
-                onClick={() => setEtat(etat === 'SOLDE' ? null : 'SOLDE')}
-                label={etat === 'SOLDE'
-                  ? 'Afficher de nouveau tous les articles'
-                  : `N’afficher que les ${counts.soldes} article(s) soldé(s) par ce servi`}
-              >
-                {counts.soldes} soldé{counts.soldes > 1 ? 's' : ''}
-              </FilterBadge>
-            ) : null}
-            {etat !== null ? (
-              <FilterReset total={refill.lines.length} onClick={() => setEtat(null)} />
-            ) : null}
-            {!refill.receivedAt ? (
+        {/* Le même bandeau qu'à la réception d'une commande : la consigne, la
+            remarque, et le bouton qui conclut. */}
+        {!refill.receivedAt ? (
+          <div className="space-y-3 rounded-xl border border-info/30 bg-info/[0.07] px-4 py-3">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <p className="text-[0.83rem] leading-snug text-fg-muted">
+                Vérifiez ce qui arrive avec ce servi, puis confirmez la réception. Si quelque
+                chose ne va pas, laissez une remarque à l’économat.
+              </p>
               <Button variant="success" loading={busy} onClick={confirmer}>
                 {!busy ? <PackageCheck className="size-4" /> : null}
                 Confirmer la réception
               </Button>
-            ) : null}
+            </div>
+            <textarea
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              rows={2}
+              maxLength={500}
+              placeholder="Remarque (facultatif) : ce qui manque, ce qui est abîmé…"
+              aria-label="Remarque à la réception"
+              className="field w-full resize-y px-3 py-2 text-[0.85rem]"
+            />
           </div>
-        </div>
+        ) : null}
 
         <TableWrap minWidth="52rem">
           <thead>

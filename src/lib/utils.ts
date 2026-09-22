@@ -144,6 +144,33 @@ export function businessDay(d = new Date()): Date {
   return new Date(Date.UTC(y, m - 1, day))
 }
 
+/**
+ * Heure locale de clôture du service, en heures pleines.
+ *
+ * Le restaurant ferme à 3 h du matin : tout ce qui se passe entre minuit et
+ * cette heure appartient encore à la veille. Le Z sorti à 02 h 30 le 22 est
+ * celui du 21, et le ranger au 22 ouvrirait une journée qui n'a pas commencé.
+ */
+export const SERVICE_CLOSES_AT = Number(process.env.SERVICE_CLOSING_HOUR ?? 3)
+
+/**
+ * Journée de service des ventes, clôture de nuit comprise.
+ *
+ * Même convention que `businessDay` — minuit UTC, fuseau de l'établissement —
+ * mais reculée d'un jour tant que l'heure de clôture n'est pas passée.
+ */
+export function salesDay(d = new Date()): Date {
+  const heure = Number(
+    new Intl.DateTimeFormat('en-GB', {
+      timeZone: BUSINESS_TZ,
+      hour: '2-digit',
+      hour12: false,
+    }).format(d),
+  )
+  const jour = businessDay(d)
+  return heure < SERVICE_CLOSES_AT ? addDays(jour, -1) : jour
+}
+
 export function addDays(d: Date, n: number): Date {
   const c = new Date(d)
   c.setUTCDate(c.getUTCDate() + n)

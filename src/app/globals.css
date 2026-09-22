@@ -282,20 +282,21 @@ body::before {
 }
 
 /**
- * Tableau long dont l'en-tête reste visible pendant la lecture.
+ * Tableau large qui défile avec la page.
  *
- * Un en-tête `sticky` ne peut pas coller à la fenêtre quand son conteneur
- * défile horizontalement : `overflow-x: auto` force l'axe vertical à `auto`
- * lui aussi, et le collage se fait alors sur ce conteneur — qui ne défile pas
- * verticalement. Vérifié : ni `visible` ni `clip` n'y changent rien.
+ * Une boîte de défilement interne obligeait à viser le tableau pour lire ses
+ * lignes, et la page gardait sa propre barre à côté : deux défilements pour
+ * un seul écran, sur bureau comme sur mobile. Le tableau n'a donc plus de
+ * hauteur bornée — la page défile, une fois, comme partout ailleurs.
  *
- * Le conteneur défile donc lui-même, sur une hauteur bornée. L'en-tête colle
- * à son bord haut, et le reste de la page ne bouge plus pendant qu'on
- * parcourt les lignes.
+ * `overflow-x: auto` forcerait l'axe vertical à `auto` lui aussi et
+ * recréerait la boîte. On découpe donc l'axe vertical avec `clip`, ce qui
+ * laisse l'en-tête coller à la fenêtre, et on garde le défilement
+ * horizontal pour les tableaux plus larges que l'écran.
  */
 @utility scroll-x-sticky {
-  overflow: auto;
-  max-height: 70vh;
+  overflow-x: auto;
+  overflow-y: clip;
   -webkit-overflow-scrolling: touch;
 }
 

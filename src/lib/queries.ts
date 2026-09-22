@@ -33,6 +33,7 @@ export const DAY_BOARD_QUERY = /* GraphQL */ `
             rank
             createdAt
             receivedAt
+            receptionNote
             lineCount
             createdBy { fullName }
             receivedBy { fullName }
@@ -41,7 +42,7 @@ export const DAY_BOARD_QUERY = /* GraphQL */ `
           rejectedCount
           adjustedCount
           validatedCount
-          missingCount
+          receptionNote
           totalAsked
           totalServed
           createdBy { fullName }
@@ -65,6 +66,7 @@ export const ORDER_QUERY = /* GraphQL */ `
       acceptedAt
       deliveredAt
       receivedAt
+      receptionNote
       lineCount
       lastRefillRank
       refills { id rank receivedAt receivedBy { fullName } }
@@ -86,10 +88,7 @@ export const ORDER_QUERY = /* GraphQL */ `
         quantityServed
         quantityRefilled
         refills { rank quantity }
-        quantityReceived
-        receiptGap
         remaining
-        missing
         status
         rejectReason
       }

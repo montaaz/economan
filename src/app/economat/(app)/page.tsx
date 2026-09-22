@@ -6,7 +6,7 @@ import { DayBoard, DayTotals, type Board } from '@/components/orders/day-board'
 import { DayPicker } from '@/components/orders/day-picker'
 import { DepartmentFilter } from '@/components/orders/department-filter'
 import Link from 'next/link'
-import { Ban, Layers, Pencil, PackageMinus } from 'lucide-react'
+import { Ban, Layers, Pencil } from 'lucide-react'
 import { Badge, Button } from '@/components/ui/glass'
 import { DAY_BOARD_QUERY } from '@/lib/queries'
 import { formatLongDate } from '@/lib/utils'
@@ -66,15 +66,8 @@ export default async function EconomatPage({
   const ajustees = parService.reduce(
     (n, g) => n + g.orders.reduce((m, o) => m + o.adjustedCount, 0), 0,
   )
-  // Ce que les rayons ont compté en moins à la réception : parti du magasin,
-  // jamais arrivé. Ce n'est ni une rupture ni un ajustement, mais c'est
-  // encore dû, et ça se sert d'un servi de remplacement.
-  const manquants = parService.reduce(
-    (n, g) => n + g.orders.reduce((m, o) => m + o.missingCount, 0), 0,
-  )
-
   // La vue des écarts reprend la journée et le service affichés ici.
-  const lienEcart = (type: 'rupture' | 'ajuste' | 'tous' | 'manquant') => {
+  const lienEcart = (type: 'rupture' | 'ajuste' | 'tous') => {
     const p = new URLSearchParams({ jour: board.day, type })
     if (board.isRange) p.set('jusquau', board.dayTo)
     if (selected) p.set('dep', selected)
@@ -138,14 +131,6 @@ export default async function EconomatPage({
               <Button variant="success" size="sm">
                 <Layers className="size-3.5" />
                 Tout ({ruptures + ajustees})
-              </Button>
-            </Link>
-          ) : null}
-          {manquants > 0 ? (
-            <Link href={`/economat/ecarts?${lienEcart('manquant')}`}>
-              <Button variant="primary" size="sm">
-                <PackageMinus className="size-3.5" />
-                {manquants} manquant{manquants > 1 ? 's' : ''}
               </Button>
             </Link>
           ) : null}

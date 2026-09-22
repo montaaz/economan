@@ -26,6 +26,7 @@ const QUERY = /* GraphQL */ `
         rank
         createdAt
         receivedAt
+        receptionNote
         createdBy { fullName }
         receivedBy { fullName }
         lines {

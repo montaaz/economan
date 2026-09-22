@@ -12,7 +12,7 @@ import { Logo } from '@/components/layout/logo'
 export function StaffLogin({
   role, title, subtitle, accent,
 }: {
-  role: 'ADMIN' | 'ECONOMAN'
+  role: 'ADMIN' | 'ECONOMAN' | 'CONTROLEUR'
   title: string
   subtitle: string
   accent: string

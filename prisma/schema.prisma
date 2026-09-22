@@ -31,6 +31,7 @@ model Department {
   users      User[]
   orders     Order[]
   stockFixe  StockFixe[]
+  salesItems SalesItem[]
 
   @@index([isActive, sortOrder])
   @@map("departments")
@@ -114,6 +115,9 @@ model Product {
 enum Role {
   EMPLOYEE
   ECONOMAN
+  /// Contrôle de gestion : saisit le Z de la veille et consulte les stocks
+  /// de tous les départements. Ne commande ni ne sert.
+  CONTROLEUR
   ADMIN
 }
 
@@ -138,6 +142,7 @@ model User {
   ordersReceived  Order[] @relation("OrderReceivedBy")
   refillsCreated  OrderRefill[] @relation("RefillCreatedBy")
   refillsReceived OrderRefill[] @relation("RefillReceivedBy")
+  salesReports    SalesReport[] @relation("SalesReportCreatedBy")
 
   @@index([departmentId, isActive])
   @@index([role, isActive])
@@ -211,6 +216,9 @@ model Order {
   acceptedAt   DateTime?
   deliveredAt  DateTime?
   receivedAt   DateTime?
+  /// Remarque laissée par le département en confirmant la réception : ce
+  /// qui n'allait pas, en une phrase, sans compter ligne par ligne.
+  receptionNote String?
   updatedAt    DateTime    @updatedAt
 
   department  Department @relation(fields: [departmentId], references: [id], onDelete: Restrict, onUpdate: Cascade)
@@ -247,6 +255,8 @@ model OrderRefill {
   /// Une fois ce champ posé, le passage ne peut plus être supprimé.
   receivedAt   DateTime?
   receivedById Int?
+  /// Remarque du département à la réception de ce passage.
+  receptionNote String?
 
   order     Order     @relation(fields: [orderId], references: [id], onDelete: Cascade, onUpdate: Cascade)
   createdBy User?     @relation("RefillCreatedBy", fields: [createdById], references: [id], onDelete: SetNull, onUpdate: Cascade)
@@ -355,4 +365,98 @@ model TicketCounter {
 
   @@id([businessDay, departmentId])
   @@map("ticket_counters")
+}
+
+// ─────────────────────────────────────────────────────────────
+// Ventes — le Z de la caisse
+// ─────────────────────────────────────────────────────────────
+
+/// Famille de la carte de vente : Pizzas, Boissons chaudes, Desserts…
+///
+/// Distincte des catégories d'économat : on ne vend pas ce qu'on stocke.
+/// Un café vendu consomme du café en grains, de l'eau et une tasse ; ce sont
+/// deux nomenclatures, et les confondre rendrait les deux illisibles.
+model SalesFamily {
+  id        Int      @id @default(autoincrement())
+  name      String   @unique
+  icon      String?
+  sortOrder Int      @default(0)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  items SalesItem[]
+
+  @@index([isActive, sortOrder])
+  @@map("sales_families")
+}
+
+/// Un article de la carte, tel qu'il sort sur le Z de la caisse.
+model SalesItem {
+  id        Int      @id @default(autoincrement())
+  familyId  Int
+  /// Le service qui vend cet article : la cuisine sort les pizzas, le bar
+  /// les cafés. Facultatif — un article peut n'être rattaché à personne.
+  departmentId Int?
+  name      String
+  /// Code de caisse, quand il y en a un : c'est par lui que la lecture d'un
+  /// Z retrouvera la ligne, le libellé pouvant varier d'un ticket à l'autre.
+  code      String?
+  /// Prix de vente indicatif, pour rapprocher quantités et chiffre d'affaires.
+  price     Decimal? @db.Decimal(12, 3)
+  sortOrder Int      @default(0)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  family     SalesFamily @relation(fields: [familyId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  department Department? @relation(fields: [departmentId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  lines      SalesReportLine[]
+
+  @@unique([familyId, name])
+  @@index([isActive, sortOrder])
+  @@index([code])
+  @@index([departmentId])
+  @@map("sales_items")
+}
+
+/// Le Z d'une journée : ce qui a été vendu, article par article.
+///
+/// Une seule feuille par journée. Le service ferme à 3 h du matin : la
+/// journée du Z se calcule donc avec ce décalage, et une saisie faite à
+/// 02 h 30 appartient à la veille.
+model SalesReport {
+  id          Int      @id @default(autoincrement())
+  /// Journée de service, à minuit UTC — clôture à 03 h locales.
+  businessDay DateTime @unique @db.Date
+  note        String?
+  /// Nom du fichier déposé, quand le Z vient d'un PDF plutôt que de la saisie.
+  sourceFile  String?
+  createdById Int?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  createdBy User?             @relation("SalesReportCreatedBy", fields: [createdById], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  lines     SalesReportLine[]
+
+  @@index([businessDay])
+  @@map("sales_reports")
+}
+
+/// Ce qu'un article a fait sur une journée.
+model SalesReportLine {
+  id       Int     @id @default(autoincrement())
+  reportId Int
+  itemId   Int
+  quantity Decimal @db.Decimal(14, 3)
+  /// Chiffre d'affaires de la ligne, si le Z le donne.
+  amount   Decimal? @db.Decimal(14, 3)
+
+  report SalesReport @relation(fields: [reportId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  item   SalesItem   @relation(fields: [itemId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  // Une ligne par article et par journée.
+  @@unique([reportId, itemId])
+  @@index([itemId])
+  @@map("sales_report_lines")
 }

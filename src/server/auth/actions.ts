@@ -51,6 +51,9 @@ export async function loginStaff(_prev: LoginState, formData: FormData): Promise
   if (expected === 'ECONOMAN' && user.role !== 'ECONOMAN' && user.role !== 'ADMIN') {
     return { error: 'Ce compte n’a pas accès à l’espace économat.' }
   }
+  if (expected === 'CONTROLEUR' && user.role !== 'CONTROLEUR' && user.role !== 'ADMIN') {
+    return { error: 'Ce compte n’a pas accès à l’espace contrôle de gestion.' }
+  }
 
   await prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } })
   await createSession({

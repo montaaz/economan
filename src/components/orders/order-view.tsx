@@ -72,6 +72,13 @@ export function OrderView({ order }: { order: ProcessOrder }) {
           ) : null}
         </div>
 
+        {/* La remarque du département à la réception : ce qui n'allait pas,
+            en une phrase. C'est le seul retour qu'il fait sur la livraison. */}
+        {order.receptionNote ? (
+          <p className="border-t border-[rgb(var(--glass-edge)/0.16)] px-4 py-3 text-[0.83rem] font-medium text-danger sm:px-5">
+            Remarque à la réception : {order.receptionNote}
+          </p>
+        ) : null}
         {order.note ? (
           <p className="border-t border-[rgb(var(--glass-edge)/0.16)] px-4 py-3 text-[0.83rem] italic text-fg-muted sm:px-5">
             {order.note}
@@ -87,7 +94,6 @@ export function OrderView({ order }: { order: ProcessOrder }) {
               <Th className="w-full">Article</Th>
               <Th className="text-right">Commande</Th>
               <Th className="text-right">Servi</Th>
-              <Th className="text-right">Reçu</Th>
               <Th>État</Th>
             </tr>
           </thead>
@@ -98,7 +104,7 @@ export function OrderView({ order }: { order: ProcessOrder }) {
                   <FamilyBand
                     name={l.categoryName}
                     count={parFamille.get(l.categoryName) ?? 0}
-                    colSpan={6}
+                    colSpan={5}
                   />
                 ) : null}
               <tr className={cn(l.status === 'REJECTED' && 'bg-danger/[0.06]')}>
@@ -116,20 +122,6 @@ export function OrderView({ order }: { order: ProcessOrder }) {
                 </Td>
                 <Td className="whitespace-nowrap text-right font-medium tabular-nums text-fg">
                   {l.quantityServed === null ? '—' : `${formatQty(l.quantityServed)} ${l.unitSymbol}`}
-                </Td>
-                <Td className="whitespace-nowrap text-right tabular-nums">
-                  {l.quantityReceived == null ? (
-                    <span className="text-fg-subtle">—</span>
-                  ) : (
-                    <span className={cn((l.receiptGap ?? 0) !== 0 && 'font-bold text-warn')}>
-                      {formatQty(l.quantityReceived)} {l.unitSymbol}
-                      {(l.receiptGap ?? 0) !== 0 ? (
-                        <span className="ml-1 text-[0.72rem]">
-                          ({(l.receiptGap ?? 0) > 0 ? '+' : ''}{formatQty(l.receiptGap ?? 0)})
-                        </span>
-                      ) : null}
-                    </span>
-                  )}
                 </Td>
                 <Td>
                   <Badge tone={LINE[l.status].tone}>{LINE[l.status].label}</Badge>

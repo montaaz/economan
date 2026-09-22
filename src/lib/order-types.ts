@@ -21,14 +21,8 @@ export type ProcessLine = {
   quantityRefilled: number
   /** Le détail par passage, pour pouvoir en annuler un seul. */
   refills: { rank: number; quantity: number }[]
-  /** Compté par l'employé à la réception ; nul tant qu'il n'a pas vérifié. */
-  quantityReceived: number | null
-  /** Écart reçu − servi. 0 si conforme ou non vérifié. */
-  receiptGap: number
-  /** Ce qu'il reste à servir pour que le rayon atteigne sa commande, manquant compris. */
+  /** Ce qu'il reste à servir, tous passages confondus. */
   remaining: number
-  /** Compté en moins à la réception, sans servi de remplacement en route. */
-  missing: number
   status: LineStatus
   rejectReason: string | null
 }
@@ -46,6 +40,8 @@ export type ProcessOrder = {
   acceptedAt: string | null
   deliveredAt: string | null
   receivedAt: string | null
+  /** Remarque du département à la réception, s'il en a laissé une. */
+  receptionNote: string | null
   /** Rang du dernier service complémentaire ; 1 si aucun. */
   lastRefillRank: number
   /**

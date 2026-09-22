@@ -28,7 +28,7 @@ export type ManagedUser = {
   _count: { credentials: number; ordersCreated: number }
 }
 
-const ROLE_TONE = { EMPLOYEE: 'neutral', ECONOMAN: 'ok', ADMIN: 'accent' } as const
+const ROLE_TONE = { EMPLOYEE: 'neutral', ECONOMAN: 'ok', CONTROLEUR: 'info', ADMIN: 'accent' } as const
 
 export function UserManager({
   users, departments,
@@ -332,6 +332,7 @@ function UserForm({
           >
             <option value="EMPLOYEE">Employé — passe les commandes</option>
             <option value="ECONOMAN">Économat — sert les commandes</option>
+            <option value="CONTROLEUR">Contrôle de gestion — saisit le Z, consulte les stocks</option>
             <option value="ADMIN">Administrateur — pilotage complet</option>
           </select>
         </Field>

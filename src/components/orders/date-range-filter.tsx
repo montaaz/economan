@@ -2,7 +2,8 @@
 
 import * as React from 'react'
 import { useRouter } from 'next/navigation'
-import { CalendarDays, X } from 'lucide-react'
+import { X } from 'lucide-react'
+import { DateField } from '@/components/ui/date-field'
 
 /**
  * Bornes d'une liste d'archives.
@@ -37,35 +38,32 @@ export function DateRangeFilter({
 
   return (
     <div className="mb-4 flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:flex-wrap sm:items-center">
-      <label className="inline-flex min-w-0 items-center gap-2">
-        <span className="sr-only">Du</span>
-        <CalendarDays className="size-4 shrink-0 text-fg-subtle" />
+      <span className="inline-flex min-w-0 items-center gap-2">
         <span className="shrink-0 text-[0.85rem] font-medium text-fg-muted">Du</span>
-        <input
-          type="date"
-          value={from ?? ''}
-          // Hors de l'historique, aucune date n'a de sens : le calendrier les
-          // grise plutôt que de laisser choisir un jour qui rendra l'écran
-          // vide. La borne de début ne dépasse pas non plus celle de fin.
-          min={first ?? undefined}
-          max={to ?? last ?? undefined}
-          onChange={(e) => go(e.target.value || null, to)}
-          className="field h-10 w-full min-w-0 py-0 text-[0.85rem] sm:w-auto"
+        {/* Hors de l'historique, aucune date n'a de sens : le calendrier les
+            grise plutôt que de laisser choisir un jour qui rendra l'écran
+            vide. La borne de début ne dépasse pas non plus celle de fin. */}
+        <DateField
+          value={from}
+          min={first}
+          max={to ?? last}
+          label="Borne de début"
+          clearable
+          onChange={(v) => go(v, to)}
         />
-      </label>
+      </span>
 
-      <label className="inline-flex min-w-0 items-center gap-2">
-        <span className="sr-only">Au</span>
+      <span className="inline-flex min-w-0 items-center gap-2">
         <span className="shrink-0 text-[0.85rem] font-medium text-fg-muted">au</span>
-        <input
-          type="date"
-          value={to ?? ''}
-          min={from ?? first ?? undefined}
-          max={last ?? undefined}
-          onChange={(e) => go(from, e.target.value || null)}
-          className="field h-10 w-full min-w-0 py-0 text-[0.85rem] sm:w-auto"
+        <DateField
+          value={to}
+          min={from ?? first}
+          max={last}
+          label="Borne de fin"
+          clearable
+          onChange={(v) => go(from, v)}
         />
-      </label>
+      </span>
 
       {/* Vider champ par champ marche, mais demande deux gestes et laisse
           croire qu'un filtre traîne encore. */}

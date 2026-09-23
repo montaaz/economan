@@ -34,7 +34,9 @@ model Department {
   salesItems SalesItem[]
 
   @@index([isActive, sortOrder])
+  recipes      Recipe[]
   @@map("departments")
+  declaredSales DeclaredSale[]
 }
 
 model Category {
@@ -95,6 +97,17 @@ model Product {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
+  // Dispatching : un article servi à la portion vient d'un article mère
+  // acheté en gros (100 kg d'escalope → des escalopes pizza). `motherQuantity`
+  // dit ce qu'une portion consomme de la mère, dans l'unité de la mère
+  // (0,300 kg) ; le stock général, lui, ne compte que la mère.
+  kind           ProductKind @default(FINI)
+  parentId       Int?
+  motherQuantity Decimal? @db.Decimal(14, 4)
+  parent       Product?  @relation("Portions", fields: [parentId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  portions     Product[] @relation("Portions")
+  stockEntries StockEntry[]
+
   category  Category    @relation(fields: [categoryId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   baseUnit  Unit        @relation(fields: [baseUnitId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   lines       OrderLine[]
@@ -105,7 +118,12 @@ model Product {
   @@index([categoryId, isActive, sortOrder])
   @@index([isActive])
   @@index([name])
+  // Le dispatching : les portions d'une mère, les articles d'une nature.
+  @@index([parentId])
+  @@index([kind])
+  recipeLines  RecipeLine[]
   @@map("products")
+  declaredSales DeclaredSale[]
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -143,10 +161,12 @@ model User {
   refillsCreated  OrderRefill[] @relation("RefillCreatedBy")
   refillsReceived OrderRefill[] @relation("RefillReceivedBy")
   salesReports    SalesReport[] @relation("SalesReportCreatedBy")
+  stockEntries StockEntry[] @relation("StockEntryCreatedBy")
 
   @@index([departmentId, isActive])
   @@index([role, isActive])
   @@map("users")
+  declaredSales DeclaredSale[] @relation("DeclaredSaleCreatedBy")
 }
 
 /// Empreinte digitale / passkey (WebAuthn). Un utilisateur peut enrôler plusieurs appareils.
@@ -184,6 +204,15 @@ model WebAuthnChallenge {
 // Commandes
 // ─────────────────────────────────────────────────────────────
 
+/// La nature d'un article au stock général : fini (acheté tel qu'on le sert),
+/// mère (acheté en gros, dispatché en articles préparés), préparé (une portion
+/// d'une mère : ne s'achète pas, ne se stocke pas à part).
+enum ProductKind {
+  FINI
+  MERE
+  PREPARE
+}
+
 enum OrderStatus {
   PENDING    // envoyée par l'employé, en attente chez l'économat
   ACCEPTED   // ouverte / en cours de traitement par l'économat
@@ -212,6 +241,9 @@ model Order {
   receivedById Int?
   status       OrderStatus @default(PENDING)
   note         String?
+  // Passée par l'administration, hors du rythme des feuilles : elle se
+  // signale partout en bordeaux, et se traite avant les autres.
+  isUrgent     Boolean     @default(false)
   createdAt    DateTime    @default(now())
   acceptedAt   DateTime?
   deliveredAt  DateTime?
@@ -236,6 +268,9 @@ model Order {
   // « Mes commandes des 3 derniers jours ».
   @@index([createdById, createdAt])
   @@index([departmentId, createdAt])
+  // Le journal du stock et l'argent lisent « les bons émis » : sans index,
+  // chaque page rebalayait toutes les commandes.
+  @@index([deliveredAt])
   @@map("orders")
 }
 
@@ -257,6 +292,12 @@ model OrderRefill {
   receivedById Int?
   /// Remarque du département à la réception de ce passage.
   receptionNote String?
+  /// Quand le bon de livraison de ce passage a été émis.
+  ///
+  /// Le papier circule dès cet instant : le passage se fige, sa colonne
+  /// devient lecture seule et ne se supprime plus. Nul tant que le servi
+  /// n'a été qu'enregistré.
+  deliveredAt   DateTime?
 
   order     Order     @relation(fields: [orderId], references: [id], onDelete: Cascade, onUpdate: Cascade)
   createdBy User?     @relation("RefillCreatedBy", fields: [createdById], references: [id], onDelete: SetNull, onUpdate: Cascade)
@@ -265,6 +306,8 @@ model OrderRefill {
 
   @@unique([orderId, rank])
   @@index([orderId])
+  @@index([deliveredAt])
+  @@index([receivedAt])
   @@map("order_refills")
 }
 
@@ -358,6 +401,106 @@ model StockFixe {
 }
 
 /// Compteur de tickets, un par jour et par département. Incrémenté atomiquement.
+/// Arrivage : une quantité entre, avec son prix. Inventaire : à cet instant,
+/// le stock vaut `quantity` au coût `unitPrice` — tout ce qui précède est
+/// remplacé par ce point, et la suite se compte à partir de lui.
+enum StockEntryType {
+  ARRIVAGE
+  INVENTAIRE
+}
+
+/// Une entrée au stock général : un arrivage, ligne par ligne, avec son prix,
+/// ou un point d'inventaire. Le stock d'un article est son dernier inventaire,
+/// plus les arrivages venus après, moins ce qui est parti vers les
+/// départements depuis ; sa valeur suit le coût moyen ainsi obtenu.
+model StockEntry {
+  id          Int      @id @default(autoincrement())
+  productId   Int
+  type        StockEntryType @default(ARRIVAGE)
+  quantity    Decimal  @db.Decimal(14, 3)
+  /// Prix unitaire en dinars, tel que facturé.
+  unitPrice   Decimal  @db.Decimal(14, 3)
+  /// Numéro de facture ou de bon de livraison fournisseur.
+  reference   String?
+  note        String?
+  /// Journée de service de l'arrivage.
+  businessDay DateTime @db.Date
+  createdById Int
+  createdAt   DateTime @default(now())
+
+  product   Product @relation(fields: [productId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  createdBy User    @relation("StockEntryCreatedBy", fields: [createdById], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@index([productId, businessDay])
+  @@index([businessDay])
+  // Le stock se recalcule dans l'ordre des écritures : inventaire puis suite.
+  @@index([productId, createdAt])
+  @@map("stock_entries")
+}
+
+/// Une fiche technique : ce qu'un plat de la carte (ou une préparation
+/// intermédiaire) consomme d'articles du stock, par portion. Importée des
+/// classeurs du dossier `menu`, puis corrigée à l'écran.
+model Recipe {
+  id           Int        @id @default(autoincrement())
+  /// Le nom tel qu'il figure sur la fiche.
+  name         String
+  /// Le service qui prépare : ses articles s'y consomment.
+  departmentId Int
+  kind         RecipeKind @default(PLAT)
+  /// Le plat vendu correspondant, quand la carte le porte : c'est par lui
+  /// que le Z consomme la fiche.
+  salesItemId  Int?       @unique
+  /// D'où vient la fiche (classeur / feuille), pour la réimporter sans doublon.
+  source       String?
+  isActive     Boolean    @default(true)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  department Department  @relation(fields: [departmentId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  salesItem  SalesItem?  @relation(fields: [salesItemId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  lines      RecipeLine[]
+  usedIn     RecipeLine[] @relation("SubRecipe")
+
+  @@unique([departmentId, name])
+  @@index([departmentId, kind])
+  @@map("recipes")
+}
+
+enum RecipeKind {
+  /// Un plat de la carte : consommé par les ventes du Z.
+  PLAT
+  /// Une préparation (pâte, sauce…) : consommée par les plats qui l'utilisent.
+  PREPARATION
+}
+
+/// Une ligne de fiche : un ingrédient et sa quantité par portion.
+model RecipeLine {
+  id          Int      @id @default(autoincrement())
+  recipeId    Int
+  /// Le libellé de la fiche, tel quel : c'est lui qu'on relit pour corriger.
+  label       String
+  quantity    Decimal  @db.Decimal(14, 4)
+  /// g, kg, ml, cl, L, p (pièce), u (unité), s (sachet)… tel que la fiche l'écrit.
+  unit        String
+  /// L'article du stock qui s'y consomme, une fois rapproché.
+  productId   Int?
+  /// Ou une préparation, consommée au prorata de sa masse.
+  subRecipeId Int?
+  /// Coût unitaire porté par la fiche, à titre indicatif.
+  cost        Decimal? @db.Decimal(14, 4)
+  sortOrder   Int      @default(0)
+
+  recipe    Recipe   @relation(fields: [recipeId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  product   Product? @relation(fields: [productId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  subRecipe Recipe?  @relation("SubRecipe", fields: [subRecipeId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  @@index([recipeId, sortOrder])
+  @@index([productId])
+  @@index([subRecipeId])
+  @@map("recipe_lines")
+}
+
 model TicketCounter {
   businessDay  DateTime @db.Date
   departmentId Int
@@ -417,6 +560,7 @@ model SalesItem {
   @@index([isActive, sortOrder])
   @@index([code])
   @@index([departmentId])
+  recipe     Recipe?
   @@map("sales_items")
 }
 
@@ -459,4 +603,26 @@ model SalesReportLine {
   @@unique([reportId, itemId])
   @@index([itemId])
   @@map("sales_report_lines")
+}
+
+/// Vente déclarée par le contrôle : ce qu'un rayon a vendu d'un article une
+/// journée donnée, saisi à la main d'après le Z quand aucune fiche technique
+/// ne relie l'article à la carte. S'ajoute à ce que Z × fiches calcule.
+model DeclaredSale {
+  id           Int      @id @default(autoincrement())
+  departmentId Int
+  productId    Int
+  businessDay  DateTime @db.Date
+  quantity     Decimal  @db.Decimal(14, 3)
+  createdById  Int
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  department Department @relation(fields: [departmentId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  product    Product    @relation(fields: [productId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  createdBy  User       @relation("DeclaredSaleCreatedBy", fields: [createdById], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@unique([departmentId, productId, businessDay])
+  @@index([departmentId, businessDay])
+  @@map("declared_sales")
 }

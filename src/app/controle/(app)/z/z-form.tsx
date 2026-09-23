@@ -6,7 +6,7 @@ import {
   Save, RotateCcw, Search, Receipt, Upload, FileCheck2, AlertTriangle,
   Plus, Pencil, Trash2,
 } from 'lucide-react'
-import { GlassCard, Button, Badge, Field, EmptyState, TableWrap, Th, Td } from '@/components/ui/glass'
+import { GlassCard, Button, Badge, Field, EmptyState, TableWrap, Th, Td, usePending } from '@/components/ui/glass'
 import { Icon } from '@/components/ui/icon'
 import { FamilyBand } from '@/components/ui/family-band'
 import { Modal } from '@/components/ui/modal'
@@ -61,6 +61,12 @@ const SAVE = /* GraphQL */ `
     saveSalesReport(day: $day, lines: $lines, note: $note) { id lineCount }
   }
 `
+const CREATE_FAMILY = /* GraphQL */ `
+  mutation CreateFamily($input: SalesFamilyInput!) { createSalesFamily(input: $input) { id name } }
+`
+const UPDATE_FAMILY = /* GraphQL */ `
+  mutation UpdateFamily($id: ID!, $input: SalesFamilyInput!) { updateSalesFamily(id: $id, input: $input) { id name } }
+`
 const CREATE_ITEM = /* GraphQL */ `
   mutation CreateItem($input: SalesItemInput!) { createSalesItem(input: $input) { id } }
 `
@@ -112,8 +118,11 @@ export function ZForm({
   const { push } = useToast()
   const confirmer = useConfirm()
   const [busy, setBusy] = React.useState(false)
+  const [gesteEnCours, runGeste] = usePending()
   const [search, setSearch] = React.useState('')
   const [famille, setFamille] = React.useState<string | null>(null)
+  // La famille en cours de création ou de renommage ; null quand la boîte est fermée.
+  const [familleEdit, setFamilleEdit] = React.useState<{ id: string | null; name: string } | null>(null)
   const [service, setService] = React.useState<string | null>(null)
   const [note, setNote] = React.useState(savedNote ?? '')
   const [qty, setQty] = React.useState<Record<string, string>>(() =>
@@ -559,19 +568,42 @@ export function ZForm({
             </div>
           ) : null}
 
-          <div className="scroll-x -mx-1 flex gap-2 px-1 pb-1">
+          <div className="scroll-x -mx-1 flex items-center gap-2 px-1 pb-1">
             <FiltreBouton actif={famille === null} onClick={() => setFamille(null)}>
               Toutes les familles ({items.length})
             </FiltreBouton>
             {listeFamilles.map((f) => (
-              <FiltreBouton
-                key={f.nom}
-                actif={famille === f.nom}
-                onClick={() => setFamille(famille === f.nom ? null : f.nom)}
-              >
-                {f.nom} ({f.total})
-              </FiltreBouton>
+              <span key={f.nom} className="inline-flex items-center">
+                <FiltreBouton
+                  actif={famille === f.nom}
+                  onClick={() => setFamille(famille === f.nom ? null : f.nom)}
+                >
+                  {f.nom} ({f.total})
+                </FiltreBouton>
+                {/* Le crayon renomme la famille sur place, sans quitter le Z. */}
+                <button
+                  type="button"
+                  onClick={() => setFamilleEdit({ id: families.find((x) => x.name === f.nom)?.id ?? null, name: f.nom })}
+                  title={`Renommer « ${f.nom} »`}
+                  aria-label={`Renommer la famille ${f.nom}`}
+                  className="-ml-1 grid size-7 place-items-center rounded-full text-fg-subtle transition-colors hover:bg-accent/12 hover:text-accent"
+                >
+                  <Pencil className="size-3.5" />
+                </button>
+              </span>
             ))}
+            {/* « + » : une famille de plus, à côté des autres — c'est là qu'on
+                s'aperçoit qu'il en manque une. */}
+            <button
+              type="button"
+              onClick={() => setFamilleEdit({ id: null, name: '' })}
+              title="Nouvelle famille"
+              aria-label="Ajouter une famille"
+              className="inline-flex h-9 shrink-0 items-center gap-1 rounded-full border border-dashed border-accent/50 bg-accent/[0.06] px-3 text-[0.8rem] font-semibold text-accent transition-colors hover:bg-accent/12"
+            >
+              <Plus className="size-3.5" />
+              Famille
+            </button>
           </div>
         </div>
 
@@ -671,7 +703,7 @@ export function ZForm({
                           </button>
                           <button
                             type="button"
-                            onClick={() => void supprimerArticle(i)}
+                            onClick={() => void runGeste(() => supprimerArticle(i))} disabled={gesteEnCours}
                             aria-label={`Retirer ${i.name}`}
                             className="grid size-8 place-items-center rounded-lg text-danger transition-colors hover:bg-danger/15"
                           >
@@ -720,6 +752,14 @@ export function ZForm({
           />
         </div>
       </GlassCard>
+
+      {familleEdit ? (
+        <FamilleModal
+          famille={familleEdit}
+          onClose={() => setFamilleEdit(null)}
+          onDone={() => { setFamilleEdit(null); router.refresh() }}
+        />
+      ) : null}
 
       {article ? (
         <Modal
@@ -828,5 +868,70 @@ function FiltreBouton({
     >
       {children}
     </button>
+  )
+}
+
+/**
+ * Créer ou renommer une famille de la carte, depuis le Z.
+ *
+ * Le contrôleur saisit la bande de caisse et tombe sur une famille absente :
+ * il l'ajoute ici, sans passer par l'administration, et l'article suit.
+ */
+function FamilleModal({
+  famille, onClose, onDone,
+}: {
+  famille: { id: string | null; name: string }
+  onClose: () => void
+  onDone: () => void
+}) {
+  const { push } = useToast()
+  const [nom, setNom] = React.useState(famille.name)
+  const [busy, setBusy] = React.useState(false)
+  const valide = nom.trim().length > 0 && nom.trim() !== famille.name
+
+  const enregistrer = async () => {
+    if (!valide) return
+    setBusy(true)
+    try {
+      if (famille.id) await gql(UPDATE_FAMILY, { id: famille.id, input: { name: nom.trim() } })
+      else await gql(CREATE_FAMILY, { input: { name: nom.trim() } })
+      push('success', famille.id ? `Famille renommée « ${nom.trim()} ».` : `Famille « ${nom.trim()} » ajoutée.`)
+      onDone()
+    } catch (e) {
+      push('error', errorMessage(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Modal
+      title={famille.id ? 'Renommer la famille' : 'Nouvelle famille'}
+      onClose={onClose}
+      footer={
+        <div className="flex w-full justify-end gap-2">
+          <Button variant="ghost" onClick={onClose} disabled={busy}>Annuler</Button>
+          <Button variant="primary" loading={busy} disabled={!valide} onClick={enregistrer}>
+            {famille.id ? 'Renommer' : 'Ajouter'}
+          </Button>
+        </div>
+      }
+    >
+      <label className="block text-[0.8rem] font-medium text-fg-muted">
+        Nom <span className="text-danger">*</span>
+        <input
+          value={nom}
+          onChange={(e) => setNom(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter') void enregistrer() }}
+          maxLength={60}
+          placeholder="Pizzas, Boissons chaudes, Desserts…"
+          autoFocus
+          className="field mt-1 h-10 w-full px-3"
+        />
+      </label>
+      {famille.id ? (
+        <p className="mt-2 text-[0.78rem] text-fg-muted">Les articles de la famille la suivent ; les Z déjà enregistrés gardent leurs montants.</p>
+      ) : null}
+    </Modal>
   )
 }

@@ -3,7 +3,7 @@
 import * as React from 'react'
 import { useRouter } from 'next/navigation'
 import { Plus, Pencil, Trash2, Receipt, FolderPlus } from 'lucide-react'
-import { GlassCard, Button, Badge, Field, EmptyState, TableWrap, Th, Td } from '@/components/ui/glass'
+import { GlassCard, Button, Badge, Field, EmptyState, TableWrap, Th, Td, usePending } from '@/components/ui/glass'
 import { Modal } from '@/components/ui/modal'
 import { useToast } from '@/components/ui/toast'
 import { useConfirm } from '@/components/ui/confirm'
@@ -82,6 +82,7 @@ export function CardManager({
   const { push } = useToast()
   const confirmer = useConfirm()
   const [busy, setBusy] = React.useState(false)
+  const [gesteEnCours, runGeste] = usePending()
   const [famille, setFamille] = React.useState<CardFamily | null | undefined>(undefined)
   const [article, setArticle] = React.useState<ItemDraft | null>(null)
 
@@ -239,7 +240,7 @@ export function CardManager({
                           </button>
                           <button
                             type="button"
-                            onClick={() => void supprimerArticle(i.id, i.name)}
+                            onClick={() => void runGeste(() => supprimerArticle(i.id, i.name))} disabled={gesteEnCours}
                             aria-label={`Retirer ${i.name}`}
                             className="grid size-8 place-items-center rounded-lg text-danger transition-colors hover:bg-danger/15"
                           >

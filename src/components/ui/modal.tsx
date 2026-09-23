@@ -27,13 +27,13 @@ export function Modal({
   }, [onClose])
 
   return (
-    <div className="no-print fixed inset-0 z-50 flex items-end justify-center sm:items-center sm:p-4">
+    <div className="no-print fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4">
       <button aria-label="Fermer" onClick={onClose} className="fixed inset-0 bg-[#0a1830]/45 backdrop-blur-sm" />
       <div
         role="dialog"
         aria-modal="true"
         aria-label={title}
-        className={`glass-deep glass-specular animate-rise relative flex max-h-[92dvh] w-full flex-col rounded-b-none sm:rounded-[calc(var(--radius)+4px)] ${
+        className={`glass-deep glass-specular animate-rise relative flex max-h-[92dvh] w-full flex-col rounded-[calc(var(--radius)+4px)] ${
           wide ? 'max-w-3xl' : 'max-w-md'
         }`}
       >

@@ -9,6 +9,8 @@ import { Modal } from '@/components/ui/modal'
 import { gql, errorMessage } from '@/lib/graphql-client'
 import { cn, countDays, formatPeriod, formatQty } from '@/lib/utils'
 import type { Board } from './day-board'
+import { correspond, normaliser } from '@/lib/search'
+import { SearchField } from '@/components/ui/search-field'
 
 const BY_DEPARTMENT = /* GraphQL */ `
   query DayArticlesByDepartment($day: Date, $dayTo: Date) {
@@ -112,6 +114,13 @@ export function DayTotals({ board }: { board: Board }) {
 function AllDepartments({ board, onClose }: { board: Board; onClose: () => void }) {
   const [groups, setGroups] = React.useState<Group[] | null>(null)
   const [error, setError] = React.useState<string | null>(null)
+  // La recherche traverse tous les départements : un article se cherche par
+  // son nom, pas par le rayon où l'on croit qu'il est.
+  const [recherche, setRecherche] = React.useState('')
+  const mot = normaliser(recherche)
+  const visibles = (groups ?? [])
+    .map((g) => ({ ...g, lines: g.lines.filter((l) => correspond(mot, l.productName, l.productRef, l.categoryName)) }))
+    .filter((g) => g.lines.length > 0)
 
   React.useEffect(() => {
     let vivant = true
@@ -159,11 +168,17 @@ function AllDepartments({ board, onClose }: { board: Board; onClose: () => void 
             <Badge tone="neutral">
               {board.orderCount} ticket{board.orderCount > 1 ? 's' : ''}
             </Badge>
-
+            <SearchField value={recherche} onChange={setRecherche} className="ml-auto w-full sm:w-64" />
           </div>
 
+          {visibles.length === 0 ? (
+            <p className="py-4 text-center text-[0.85rem] text-fg-muted">
+              Aucun article ne correspond à « {recherche} ».
+            </p>
+          ) : null}
+
           <div className="max-h-[26rem] space-y-5 overflow-y-auto pr-1">
-            {groups.map((g) => {
+            {visibles.map((g) => {
               // Un compte par département : les familles se répètent d'un
               // bloc à l'autre, avec des articles différents.
               const parFamille = countByFamily(g.lines)

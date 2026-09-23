@@ -55,7 +55,7 @@ function grille(mois: Date): (Date | null)[] {
 }
 
 export function DateField({
-  value, onChange, min, max, label, clearable, className, id,
+  value, onChange, min, max, label, clearable, className, id, marques,
 }: {
   /** Valeur au format `AAAA-MM-JJ`, ou null si le champ est vide. */
   value: string | null
@@ -68,8 +68,11 @@ export function DateField({
   clearable?: boolean
   className?: string
   id?: string
+  /** Journées à signaler d'un point (celles qui portent des commandes), en `AAAA-MM-JJ`. */
+  marques?: string[]
 }) {
   const [ouvert, setOuvert] = React.useState(false)
+  const marquees = React.useMemo(() => new Set(marques ?? []), [marques])
   const [mois, setMois] = React.useState(() => parse(value) ?? new Date())
   const boite = React.useRef<HTMLDivElement>(null)
 
@@ -195,7 +198,7 @@ export function DateField({
                     setOuvert(false)
                   }}
                   className={cn(
-                    'grid h-9 place-items-center rounded-lg text-[0.82rem] font-medium tabular-nums transition-colors',
+                    'relative grid h-9 place-items-center rounded-lg text-[0.82rem] font-medium tabular-nums transition-colors',
                     actif && 'bg-accent font-bold text-white',
                     !actif && !bloque && 'text-fg hover:bg-accent/12 hover:text-accent',
                     // Aujourd'hui reste repérable même sans être choisi.
@@ -204,6 +207,9 @@ export function DateField({
                   )}
                 >
                   {d.getDate()}
+                  {marquees.has(cle) ? (
+                    <span aria-hidden className={cn('absolute bottom-1 left-1/2 size-1 -translate-x-1/2 rounded-full', actif ? 'bg-white' : 'bg-accent')} />
+                  ) : null}
                 </button>
               )
             })}

@@ -1,12 +1,13 @@
 import type { Metadata } from 'next'
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
-import { ArrowLeft, ClipboardList } from 'lucide-react'
+import { ClipboardList } from 'lucide-react'
 import { executeGraphQL } from '@/server/graphql/execute'
 import { requireEmployeeDepartment } from '@/server/auth/guards'
 import { GlassCard, Badge } from '@/components/ui/glass'
 import { formatLongDate, formatTime } from '@/lib/utils'
 import { RefillReception, type RefillView } from '../../refill-reception'
+import { BackLink } from '@/components/ui/back-link'
 
 export const metadata: Metadata = { title: 'Servi complémentaire' }
 export const dynamic = 'force-dynamic'
@@ -31,7 +32,7 @@ const QUERY = /* GraphQL */ `
         receivedBy { fullName }
         lines {
           lineId productName productRef categoryName unitSymbol
-          stockFixe quantityAsked firstServed quantity remaining rejectReason
+          stockFixe quantityAsked firstServed quantity remaining rejectReason rang
         }
       }
     }
@@ -76,13 +77,7 @@ export default async function RefillPage({
   return (
     <>
       <div className="no-print mb-4 flex flex-wrap items-center justify-between gap-3">
-        <Link
-          href="/employe"
-          className="inline-flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-[0.83rem] font-medium text-fg-muted transition-colors hover:bg-[rgb(var(--glass-edge)/0.14)] hover:text-fg"
-        >
-          <ArrowLeft className="size-4" />
-          Commandes du service
-        </Link>
+        <BackLink href="/employe" className="mb-0">Retour</BackLink>
         {/* Le contexte reste à portée : la commande entière, pour qui veut
             relire ce qui avait été demandé et servi au départ. */}
         <Link

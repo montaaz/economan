@@ -9,7 +9,7 @@ import { PageHeader } from '@/components/ui/stat'
 import { GlassCard, Button, EmptyState, Badge } from '@/components/ui/glass'
 import { StatusBadge } from '@/components/ui/status'
 import { OrderDates } from '@/components/orders/order-dates'
-import { cn, formatInstantDate, formatLongDate, formatTime } from '@/lib/utils'
+import { cn, formatInstantDate, formatLongDate, formatTime, businessDay } from '@/lib/utils'
 
 export const metadata: Metadata = { title: 'Commandes du département' }
 export const dynamic = 'force-dynamic'
@@ -107,6 +107,10 @@ export default async function MyOrdersPage() {
     if (list) list.push(o)
     else byDay.set(o.businessDay, [o])
   }
+  // La journée en cours garde sa place en tête, même vide : c'est là que
+  // le travail du jour commence, et le bouton pour le commencer est dedans.
+  const aujourdhui = businessDay().toISOString().slice(0, 10)
+  const journeeVide = !byDay.has(aujourdhui)
 
   return (
     <>
@@ -123,7 +127,7 @@ export default async function MyOrdersPage() {
         }
       />
 
-      {myOrders.length === 0 ? (
+      {myOrders.length === 0 && !journeeVide ? (
         <GlassCard>
           <EmptyState
             icon={<ClipboardList className="size-6" />}
@@ -141,6 +145,35 @@ export default async function MyOrdersPage() {
         </GlassCard>
       ) : (
         <div className="space-y-6">
+          {journeeVide ? (
+            <section>
+              <h2 className="mb-2.5 px-0.5 text-[0.9rem] font-semibold capitalize tracking-tight text-fg">
+                {formatLongDate(aujourdhui)}
+                <span className="ml-2 text-[0.82rem] font-semibold normal-case text-fg-muted">Aujourd’hui · aucune commande</span>
+              </h2>
+              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                <div className="flex h-full flex-col justify-between gap-4 rounded-[var(--radius)] border-2 border-dashed border-accent/40 bg-accent/[0.06] p-4">
+                  <div className="flex items-start gap-3">
+                    <span className="grid size-10 shrink-0 place-items-center rounded-xl border border-dashed border-accent/60 text-accent">
+                      <ClipboardList className="size-5" />
+                    </span>
+                    <div className="min-w-0">
+                      <p className="text-[0.95rem] font-bold leading-tight text-fg">Espace de la journée</p>
+                      <p className="mt-1 text-[0.82rem] leading-snug text-fg-muted">
+                        Votre service n’a pas encore passé sa commande du jour. Elle apparaîtra ici, avec ses servis, dès qu’elle sera envoyée.
+                      </p>
+                    </div>
+                  </div>
+                  <Link href="/employe/commande" className="block">
+                    <Button variant="primary" className="w-full">
+                      <PlusCircle className="size-4" />
+                      Nouvelle commande
+                    </Button>
+                  </Link>
+                </div>
+              </div>
+            </section>
+          ) : null}
           {[...byDay.entries()].map(([day, orders]) => (
             <section key={day}>
               <h2 className="mb-2.5 px-0.5 text-[0.9rem] font-semibold capitalize tracking-tight text-fg">

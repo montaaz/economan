@@ -32,6 +32,7 @@ const ECONOMAN: NavGroup[] = [
     title: 'Économat',
     items: [
       { href: '/economat', label: 'Commandes du jour', shortLabel: 'Jour', icon: 'Inbox', primary: true },
+      { href: '/economat/stock', label: 'Stock général', shortLabel: 'Stock', icon: 'Warehouse', primary: true },
       { href: '/economat/historique', label: 'Historique', icon: 'History', primary: true },
     ],
   },
@@ -47,6 +48,7 @@ const CONTROLEUR: NavGroup[] = [
     items: [
       { href: '/controle/z', label: 'Note Z', shortLabel: 'Z', icon: 'Receipt', primary: true },
       { href: '/controle', label: 'Contrôle des stocks', shortLabel: 'Stocks', icon: 'ClipboardCheck', primary: true },
+      { href: '/controle/fiches', label: 'Fiches techniques', shortLabel: 'Fiches', icon: 'Scissors' },
       { href: '/controle/historique', label: 'Historique des Z', shortLabel: 'Historique', icon: 'History', primary: true },
     ],
   },
@@ -61,7 +63,11 @@ const ADMIN: NavGroup[] = [
     title: 'Pilotage',
     items: [
       { href: '/admin', label: 'Tableau de bord', shortLabel: 'Accueil', icon: 'LayoutDashboard', primary: true },
-      { href: '/admin/historique', label: 'Historique', icon: 'History', primary: true },
+      { href: '/admin/stock-general', label: 'Stock général', shortLabel: 'Stock', icon: 'Warehouse', primary: true },
+      { href: '/admin/argent', label: 'Argent', icon: 'Coins' },
+      { href: '/admin/controle', label: 'Contrôle des stocks', shortLabel: 'Contrôle', icon: 'ClipboardCheck' },
+      { href: '/admin/fiches', label: 'Fiches techniques', shortLabel: 'Fiches', icon: 'Scissors' },
+      { href: '/admin/historique', label: 'Historique', icon: 'History' },
     ],
   },
   {

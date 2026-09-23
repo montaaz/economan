@@ -5,7 +5,7 @@ import { useActionState } from 'react'
 import { useFormStatus } from 'react-dom'
 import { useRouter } from 'next/navigation'
 import { Search, PackageSearch, Target, Plus, AlertCircle, Pencil, Trash2, Check, Loader2 } from 'lucide-react'
-import { GlassCard, Button, Badge, EmptyState, TableWrap, Th, Td } from '@/components/ui/glass'
+import { GlassCard, Button, Badge, EmptyState, TableWrap, Th, Td, usePending } from '@/components/ui/glass'
 import { Icon } from '@/components/ui/icon'
 import { useToast } from '@/components/ui/toast'
 import { Modal } from '@/components/ui/modal'
@@ -54,6 +54,7 @@ export function StockFixeEditor({
   const [addingTo, setAddingTo] = React.useState<
     { id: string; name: string; preset?: boolean } | null
   >(null)
+  const [gesteEnCours, runGeste] = usePending()
   // Article en cours de modification ; null quand la modale est fermée.
   const [editing, setEditing] = React.useState<ParLine | null>(null)
   // Article dont on choisit l'unité.
@@ -466,8 +467,8 @@ export function StockFixeEditor({
                         </button>
                         <button
                           type="button"
-                          disabled={removing === p.id}
-                          onClick={() => void retirer(p)}
+                          disabled={removing === p.id || gesteEnCours}
+                          onClick={() => void runGeste(() => retirer(p))}
                           aria-label={`Retirer ${p.name} de la feuille`}
                           className="grid size-8 place-items-center rounded-lg text-fg-subtle transition-colors hover:bg-danger/12 hover:text-danger disabled:opacity-40"
                         >

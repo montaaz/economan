@@ -22,6 +22,7 @@ export const DAY_BOARD_QUERY = /* GraphQL */ `
           ticketNumber
           businessDay
           status
+          isUrgent
           createdAt
           acceptedAt
           deliveredAt
@@ -33,6 +34,7 @@ export const DAY_BOARD_QUERY = /* GraphQL */ `
             rank
             createdAt
             receivedAt
+            deliveredAt
             receptionNote
             lineCount
             createdBy { fullName }
@@ -61,6 +63,7 @@ export const ORDER_QUERY = /* GraphQL */ `
       ticketNumber
       businessDay
       status
+      isUrgent
       note
       createdAt
       acceptedAt
@@ -69,7 +72,7 @@ export const ORDER_QUERY = /* GraphQL */ `
       receptionNote
       lineCount
       lastRefillRank
-      refills { id rank receivedAt receivedBy { fullName } }
+      refills { id rank receivedAt deliveredAt receivedBy { fullName } }
       totalAsked
       totalServed
       department { id name code color icon }
@@ -90,8 +93,58 @@ export const ORDER_QUERY = /* GraphQL */ `
         refills { rank quantity }
         remaining
         status
+        initialStatus
         rejectReason
+        rang
       }
     }
   }
 `
+
+/** Les mêmes champs que ORDER_QUERY, pour plusieurs tickets en une requête. */
+export const ORDERS_QUERY = /* GraphQL */ `
+  query Orders($ids: [ID!]!) {
+    orders(ids: $ids) {
+      id
+      reference
+      ticketNumber
+      businessDay
+      status
+      isUrgent
+      note
+      createdAt
+      acceptedAt
+      deliveredAt
+      receivedAt
+      receptionNote
+      lineCount
+      lastRefillRank
+      refills { id rank receivedAt deliveredAt receivedBy { fullName } }
+      totalAsked
+      totalServed
+      department { id name code color icon }
+      createdBy { fullName }
+      processedBy { fullName }
+      lines {
+        id
+        productId
+        productName
+        productRef
+        categoryName
+        unitSymbol
+        stockFixe
+        quantityOnHand
+        quantityAsked
+        quantityServed
+        quantityRefilled
+        refills { rank quantity }
+        remaining
+        status
+        initialStatus
+        rejectReason
+        rang
+      }
+    }
+  }
+`
+

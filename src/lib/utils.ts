@@ -25,6 +25,12 @@ export function formatQty(value: DecimalLike, maxDecimals = 3): string {
   }).format(toNumber(value))
 }
 
+/** Un montant en dinars : trois décimales, séparateurs français, « DT ». */
+export function formatMoney(value: number | string | null | undefined): string {
+  const n = Number(value ?? 0)
+  return `${new Intl.NumberFormat('fr-FR', { minimumFractionDigits: 3, maximumFractionDigits: 3 }).format(Number.isFinite(n) ? n : 0)} DT`
+}
+
 export function formatDate(value: Date | string | null | undefined): string {
   if (!value) return '—'
   const d = typeof value === 'string' ? new Date(value) : value

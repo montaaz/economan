@@ -1,6 +1,6 @@
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
-import { Package, ShieldCheck, Warehouse } from 'lucide-react'
+import { Package, ShieldCheck, Warehouse, Receipt } from 'lucide-react'
 import { prisma } from '@/server/db'
 import { readSession, homeForRole } from '@/server/auth/session'
 import { Logo } from '@/components/layout/logo'
@@ -19,18 +19,40 @@ export default async function HomePage() {
     orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
     select: {
       id: true, name: true, code: true, color: true, icon: true,
-      _count: { select: { users: true } },
+      // Les agents qui se connectent ici : un économe ou un administrateur
+      // rattaché au service n'ouvre pas cette porte, et le compter
+      // promettrait une liste plus longue que celle de l'écran suivant.
+      _count: { select: { users: { where: { isActive: true, role: 'EMPLOYEE' } } } },
     },
   })
 
-  // Le nombre d'articles visibles passe par les catégories affectées.
-  const counts = await prisma.$queryRaw<{ departmentId: number; n: bigint }[]>`
-    SELECT dc."departmentId", count(p.id) AS n
-    FROM department_categories dc
-    JOIN products p ON p."categoryId" = dc."categoryId" AND p."isActive"
-    GROUP BY dc."departmentId"
-  `
-  const articlesBy = new Map(counts.map((c) => [c.departmentId, Number(c.n)]))
+  /**
+   * Le nombre d'articles réellement commandables par chaque service.
+   *
+   * La même règle que `departmentCatalog` : une feuille définie article par
+   * article prime sur les catégories affectées. Ne compter que les catégories
+   * annonçait 270 articles au fast-food là où sa feuille en porte 37, et la
+   * carte d'accueil contredisait l'écran de commande.
+   */
+  const [explicites, parCategorie] = await Promise.all([
+    prisma.$queryRaw<{ departmentId: number; n: bigint }[]>`
+      SELECT dp."departmentId", count(p.id) AS n
+      FROM department_products dp
+      JOIN products p ON p.id = dp."productId" AND p."isActive"
+      GROUP BY dp."departmentId"
+    `,
+    prisma.$queryRaw<{ departmentId: number; n: bigint }[]>`
+      SELECT dc."departmentId", count(DISTINCT p.id) AS n
+      FROM department_categories dc
+      JOIN products p ON p."categoryId" = dc."categoryId" AND p."isActive"
+      GROUP BY dc."departmentId"
+    `,
+  ])
+  const feuilleBy = new Map(explicites.map((c) => [c.departmentId, Number(c.n)]))
+  const categorieBy = new Map(parCategorie.map((c) => [c.departmentId, Number(c.n)]))
+  const articlesBy = new Map(
+    departments.map((d) => [d.id, feuilleBy.get(d.id) || categorieBy.get(d.id) || 0]),
+  )
 
   return (
     <div className="flex min-h-dvh flex-col">
@@ -43,6 +65,15 @@ export default async function HomePage() {
           >
             <Warehouse className="size-4" />
             <span className="hidden sm:inline">Économat</span>
+          </Link>
+          {/* Le contrôle de gestion entre par ici aussi : le Z se saisit
+              depuis n'importe quel poste, pas seulement depuis un favori. */}
+          <Link
+            href="/controle/login"
+            className="inline-flex items-center gap-1.5 rounded-xl border border-[rgb(var(--glass-edge)/0.3)] bg-white/60 px-3 py-2 text-[0.8rem] font-medium text-fg-muted backdrop-blur-md transition-colors hover:bg-white/85 hover:text-fg"
+          >
+            <Receipt className="size-4" />
+            <span className="hidden sm:inline">Contrôle</span>
           </Link>
           <Link
             href="/admin/login"

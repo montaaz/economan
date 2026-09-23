@@ -15,7 +15,7 @@ import { DateField } from '@/components/ui/date-field'
  * que des menus : rien n'oblige la borne à tomber sur un jour travaillé.
  */
 export function DateRangeFilter({
-  from, to, basePath, first, last,
+  from, to, basePath, first, last, keep, clearParams,
 }: {
   /** Bornes actives, au format ISO `AAAA-MM-JJ`. */
   from: string | null
@@ -24,13 +24,19 @@ export function DateRangeFilter({
   /** Première et dernière journée ayant des commandes, s'il y en a. */
   first?: string | null
   last?: string | null
+  /** Paramètres à conserver dans l'URL (la vue, un filtre) : le chemin reste propre. */
+  keep?: Record<string, string | undefined>
+  /** Paramètres ajoutés quand on efface les dates : dire « tout », pas « rien ». */
+  clearParams?: Record<string, string>
 }) {
   const router = useRouter()
 
   function go(d: string | null, f: string | null) {
     const p = new URLSearchParams()
+    for (const [k, v] of Object.entries(keep ?? {})) if (v) p.set(k, v)
     if (d) p.set('du', d)
     if (f) p.set('au', f)
+    if (!d && !f) for (const [k, v] of Object.entries(clearParams ?? {})) p.set(k, v)
     router.push(p.size ? `${basePath}?${p}` : basePath)
   }
 

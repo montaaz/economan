@@ -18,9 +18,11 @@ import { cn } from '@/lib/utils'
  * Entrée ne doit rien écrire.
  */
 export function InlineEdit({
-  value, onSave, className, inputClassName, title, ariaLabel, validate, align = 'left',
+  value, onSave, className, inputClassName, title, ariaLabel, validate, align = 'left', display,
 }: {
   value: string
+  /** Ce qu'on montre au repos, quand la valeur brute ne se lit pas telle quelle (unité, signe, tiret si vide). */
+  display?: React.ReactNode
   /** Renvoie un message d'erreur, ou rien si l'écriture a réussi. */
   onSave: (next: string) => Promise<string | void> | string | void
   className?: string
@@ -98,7 +100,7 @@ export function InlineEdit({
           className,
         )}
       >
-        {value}
+        {display ?? value}
       </span>
     )
   }

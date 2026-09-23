@@ -7,6 +7,8 @@ import { Icon } from '@/components/ui/icon'
 import { Modal } from '@/components/ui/modal'
 import { gql, errorMessage } from '@/lib/graphql-client'
 import { formatPeriod, formatQty, formatShortDay } from '@/lib/utils'
+import { correspond, normaliser } from '@/lib/search'
+import { SearchField } from '@/components/ui/search-field'
 
 const RUPTURES = /* GraphQL */ `
   query DayRuptures($day: Date, $dayTo: Date, $departmentId: ID, $status: LineStatus) {
@@ -139,6 +141,10 @@ function Liste({
   const articles = new Set((lines ?? []).map((l) => l.productName)).size
   const services = new Set((lines ?? []).map((l) => l.department.id)).size
   const sansMotif = (lines ?? []).filter((l) => !l.rejectReason).length
+  const [recherche, setRecherche] = React.useState('')
+  const mot = normaliser(recherche)
+  const visibles = (lines ?? []).filter((l) =>
+    correspond(mot, l.productName, l.productRef, l.categoryName, l.orderReference, l.department.name))
 
   return (
     <Modal title={`${mots.titre} — ${formatPeriod(day, dayTo)}`} onClose={onClose} wide>
@@ -174,7 +180,14 @@ function Liste({
             {status === 'REJECTED' && sansMotif > 0 ? (
               <Badge tone="warn">{sansMotif} sans motif</Badge>
             ) : null}
+            <SearchField value={recherche} onChange={setRecherche} className="ml-auto w-full sm:w-64" />
           </div>
+
+          {visibles.length === 0 ? (
+            <p className="py-4 text-center text-[0.85rem] text-fg-muted">
+              Aucun article ne correspond à « {recherche} ».
+            </p>
+          ) : null}
 
           <div className="max-h-[26rem] overflow-y-auto">
             {/* Les ajustements portent une colonne de plus, plus étroite : le
@@ -193,8 +206,8 @@ function Liste({
                 </tr>
               </thead>
               <tbody className="divide-y divide-[rgb(var(--glass-edge)/0.12)]">
-                {lines.map((l, i) => {
-                  const previous = i > 0 ? lines[i - 1] : null
+                {visibles.map((l, i) => {
+                  const previous = i > 0 ? visibles[i - 1] : null
                   const ouvre = previous?.department.id !== l.department.id
                   return (
                     <React.Fragment key={l.lineId}>

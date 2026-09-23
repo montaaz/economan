@@ -38,6 +38,14 @@ export default async function EconomatPage({
   const groups = board.departments
   const selected = dep && allDepartments.some((d) => String(d.id) === dep) ? dep : null
   const shown = selected ? groups.filter((g) => g.department.id === selected) : groups
+  // Sur une journée, les services qui n'ont pas commandé gardent leur
+  // espace sur le tableau ; sur une période, on ne montre que ce qui a eu lieu.
+  const vides = board.isRange
+    ? []
+    : allDepartments
+        .filter((d) => !groups.some((g) => g.department.id === String(d.id)))
+        .filter((d) => !selected || String(d.id) === selected)
+        .map((d) => ({ id: String(d.id), name: d.name, color: d.color, icon: d.icon }))
   const parService = shown
 
   // Les totaux suivent le filtre : garder ceux de la journée entière ferait
@@ -148,7 +156,7 @@ export default async function EconomatPage({
         dayTo={board.isRange ? board.dayTo : null}
       />
 
-      <DayBoard board={b} basePath="/economat/commandes" />
+      <DayBoard board={b} basePath="/economat/commandes" vides={vides} />
       {b.orderCount > 0 ? <DayTotals board={b} /> : null}
     </>
   )

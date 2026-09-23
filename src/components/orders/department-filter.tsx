@@ -55,7 +55,7 @@ export function DepartmentFilter({
     : groups.reduce((n, g) => n + g.orderCount, 0)
 
   return (
-    <div className="scroll-x -mx-1 mb-4 flex gap-2 px-1 pb-1">
+    <div data-barre-services className="scroll-x -mx-1 mb-4 flex gap-2 px-1 pb-1">
       <button
         type="button"
         onClick={() => go(null)}

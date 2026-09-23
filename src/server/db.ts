@@ -6,7 +6,7 @@ import { PrismaClient } from '@/generated/prisma/client'
 // recharge les modules à chaque édition, et sur une plateforme serverless une
 // lambda tiède réévalue ce module — sans ce cache on ouvrirait un pool de plus
 // à chaque fois, jusqu'à épuiser les connexions Postgres.
-const globalForPrisma = globalThis as unknown as { prisma?: PrismaClient }
+const globalForPrisma = globalThis as unknown as { prisma?: PrismaClient; prismaCtor?: unknown }
 
 /**
  * Taille du pool, par instance.
@@ -55,7 +55,20 @@ function create(): PrismaClient {
  */
 export const prisma: PrismaClient = new Proxy({} as PrismaClient, {
   get(_target, prop, receiver) {
-    const client = (globalForPrisma.prisma ??= create())
+    // Après `prisma generate`, Next recharge le module du client généré — mais
+    // l'instance gardée dans le cache global, elle, a été construite par
+    // l'ancienne classe et ignore les nouvelles colonnes (« Unknown argument
+    // isUrgent »). Une instance qui ne vient pas de la classe importée ici est
+    // donc périmée : on la ferme et on en construit une neuve, sans redémarrer.
+    if (globalForPrisma.prisma && globalForPrisma.prismaCtor !== PrismaClient) {
+      void globalForPrisma.prisma.$disconnect().catch(() => undefined)
+      globalForPrisma.prisma = undefined
+    }
+    if (!globalForPrisma.prisma) {
+      globalForPrisma.prisma = create()
+      globalForPrisma.prismaCtor = PrismaClient
+    }
+    const client = globalForPrisma.prisma
     const value = Reflect.get(client, prop, receiver)
     return typeof value === 'function' ? value.bind(client) : value
   },

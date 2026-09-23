@@ -2,8 +2,8 @@
 
 import * as React from 'react'
 import { useRouter } from 'next/navigation'
-import { CalendarDays, CalendarRange, X } from 'lucide-react'
-import { formatLongDate } from '@/lib/utils'
+import { DateField } from '@/components/ui/date-field'
+import { CalendarRange, X } from 'lucide-react'
 
 /**
  * Sélecteur de journée ou de période.
@@ -13,8 +13,9 @@ import { formatLongDate } from '@/lib/utils'
  * bouton « Période » ouvre une seconde borne et l'écran cumule alors tous les
  * tickets de l'intervalle.
  *
- * Les deux bornes restent des `<select>` alimentés par les journées connues :
- * un champ date libre laisserait choisir un jour sans aucune commande.
+ * Les deux bornes s'ouvrent dans le calendrier de l'application, le même
+ * que partout ailleurs ; les journées qui portent des commandes y sont
+ * marquées d'un point, pour qu'on les retrouve sans les deviner.
  */
 export function DayPicker({
   days, current, currentTo, basePath, keep,
@@ -28,15 +29,6 @@ export function DayPicker({
   keep?: string | null
 }) {
   const router = useRouter()
-
-  // La journée courante peut n'avoir aucune commande : elle doit rester
-  // sélectionnable, sinon le menu afficherait une autre date que l'écran.
-  const options = React.useMemo(() => {
-    const set = new Set(days)
-    set.add(current)
-    if (currentTo) set.add(currentTo)
-    return [...set].sort((a, b) => b.localeCompare(a))
-  }, [days, current, currentTo])
 
   const [range, setRange] = React.useState(Boolean(currentTo))
 
@@ -54,21 +46,16 @@ export function DayPicker({
       <div className="flex min-w-0 items-center gap-2">
         <label className="inline-flex min-w-0 flex-1 items-center gap-2 sm:flex-none">
           <span className="sr-only">{range ? 'Du' : 'Journée'}</span>
-          <CalendarDays className="size-4 shrink-0 text-fg-subtle" />
           {range ? (
             <span className="shrink-0 text-[0.85rem] font-medium text-fg-muted">Du</span>
           ) : null}
-          <select
+          <DateField
             value={current}
-            onChange={(e) => go(e.target.value, currentTo)}
-            className="field h-10 w-full min-w-0 py-0 text-[0.85rem] capitalize sm:w-auto sm:min-w-[11rem]"
-          >
-            {options.map((d) => (
-              <option key={d} value={d}>
-                {formatLongDate(d)}
-              </option>
-            ))}
-          </select>
+            onChange={(v) => { if (v) go(v, currentTo) }}
+            marques={days}
+            label={range ? 'Du' : 'Journée'}
+            className="min-w-0 flex-1 sm:flex-none"
+          />
         </label>
 
         {/* Le bouton reste sur la première ligne : il ferme la période, il n'en
@@ -108,17 +95,14 @@ export function DayPicker({
         <label className="inline-flex min-w-0 items-center gap-2">
           <span className="sr-only">Jusqu’au</span>
           <span className="w-4 shrink-0 text-[0.85rem] font-medium text-fg-muted sm:w-auto">au</span>
-          <select
+          <DateField
             value={currentTo ?? current}
-            onChange={(e) => go(current, e.target.value)}
-            className="field h-10 w-full min-w-0 py-0 text-[0.85rem] capitalize sm:w-auto sm:min-w-[11rem]"
-          >
-            {options.map((d) => (
-              <option key={d} value={d}>
-                {formatLongDate(d)}
-              </option>
-            ))}
-          </select>
+            min={current}
+            onChange={(v) => { if (v) go(current, v) }}
+            marques={days}
+            label="Jusqu’au"
+            className="min-w-0 flex-1 sm:flex-none"
+          />
         </label>
       ) : null}
     </div>

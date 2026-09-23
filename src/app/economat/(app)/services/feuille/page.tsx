@@ -33,21 +33,23 @@ export default async function FeuilleServicePage({
     include: {
       department: { select: { name: true, code: true } },
       createdBy: { select: { fullName: true } },
+      // Toutes les lignes, pour numéroter comme le ticket : le numéro d'une
+      // ligne est sa place sur la feuille entière, pas parmi les écarts.
       lines: {
-        where: { status: { in: ['REJECTED', 'ADJUSTED'] } },
         include: {
           unit: true,
           refills: { select: { quantity: true } },
         },
-        orderBy: { sortOrder: 'asc' },
+        orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
       },
     },
     orderBy: { ticketNumber: 'asc' },
   })
 
   const lines = orders
-    .flatMap((o) => o.lines.map((l) => ({ l, ref: o.reference })))
-    .map(({ l, ref }) => {
+    .flatMap((o) => o.lines.map((l, i) => ({ l, ref: o.reference, rang: i + 1 })))
+    .filter(({ l }) => l.status === 'REJECTED' || l.status === 'ADJUSTED')
+    .map(({ l, ref, rang }) => {
       const complete = l.refills.reduce((n, r) => n + Number(r.quantity), 0)
       const sorti = Number(l.quantityServed ?? 0) + complete
       return {
@@ -63,19 +65,15 @@ export default async function FeuilleServicePage({
         remaining: Math.max(Number(l.quantityAsked) - sorti, 0),
         orderRef: ref,
         status: l.status,
+        rang,
       }
     })
 
-  // L'ordre de l'écran, à la ligne près : les ajustées puis les ruptures,
-  // familles groupées dans chaque bloc. On descend au magasin avec ce papier
-  // et on reporte ensuite à l'écran ligne par ligne ; deux ordres différents
+  // L'ordre de l'écran, à la ligne près : celui de la feuille, ticket par
+  // ticket, avec le numéro du ticket. On descend au magasin avec ce papier et
+  // on reporte ensuite à l'écran ligne par ligne ; deux ordres différents
   // obligeraient à chercher chaque article au lieu de suivre la liste.
-  const ordonnees = (['ADJUSTED', 'REJECTED'] as const).flatMap((etat) => {
-    const g = lines.filter((l) => l.status === etat)
-    const familles: string[] = []
-    for (const l of g) if (!familles.includes(l.categoryName)) familles.push(l.categoryName)
-    return familles.flatMap((c) => g.filter((l) => l.categoryName === c))
-  })
+  const ordonnees = lines
 
   if (orders.length === 0 || ordonnees.length === 0) notFound()
 

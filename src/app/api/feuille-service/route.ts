@@ -3,6 +3,7 @@ import { cookies } from 'next/headers'
 import { NextResponse } from 'next/server'
 import { prisma } from '@/server/db'
 import { readSession } from '@/server/auth/session'
+import { chargerFeuille, rendrePdf } from '@/server/pdf'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
@@ -49,10 +50,9 @@ export async function GET(request: Request) {
       path: '/',
     }])
     const page = await context.newPage()
-    await page.goto(`${base}/economat/services/feuille?${p}`, { waitUntil: 'networkidle' })
-    await page.waitForTimeout(400)
+    await chargerFeuille(page, `${base}/economat/services/feuille?${p}`)
 
-    const pdf = await page.pdf({ format: 'A4', printBackground: true })
+    const pdf = await rendrePdf(page, `Feuille de servi — ${departement.code} — ${jour ?? ''}`.trim())
 
     return new NextResponse(new Uint8Array(pdf), {
       headers: {

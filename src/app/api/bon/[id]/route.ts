@@ -3,6 +3,7 @@ import { cookies } from 'next/headers'
 import { NextResponse } from 'next/server'
 import { prisma } from '@/server/db'
 import { readSession } from '@/server/auth/session'
+import { chargerFeuille, rendrePdf } from '@/server/pdf'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
@@ -12,8 +13,8 @@ export const maxDuration = 60
  *
  * Le navigateur écrit en marge de chaque page imprimée le titre de l'onglet,
  * l'URL, la date et la pagination. Aucun CSS ne les retire — vérifié — car ils
- * sont ajoutés après le rendu du document. Un PDF produit ici n'en porte
- * aucun : `displayHeaderFooter` vaut `false` par défaut.
+ * sont ajoutés après le rendu du document. Un PDF produit ici ne porte que le
+ * pied qu'on lui donne : la référence et « Page n / N ».
  *
  * La page est rendue par un navigateur sans interface, avec la session de
  * l'appelant : les gardes d'accès des pages s'appliquent donc telles quelles.
@@ -62,12 +63,9 @@ export async function GET(
       path: '/',
     }])
     const page = await context.newPage()
-    await page.goto(`${base}${chemin}`, { waitUntil: 'networkidle' })
-    // La feuille imprimable est rendue par la page elle-même ; on laisse les
-    // polices se poser avant de capturer.
-    await page.waitForTimeout(400)
+    await chargerFeuille(page, `${base}${chemin}`)
 
-    const pdf = await page.pdf({ format: 'A4', printBackground: true })
+    const pdf = await rendrePdf(page, order.reference)
 
     return new NextResponse(new Uint8Array(pdf), {
       headers: {

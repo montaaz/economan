@@ -2,7 +2,7 @@ import * as React from 'react'
 import type { Metadata } from 'next'
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
-import { ArrowLeft, Printer, ListRestart } from 'lucide-react'
+import { Printer, ListRestart } from 'lucide-react'
 import { executeGraphQL } from '@/server/graphql/execute'
 import { requireEmployeeDepartment } from '@/server/auth/guards'
 import { GlassCard, Badge, TableWrap, Th, Td, Button } from '@/components/ui/glass'
@@ -13,6 +13,7 @@ import { ReceptionPanel } from './reception-panel'
 import { OrderLines } from './order-lines'
 import { OrderDates } from '@/components/orders/order-dates'
 import { PrintButton } from '@/components/ui/print-button'
+import { BackLink } from '@/components/ui/back-link'
 
 export const metadata: Metadata = { title: 'Commande' }
 export const dynamic = 'force-dynamic'
@@ -53,6 +54,7 @@ const QUERY = /* GraphQL */ `
         quantityServed: quantityServedTotal
         status
         rejectReason
+        rang
       }
     }
     # La feuille du département, dans son ordre. Tant que la commande est
@@ -174,13 +176,7 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
   return (
     <>
       <div className="no-print mb-4 flex flex-wrap items-center justify-between gap-3">
-        <Link
-          href="/employe"
-          className="inline-flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-[0.83rem] font-medium text-fg-muted transition-colors hover:bg-[rgb(var(--glass-edge)/0.14)] hover:text-fg"
-        >
-          <ArrowLeft className="size-4" />
-          Commandes du service
-        </Link>
+        <BackLink href="/employe" className="mb-0">Retour</BackLink>
         <div className="flex items-center gap-2">
           {/* Une ligne se corrige sur place, au crayon, dans le tableau : le
               bouton global obligeait à rouvrir cent lignes pour un chiffre.

@@ -3,7 +3,7 @@
 import * as React from 'react'
 import { useRouter } from 'next/navigation'
 import { Check, Loader2, MessageSquareWarning, Pencil, Search, X } from 'lucide-react'
-import { EmptyState, TableWrap, Th, Td } from '@/components/ui/glass'
+import { EmptyState, TableWrap, Th, Td, usePending } from '@/components/ui/glass'
 import { FilterBadge, FilterReset } from '@/components/ui/filter-badge'
 import { FamilyBand, countByFamily } from '@/components/ui/family-band'
 import { useToast } from '@/components/ui/toast'
@@ -23,6 +23,8 @@ export type OrderLine = {
   quantityServed: number | null
   status: 'PENDING' | 'VALIDATED' | 'ADJUSTED' | 'REJECTED'
   rejectReason: string | null
+  /** Numéro de la ligne sur le ticket, donné par le serveur. */
+  rang?: number
 }
 
 const UPDATE = /* GraphQL */ `
@@ -52,6 +54,8 @@ export function OrderLines({
   const { push } = useToast()
 
   const [search, setSearch] = React.useState('')
+
+  const [gesteEnCours, runGeste] = usePending()
   const [famille, setFamille] = React.useState<string | null>(null)
   // Filtre par état : voir d'un coup les articles non livrés ou servis en
   // quantité différente, sans les chercher un à un dans la feuille.
@@ -61,7 +65,7 @@ export function OrderLines({
   // renumérote les lignes de 1 à n, et « l'article 87 » ne désignerait plus
   // rien entre deux écrans. On le calcule donc avant tout filtrage.
   const numerotees = React.useMemo(
-    () => lines.map((l, i) => ({ ...l, rang: i + 1 })),
+    () => lines.map((l, i) => ({ ...l, rang: l.rang || i + 1 })),
     [lines],
   )
 
@@ -399,8 +403,8 @@ export function OrderLines({
                       <span className="inline-flex items-center gap-1">
                         <button
                           type="button"
-                          disabled={busy}
-                          onClick={() => void enregistrer(l)}
+                          disabled={busy || gesteEnCours}
+                          onClick={() => void runGeste(() => enregistrer(l))}
                           aria-label={`Enregistrer ${l.productName}`}
                           title="Enregistrer"
                           className="grid size-8 place-items-center rounded-lg bg-ok text-white transition-colors hover:bg-ok/85 disabled:opacity-60"

@@ -232,6 +232,31 @@ body::before {
   animation: rise 0.42s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
+/* Une carte qui se désagrège : ses pixels s'envolent chacun de leur côté,
+   puis la carte n'est plus là. */
+@keyframes dust {
+  0% { opacity: 1; transform: none; }
+  100% { opacity: 0; transform: translate(var(--dx), var(--dy)) rotate(var(--r)) scale(0.2); }
+}
+@keyframes fade-out {
+  to { opacity: 0; }
+}
+@utility animate-dust {
+  animation: dust 0.75s cubic-bezier(0.3, 0.6, 0.4, 1) both;
+}
+@utility animate-fade-out {
+  animation: fade-out 0.25s ease-out both;
+}
+
+/* Le temps qui reste avant qu'un avertissement se ferme seul. */
+@keyframes deplete {
+  from { transform: scaleX(1); }
+  to { transform: scaleX(0); }
+}
+@utility animate-deplete {
+  animation: deplete 5s linear both;
+}
+
 @utility skeleton {
   background: linear-gradient(
     90deg,
@@ -300,6 +325,22 @@ body::before {
   -webkit-overflow-scrolling: touch;
 }
 
+/**
+ * Relecture avant le bon : la barre des services se retire.
+ *
+ * Changer de rayon au milieu d'une vérification ferait perdre le fil, et la
+ * barre vit au-dessus du formulaire qui porte cet état — d'où cette marque
+ * posée sur le document plutôt qu'un état remonté d'un cran.
+ */
+body[data-relecture] [data-barre-services] {
+  display: none;
+}
+
+/* Un seul rayon à l'écran pendant sa relecture : les autres se retirent. */
+body[data-relecture] [data-rayon]:not([data-relu]) {
+  display: none;
+}
+
 /* ------------------------------------------------------------------ a11y */
 
 :where(a, button, input, select, textarea, [tabindex]):focus-visible {
@@ -315,7 +356,19 @@ body::before {
      pagination — ne se suppriment PAS en CSS : ils dépendent de la case
      « En-têtes et pieds de page » de la boîte d'impression. Il faut la
      décocher, ou passer par « Enregistrer au format PDF ». */
-  @page { margin: 12mm; size: A4; }
+  @page {
+    margin: 12mm 12mm 16mm;
+    size: A4;
+    /* « Page n / N » en pied : lu par les navigateurs qui composent les
+       boîtes de marge (Chrome récent) ; les autres l'ignorent sans dommage.
+       Les PDF rendus côté serveur portent le même pied, par le moteur PDF. */
+    @bottom-right {
+      content: "Page " counter(page) " / " counter(pages);
+      font-family: system-ui, sans-serif;
+      font-size: 8.5pt;
+      color: #4a5f7d;
+    }
+  }
 
   body::before { display: none; }
   body { background: #fff; }

@@ -29,6 +29,8 @@ export default async function RefillSheetPage({
         include: {
           department: { select: { name: true, code: true } },
           createdBy: { select: { fullName: true } },
+          // Toutes les lignes du ticket, pour reprendre leur numéro.
+          lines: { select: { id: true }, orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] },
         },
       },
       // Les autres passages de la même ligne : le reste annoncé doit tenir
@@ -47,6 +49,7 @@ export default async function RefillSheetPage({
   })
   if (!refill) notFound()
 
+  const rangDe = new Map(refill.order.lines.map((l, i) => [l.id, i + 1]))
   const lines = refill.lines
     .slice()
     .sort((a, b) => a.orderLine.sortOrder - b.orderLine.sortOrder)
@@ -68,6 +71,7 @@ export default async function RefillSheetPage({
         firstServed: Number(ol.quantityServed ?? 0),
         quantity: Number(l.quantity),
         remaining: Math.max(Number(ol.quantityAsked) - sorti, 0),
+        rang: rangDe.get(l.orderLineId) ?? 0,
       }
     })
 

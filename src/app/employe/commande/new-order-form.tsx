@@ -6,6 +6,7 @@ import { Search, Send, Trash2, PackageSearch, ListChecks, Save } from 'lucide-re
 import { GlassCard, Button, EmptyState, TableWrap, Th, Td } from '@/components/ui/glass'
 import { Icon } from '@/components/ui/icon'
 import { useToast } from '@/components/ui/toast'
+import { useConfirm } from '@/components/ui/confirm'
 import { gql, errorMessage } from '@/lib/graphql-client'
 import { cn, formatLongDate, formatQty, toNumber } from '@/lib/utils'
 import { useDraft } from './use-draft'
@@ -47,13 +48,30 @@ const SUBMIT = /* GraphQL */ `
   }
 `
 
+const SUBMIT_URGENT = /* GraphQL */ `
+  mutation SubmitUrgent($departmentId: ID!, $lines: [OrderLineInput!]!, $note: String) {
+    submitUrgentOrder(departmentId: $departmentId, lines: $lines, note: $note) {
+      id
+      reference
+      ticketNumber
+      lineCount
+    }
+  }
+`
+
 export function NewOrderForm({
-  products, departmentName, userName, businessDay, editing,
+  products, departmentName, userName, businessDay, editing, urgent,
 }: {
   products: CatalogProduct[]
   departmentName: string
   userName: string
   businessDay: string
+  /**
+   * Commande urgente de l'administration : la même feuille, le même geste,
+   * mais passée pour un département choisi et signalée partout. Le ticket
+   * s'ouvre ensuite dans l'espace de l'administration.
+   */
+  urgent?: { departmentId: string }
   /**
    * Commande en cours de correction. Le même formulaire sert aux deux cas :
    * l'employé recompte toute sa feuille, la seule différence est la mutation
@@ -69,6 +87,12 @@ export function NewOrderForm({
 }) {
   const router = useRouter()
   const { push } = useToast()
+  const confirmer = useConfirm()
+  // Un refus se lit au centre de l'écran, comme à l'économat : la boîte se
+  // ferme d'elle-même après quelques secondes, ou d'un clic sur OK ou la croix.
+  const refuser = (title: string, message: string) => {
+    void confirmer({ title, message, single: true, tone: 'danger', autoClose: 6000 })
+  }
 
   const [search, setSearch] = React.useState('')
   const [activeCategory, setActiveCategory] = React.useState<string | null>(null)
@@ -133,9 +157,12 @@ export function NewOrderForm({
     [onHand],
   )
 
+  // En urgence, une case vide veut dire « pas commandé » : on ne fait pas
+  // recompter toute la feuille pour sortir trois articles tout de suite. La
+  // commande ordinaire, elle, garde sa règle — chaque ligne répondue.
   const missing = React.useMemo(
-    () => products.filter((p) => !isFilled(p.id)),
-    [products, isFilled],
+    () => (urgent ? [] : products.filter((p) => !isFilled(p.id))),
+    [products, isFilled, urgent],
   )
 
   /** Les lignes qui partiront réellement : celles dont l'écart est positif. */
@@ -165,7 +192,7 @@ export function NewOrderForm({
       && product.stockFixe > 0
       && Number(normalised) > product.stockFixe
     ) {
-      push('error',
+      refuser('Quantité impossible',
         `${product.name} : stock fixe de ${formatQty(product.stockFixe)} `
         + `${product.baseUnit.symbol}, un rayon ne peut pas en contenir davantage.`)
       return
@@ -207,7 +234,7 @@ export function NewOrderForm({
       // avant qu'on y saute : toutes les lignes sont sinon déjà là.
       setSearch('')
       setActiveCategory(null)
-      push('error', `${missing.length} ligne(s) non renseignée(s). Saisissez 0 si vous ne commandez rien.`)
+      refuser('Lignes non renseignées', `${missing.length} ligne(s) non renseignée(s). Saisissez 0 si vous ne commandez rien.`)
       requestAnimationFrame(() =>
         requestAnimationFrame(() => {
           const el = inputRefs.current[first.id]
@@ -219,10 +246,7 @@ export function NewOrderForm({
     }
 
     if (selected.length === 0) {
-      push(
-        'error',
-        'Vos stocks couvrent déjà le stock fixe — il n’y a rien à commander.',
-      )
+      refuser('Rien à commander', 'Vos stocks couvrent déjà le stock fixe — il n’y a rien à commander.')
       return
     }
 
@@ -238,9 +262,13 @@ export function NewOrderForm({
         ? (await gql<{ updateOrder: Resultat }>(UPDATE, {
             id: editing.id, lines, note: note.trim() || null,
           })).updateOrder
-        : (await gql<{ submitOrder: Resultat }>(SUBMIT, {
-            lines, note: note.trim() || null,
-          })).submitOrder
+        : urgent
+          ? (await gql<{ submitUrgentOrder: Resultat }>(SUBMIT_URGENT, {
+              departmentId: urgent.departmentId, lines, note: note.trim() || null,
+            })).submitUrgentOrder
+          : (await gql<{ submitOrder: Resultat }>(SUBMIT, {
+              lines, note: note.trim() || null,
+            })).submitOrder
 
       // La commande est partie : garder le brouillon la ferait revenir sur la
       // feuille suivante.
@@ -249,12 +277,14 @@ export function NewOrderForm({
         'success',
         editing
           ? `Commande ${o.reference} modifiée — ${o.lineCount} article(s).`
-          : `Commande ${o.reference} envoyée — ticket n°${o.ticketNumber}, ${o.lineCount} article(s).`,
+          : urgent
+            ? `Commande urgente ${o.reference} passée — ticket n°${o.ticketNumber}, ${o.lineCount} article(s).`
+            : `Commande ${o.reference} envoyée — ticket n°${o.ticketNumber}, ${o.lineCount} article(s).`,
       )
-      router.push(`/employe/commandes/${o.id}`)
+      router.push(urgent ? `/admin/commandes/${o.id}` : `/employe/commandes/${o.id}`)
       router.refresh()
     } catch (error) {
-      push('error', errorMessage(error))
+      refuser('Commande refusée', errorMessage(error))
     } finally {
       setSubmitting(false)
     }
@@ -264,6 +294,34 @@ export function NewOrderForm({
 
   return (
     <GlassCard overflowVisible>
+      {/* Urgence : le bouton d'envoi reste sous les yeux pendant qu'on
+          descend la feuille — on sort ce qu'il faut et on envoie, sans
+          revenir en bas de cent lignes. Bleu, comme un geste d'envoi
+          ordinaire ; le bordeaux reste au ticket qui en sortira. */}
+      {urgent ? (
+        // Fixé juste sous la barre « Economman » (h-14), pas collant dans la
+        // carte : collé, il passait sous l'en-tête dès qu'on descendait. Sur
+        // grand écran il commence à droite de la barre latérale.
+        <div className="no-print fixed inset-x-0 top-14 z-40 flex flex-wrap items-center justify-between gap-2 border-b border-[rgb(var(--glass-edge)/0.2)] bg-[var(--bg)]/92 px-3 py-2 shadow-[0_8px_20px_-14px_rgb(var(--shadow-ambient)/0.5)] backdrop-blur-xl sm:px-5 lg:left-[16.5rem] lg:px-7">
+          <p className="min-w-0 text-[0.83rem] text-fg-muted">
+            <strong className="text-fg">{selected.length}</strong> article{selected.length > 1 ? 's' : ''} à commander
+            <span className="hidden sm:inline"> · les lignes vides ne partent pas</span>
+          </p>
+          <Button
+            variant="primary"
+            size="md"
+            loading={submitting}
+            disabled={selected.length === 0}
+            onClick={submit}
+            className="shrink-0"
+          >
+            {!submitting ? <Send className="size-4" /> : null}
+            {submitting ? 'Envoi…' : 'Passer la commande'}
+          </Button>
+        </div>
+      ) : null}
+      {/* La barre fixée recouvre le haut de la carte : on lui laisse sa hauteur. */}
+      {urgent ? <div aria-hidden className="h-14" /> : null}
       {/* Cartouche de la feuille. La date est remontée près du titre ; elle
           reste imprimée ici, car la feuille sortie du bureau doit porter sa
           journée. */}
@@ -516,7 +574,12 @@ export function NewOrderForm({
 
         <div className="flex flex-wrap items-center justify-between gap-3">
           <p className={cn('text-[0.82rem] tabular-nums', missing.length > 0 ? 'text-fg-muted' : 'font-medium text-ok')}>
-            {missing.length > 0 ? (
+            {urgent ? (
+              <>
+                <strong className="text-fg">{filledCount}</strong> ligne(s) renseignée(s) ·{' '}
+                <strong className="text-fg">{selected.length}</strong> article(s) à commander — les lignes vides ne partent pas.
+              </>
+            ) : missing.length > 0 ? (
               <>
                 <strong className={showMissing ? 'text-danger' : 'text-fg'}>{filledCount}</strong>
                 {' / '}
@@ -540,7 +603,7 @@ export function NewOrderForm({
             {!submitting ? <Send className="size-4" /> : null}
             {submitting
               ? 'Envoi…'
-              : editing ? 'Enregistrer les modifications' : 'Envoyer la commande'}
+              : editing ? 'Enregistrer les modifications' : urgent ? 'Passer la commande' : 'Envoyer la commande'}
           </Button>
         </div>
       </div>

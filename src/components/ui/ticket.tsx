@@ -18,6 +18,8 @@ export type TicketLine = {
   receiptGap?: number
   status: 'PENDING' | 'VALIDATED' | 'ADJUSTED' | 'REJECTED'
   rejectReason: string | null
+  /** Numéro de la ligne sur le ticket, tel que l'écran l'affiche. */
+  rang?: number
 }
 
 export type TicketOrder = {
@@ -26,6 +28,8 @@ export type TicketOrder = {
   businessDay: string
   createdAt: string
   note: string | null
+  /** Commande urgente de l'administration : bandeau en tête du papier. */
+  isUrgent?: boolean
   department: { name: string; code: string }
   createdBy: { fullName: string }
   processedBy: { fullName: string } | null
@@ -73,21 +77,22 @@ export function Ticket({
   // et la numérotation ne correspondait plus à la feuille de l'employé.
   const retenues = order.lines
 
-  // Les lignes d'une commande sont figées à l'envoi : celles passées avant que
-  // les feuilles soient regroupées gardent leurs familles éparpillées. On les
-  // rassemble ici, sans toucher au ticket enregistré, en conservant l'ordre
-  // d'apparition de chaque famille et celui des articles à l'intérieur.
-  const ordreFamilles: string[] = []
-  for (const l of retenues) {
-    if (!ordreFamilles.includes(l.categoryName)) ordreFamilles.push(l.categoryName)
-  }
-  const lines = ordreFamilles.flatMap((c) => retenues.filter((l) => l.categoryName === c))
+  // L'ordre de l'écran, à la ligne près : celui de la feuille, tel que le
+  // serveur le numérote. Regrouper les familles ici déplaçait des lignes par
+  // rapport au tableau, et « l'article 16 » n'était plus le même des deux
+  // côtés du papier.
+  const lines = retenues
 
   // Le compte accompagne le nom, comme à l'écran : sur une feuille papier de
   // cent lignes, il dit d'un coup d'œil ce qu'il reste à pointer dans le bloc.
   const parFamille = countByFamily(lines)
   return (
     <div className="print-page bg-white p-5 text-[#0f1e33]">
+      {order.isUrgent ? (
+        <p className="mb-3 rounded-md border-2 border-[#8b1e2d] bg-[#8b1e2d] px-3 py-1.5 text-center text-[0.95rem] font-bold uppercase tracking-[0.12em] text-white">
+          Commande urgente — passée par {order.createdBy.fullName}
+        </p>
+      ) : null}
       <header className="mb-4 flex items-start justify-between gap-4 border-b-2 border-[#0f1e33] pb-3">
         <div>
           <p className="text-[1.25rem] font-bold leading-tight tracking-tight">
@@ -185,7 +190,7 @@ export function Ticket({
                 >
                   {/* La numérotation reste continue à travers les bandeaux :
                       c'est elle qui sert à pointer une ligne à voix haute. */}
-                  <td className="px-2 py-1 text-right tabular-nums text-[#4a5f7d]">{i + 1}</td>
+                  <td className="px-2 py-1 text-right tabular-nums text-[#4a5f7d]">{l.rang ?? i + 1}</td>
                   {/* La référence catalogue n'aide pas à sortir la marchandise :
                       le nom suffit, et la ligne reste lisible en rayon. */}
                   <td className="px-2 py-1 font-medium">

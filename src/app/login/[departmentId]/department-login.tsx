@@ -1,5 +1,6 @@
 'use client'
 
+import { DEV_PASSWORD } from '@/lib/dev-login'
 import * as React from 'react'
 import { useActionState } from 'react'
 import { useFormStatus } from 'react-dom'
@@ -170,6 +171,7 @@ function LoginForm({ user, onBack }: { user: U; onBack?: () => void }) {
                 required
                 autoFocus={!user.hasPasskey}
                 placeholder="••••••••"
+                defaultValue={DEV_PASSWORD}
                 className="field pr-11"
               />
               <button

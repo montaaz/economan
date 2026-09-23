@@ -1,5 +1,6 @@
 'use client'
 
+import { DEV_PASSWORD, devUsername } from '@/lib/dev-login'
 import * as React from 'react'
 import { useActionState } from 'react'
 import { useFormStatus } from 'react-dom'
@@ -61,6 +62,7 @@ export function StaffLogin({
               required
               autoFocus
               placeholder={role === 'ADMIN' ? 'admin' : 'economat'}
+              defaultValue={devUsername(role)}
               className="field"
             />
           </Field>
@@ -74,6 +76,7 @@ export function StaffLogin({
                 autoComplete="current-password"
                 required
                 placeholder="••••••••"
+                defaultValue={DEV_PASSWORD}
                 className="field pr-11"
               />
               <button

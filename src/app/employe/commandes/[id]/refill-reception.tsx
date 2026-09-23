@@ -8,6 +8,8 @@ import { FamilyBand, countByFamily } from '@/components/ui/family-band'
 import { useToast } from '@/components/ui/toast'
 import { gql, errorMessage } from '@/lib/graphql-client'
 import { cn, formatInstantDate, formatQty, formatTime } from '@/lib/utils'
+import { correspond, normaliser } from '@/lib/search'
+import { SearchField } from '@/components/ui/search-field'
 
 export type RefillView = {
   id: string
@@ -29,6 +31,8 @@ export type RefillView = {
     quantity: number
     remaining: number
     rejectReason: string | null
+    /** Numéro de la ligne sur le ticket d'origine. */
+    rang: number
   }[]
 }
 
@@ -52,10 +56,15 @@ export function RefillReception({ orderId, refill }: { orderId: string; refill: 
   const [busy, setBusy] = React.useState(false)
   const [note, setNote] = React.useState('')
 
-  const affichees = React.useMemo(
-    () => refill.lines.map((l, i) => ({ ...l, rang: i + 1 })),
-    [refill.lines],
-  )
+  // Le numéro du ticket, pas la position dans ce bon : « ligne 47 » désigne
+  // le même article sur la commande, sur ce servi et sur le papier.
+  const [recherche, setRecherche] = React.useState('')
+  const affichees = React.useMemo(() => {
+    const mot = normaliser(recherche)
+    return refill.lines
+      .map((l, i) => ({ ...l, rang: l.rang || i + 1 }))
+      .filter((l) => correspond(mot, l.productName, l.productRef, l.categoryName))
+  }, [refill.lines, recherche])
   const parFamille = React.useMemo(() => countByFamily(affichees), [affichees])
 
   const confirmer = async () => {
@@ -136,6 +145,8 @@ export function RefillReception({ orderId, refill }: { orderId: string; refill: 
           </div>
         ) : null}
 
+        <SearchField value={recherche} onChange={setRecherche} className="max-w-md" />
+
         <TableWrap minWidth="52rem">
           <thead>
             <tr>
@@ -156,6 +167,13 @@ export function RefillReception({ orderId, refill }: { orderId: string; refill: 
             </tr>
           </thead>
           <tbody className="divide-y divide-[rgb(var(--glass-edge)/0.12)]">
+            {affichees.length === 0 ? (
+              <tr>
+                <td colSpan={8} className="px-4 py-6 text-center text-[0.85rem] text-fg-muted">
+                  Aucun article ne correspond à « {recherche} ».
+                </td>
+              </tr>
+            ) : null}
             {affichees.map((l, i) => {
               const solde = l.remaining === 0
               const ouvre = i === 0 || affichees[i - 1].categoryName !== l.categoryName

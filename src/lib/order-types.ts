@@ -24,7 +24,11 @@ export type ProcessLine = {
   /** Ce qu'il reste à servir, tous passages confondus. */
   remaining: number
   status: LineStatus
+  /** L'état du premier servi seul, avant tout complément. */
+  initialStatus: LineStatus
   rejectReason: string | null
+  /** Numéro de la ligne sur le ticket : le même partout, écran et papier. */
+  rang: number
 }
 
 export type ProcessOrder = {
@@ -34,6 +38,8 @@ export type ProcessOrder = {
   businessDay: string
   status: 'PENDING' | 'ACCEPTED' | 'DELIVERED' | 'RECEIVED' | 'CANCELLED'
   note: string | null
+  /** Commande urgente de l'administration. */
+  isUrgent?: boolean
   createdAt: string
   // Les heures de passage d'une étape à l'autre : « le bon est parti quand ? »
   // est la question qu'on pose en rouvrant une commande traitée.
@@ -52,6 +58,8 @@ export type ProcessOrder = {
     id: string
     rank: number
     receivedAt: string | null
+    /** Quand son bon de livraison a été émis ; nul s'il n'est qu'enregistré. */
+    deliveredAt: string | null
     receivedBy: { fullName: string } | null
   }[]
   lineCount: number

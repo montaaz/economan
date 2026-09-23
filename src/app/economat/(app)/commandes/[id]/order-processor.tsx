@@ -3,8 +3,8 @@
 import * as React from 'react'
 import { useRouter } from 'next/navigation'
 import {
-  Check, Ban, Pencil, Printer, Truck, PackageOpen, Save, RotateCcw, Undo2,
-  MessageSquareWarning,
+  Check, Ban, Pencil, Printer, Truck, PackageOpen, RotateCcw, Undo2,
+  MessageSquareWarning, Siren,
 } from 'lucide-react'
 import { GlassCard, Button, Badge, TableWrap, Th, Td } from '@/components/ui/glass'
 import { FamilyBand, countByFamily } from '@/components/ui/family-band'
@@ -14,6 +14,8 @@ import { Icon } from '@/components/ui/icon'
 import { useToast } from '@/components/ui/toast'
 import { useConfirm } from '@/components/ui/confirm'
 import { StatusBadge } from '@/components/ui/status'
+import { SearchField } from '@/components/ui/search-field'
+import { correspond, normaliser } from '@/lib/search'
 import { ticketVariant } from '@/components/ui/ticket'
 import { PrintButton } from '@/components/ui/print-button'
 import { gql, errorMessage } from '@/lib/graphql-client'
@@ -32,6 +34,11 @@ const SET_LINES = /* GraphQL */ `
   }
 `
 const DELIVER = /* GraphQL */ `mutation Deliver($id: ID!) { deliverOrder(id: $id) { id status } }`
+const CANCEL_SERVICE = /* GraphQL */ `
+  mutation CancelService($id: ID!, $rank: Int!) {
+    cancelService(id: $id, rank: $rank) { id status }
+  }
+`
 
 type Draft = { status: LineStatus; served: string; reason: string }
 
@@ -62,6 +69,48 @@ export function OrderProcessor({ order }: { order: ProcessOrder }) {
   // État local des lignes : l'économe coche au fur et à mesure, on n'envoie
   // au serveur qu'à l'enregistrement ou à la livraison.
   const [draft, setDraft] = React.useState<Record<string, Draft>>(initial)
+
+  /**
+   * La feuille vierge : toutes les lignes en attente, rien de servi.
+   *
+   * Elle ne dépend pas de ce que le serveur a envoyé, contrairement à
+   * `initial()` : après avoir effacé le service, l'écran doit se vider tout
+   * de suite, sans attendre que les données rechargées lui apprennent ce
+   * qu'il vient lui-même de demander.
+   */
+  const vierge = React.useCallback(
+    (): Record<string, Draft> =>
+      Object.fromEntries(
+        order.lines.map((l) => [
+          l.id,
+          { status: 'PENDING' as LineStatus, served: String(l.quantityAsked), reason: '' },
+        ]),
+      ),
+    [order.lines],
+  )
+
+  /**
+   * Resynchronise l'écran quand le serveur a changé les lignes.
+   *
+   * L'état local est saisi ici et n'est envoyé qu'à l'enregistrement : le
+   * recharger à chaque rendu écraserait la saisie en cours. Mais après un
+   * « Tout réinitialiser » ou une acceptation annulée, la base ne porte plus
+   * rien et l'écran gardait les anciennes quantités — le bouton semblait
+   * alors ne rien faire. On se recale donc sur la signature des lignes
+   * enregistrées : elle ne bouge que lorsque le serveur, lui, a bougé.
+   */
+  const signature = React.useMemo(
+    () => order.lines
+      .map((l) => `${l.id}:${l.status}:${l.quantityServed ?? ''}:${l.rejectReason ?? ''}`)
+      .join('|'),
+    [order.lines],
+  )
+  const derniereSignature = React.useRef(signature)
+  React.useEffect(() => {
+    if (derniereSignature.current === signature) return
+    derniereSignature.current = signature
+    setDraft(initial())
+  }, [signature, initial])
 
   const open = order.status === 'ACCEPTED'
   const closed = order.status === 'DELIVERED' || order.status === 'RECEIVED'
@@ -111,16 +160,19 @@ export function OrderProcessor({ order }: { order: ProcessOrder }) {
   // de 1 à n une liste filtrée ferait que « l'article 16 » ne désignerait plus
   // la même chose d'un écran à l'autre.
   const numerotees = React.useMemo(
-    () => lignes.map((l, i) => ({ ...l, rang: i + 1 })),
+    () => lignes.map((l, i) => ({ ...l, rang: l.rang || i + 1 })),
     [lignes],
   )
 
-  const affichees = React.useMemo(
-    () => (filtre === null
-      ? numerotees
-      : numerotees.filter((l) => (draft[l.id]?.status ?? 'PENDING') === filtre)),
-    [numerotees, draft, filtre],
-  )
+  // Chercher un article par son nom ou sa référence : sur cent lignes, on
+  // ne descend pas la feuille pour en pointer une.
+  const [recherche, setRecherche] = React.useState('')
+  const affichees = React.useMemo(() => {
+    const mot = normaliser(recherche)
+    return numerotees.filter((l) =>
+      (filtre === null || (draft[l.id]?.status ?? 'PENDING') === filtre)
+      && correspond(mot, l.productName, l.productRef, l.categoryName))
+  }, [numerotees, draft, filtre, recherche])
 
   const counts = React.useMemo(() => {
     let validated = 0
@@ -160,6 +212,31 @@ export function OrderProcessor({ order }: { order: ProcessOrder }) {
         }
       })
 
+  // Ce qu'on saisit s'enregistre tout seul, un instant après la dernière
+  // frappe : l'économe peut quitter la page et revenir sans rien perdre, et
+  // n'a plus de bouton à penser à cliquer. Rien ne part tant qu'une action
+  // (émettre, annuler l'acceptation) est en cours, ni si rien n'a changé.
+  const dernierEnvoi = React.useRef<string>('')
+  React.useEffect(() => {
+    if (!open || busy) return
+    const lines = payload()
+    const cle = JSON.stringify(lines)
+    // Au premier passage, l'écran montre ce que le serveur a déjà : rien à envoyer.
+    if (dernierEnvoi.current === '') { dernierEnvoi.current = cle; return }
+    if (lines.length === 0 || cle === dernierEnvoi.current) return
+    const t = window.setTimeout(async () => {
+      try {
+        await gql(SET_LINES, { id: order.id, lines })
+        dernierEnvoi.current = cle
+      } catch {
+        // Une saisie qui ne s'enregistre pas reste à l'écran : l'émission du
+        // bon la renverra, et dira alors ce qui ne va pas.
+      }
+    }, 900)
+    return () => window.clearTimeout(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draft, open, busy])
+
   const call = async (label: string, fn: () => Promise<unknown>, success: string) => {
     setBusy(label)
     try {
@@ -173,32 +250,53 @@ export function OrderProcessor({ order }: { order: ProcessOrder }) {
     }
   }
 
-  const accept = () =>
-    call('accept', () => gql(ACCEPT, { id: order.id }), 'Commande acceptée — vous pouvez la servir.')
+  // Accepter engage l'économat : la commande passe en préparation et le
+  // département ne peut plus la modifier. On le demande avant. La croix et
+  // « Annuler » ferment la question sans rien faire.
+  const accept = async () => {
+    const ok = await confirmer({
+      title: 'Accepter cette commande ?',
+      message: `${order.reference} passera en préparation : le département ne pourra plus la modifier, et vous pourrez servir ses ${order.lines.length} article(s).`,
+      confirmLabel: 'OK',
+      tone: 'info',
+    })
+    if (!ok) return
+    await call('accept', () => gql(ACCEPT, { id: order.id }), 'Commande acceptée — vous pouvez la servir.')
+  }
 
   // Rendre la commande au département. La préparation déjà saisie est perdue :
   // on le dit avant, pas après.
   const cancelAccept = async () => {
     const dejaTraitees = order.lines.length - counts.pending
+    // Rouverte par l'administration après livraison : le bon émis et les
+    // servis complémentaires partent avec l'acceptation. On le dit en clair.
+    const rouverte = !!order.deliveredAt
+    const nbServis = order.refills.length
     const ok = await confirmer({
       title: 'Annuler l’acceptation ?',
-      message: dejaTraitees > 0
+      message: (dejaTraitees > 0
         ? `La commande repassera en attente et ${dejaTraitees} ligne(s) déjà traitée(s) seront `
-          + 'remises à zéro. Le département pourra de nouveau la modifier.'
-        : 'La commande repassera en attente. Le département pourra de nouveau la modifier.',
+          + 'remises à zéro.'
+        : 'La commande repassera en attente.')
+        + (rouverte
+          ? ` Le bon de livraison déjà émis sera annulé${nbServis > 0 ? ` et ${nbServis === 1 ? 'son servi complémentaire sera supprimé' : `ses ${nbServis} servis complémentaires seront supprimés`}` : ''}.`
+          : '')
+        + ' Le département pourra de nouveau la modifier.',
       confirmLabel: 'Rendre au département',
       tone: 'danger',
     })
     if (!ok) return
     await call(
       'cancel',
-      () => gql(CANCEL_ACCEPT, { id: order.id }),
-      'Commande rendue au département — elle est de nouveau en attente.',
+      async () => {
+        await gql(CANCEL_ACCEPT, { id: order.id })
+        // Le serveur a remis les lignes en attente : l'écran se vide dans la
+        // foulée, sans attendre le rechargement.
+        setDraft(vierge())
+      },
+      'Commande rendue au département — le service est effacé.',
     )
   }
-
-  const save = () =>
-    call('save', () => gql(SET_LINES, { id: order.id, lines: payload() }), 'Lignes enregistrées.')
 
   const deliver = async () => {
     // Rien ne part tant qu'une ligne n'a pas été vue. Plutôt que de refuser en
@@ -218,6 +316,32 @@ export function OrderProcessor({ order }: { order: ProcessOrder }) {
       return
     }
 
+    /**
+     * Émettre le bon fige la commande : passé ce point, plus personne ne
+     * corrige une quantité ni ne retire un article. L'économe doit le savoir
+     * avant, pas le découvrir après — d'où cet avertissement à lire, sans
+     * autre issue que de le valider.
+     */
+    const lu = await confirmer({
+      title: 'Bon de livraison',
+      single: true,
+      tone: 'info',
+      confirmLabel: 'OK',
+      icon: <Truck className="size-6" />,
+      message: (
+        <>
+          <p className="font-semibold text-fg">
+            La commande sera effectuée avec succès.
+          </p>
+          <p className="mt-2">
+            Ensuite, vous n’aurez plus le droit de modifier ni de supprimer aucun
+            article : la commande sera bloquée.
+          </p>
+        </>
+      ),
+    })
+    if (!lu) return
+
     // On pousse les lignes travaillées avant de livrer : sinon le bon partirait
     // sans les ajustements saisis à l'écran.
     setBusy('deliver')
@@ -235,40 +359,74 @@ export function OrderProcessor({ order }: { order: ProcessOrder }) {
   }
 
   /**
-   * Rend toutes les lignes à leur état enregistré.
+   * Efface tout le service de la commande et rend la feuille vierge.
    *
-   * Utile après avoir coché de travers sur 72 lignes : les reprendre une à une
-   * avec le bouton de chaque ligne serait interminable.
+   * Deux situations, et une seule intention : repartir de zéro. Tant que
+   * rien n'est enregistré, il suffit de rendre l'écran à son état de départ.
+   * Dès qu'il y a du servi en base, le rendre aussi : sinon le bouton ne
+   * faisait rien sur une feuille déjà enregistrée — ce que l'économe lisait
+   * comme une panne, puisque les quantités restaient à l'écran.
    */
   const resetAll = async () => {
+    const enregistre = order.lines.some(
+      (l) => l.status !== 'PENDING' || l.quantityServed !== null,
+    )
     const touchees = order.lines.filter((l) => {
       const d = draft[l.id]
       const ref = l.quantityServed === null ? String(l.quantityAsked) : String(l.quantityServed)
       return d?.status !== l.status || d?.served !== ref || d?.reason !== (l.rejectReason ?? '')
     }).length
 
-    if (touchees === 0) return
+    if (touchees === 0 && !enregistre) {
+      push('info', 'Rien à réinitialiser : aucune ligne n’a été traitée.')
+      return
+    }
 
+    const traitees = order.lines.filter((l) => l.status !== 'PENDING').length
     const ok = await confirmer({
       title: 'Tout réinitialiser',
       confirmLabel: 'Réinitialiser',
-      tone: 'warn',
-      message: (
+      tone: enregistre ? 'danger' : 'warn',
+      message: enregistre ? (
         <>
           <p>
-            Annuler vos {touchees} modification{touchees > 1 ? 's' : ''} en cours et revenir
-            à l’état enregistré ?
+            Effacer le service de cette commande ? Les {traitees} ligne
+            {traitees > 1 ? 's' : ''} traitée{traitees > 1 ? 's' : ''} redeviennent en attente,
+            et les quantités servies sont perdues.
           </p>
           <p className="mt-2 text-[0.82rem] text-fg-subtle">
-            Ce qui a déjà été enregistré est conservé.
+            La commande reste ouverte : vous pouvez la servir de nouveau.
           </p>
         </>
+      ) : (
+        <p>
+          Annuler vos {touchees} modification{touchees > 1 ? 's' : ''} en cours et revenir
+          à la feuille vierge ?
+        </p>
       ),
     })
     if (!ok) return
 
-    setDraft(initial())
-    push('success', 'Lignes réinitialisées.')
+    // Rien en base : l'écran seul suffit, sans aller-retour serveur.
+    if (!enregistre) {
+      setDraft(initial())
+      push('success', 'Lignes réinitialisées.')
+      return
+    }
+
+    setBusy('reset')
+    try {
+      // Le rang 1 est le service initial : celui porté par les lignes de la
+      // commande. Le serveur les rend à l'attente et efface les quantités.
+      await gql(CANCEL_SERVICE, { id: order.id, rank: 1 })
+      setDraft(vierge())
+      push('success', 'Service effacé — toutes les lignes sont de nouveau en attente.')
+      router.refresh()
+    } catch (e) {
+      push('error', errorMessage(e))
+    } finally {
+      setBusy(null)
+    }
   }
 
   /** Tout valider d'un coup : le cas d'une commande servie telle quelle. */
@@ -285,7 +443,7 @@ export function OrderProcessor({ order }: { order: ProcessOrder }) {
   return (
     <div className="space-y-4">
       {/* En-tête */}
-      <GlassCard>
+      <GlassCard className={order.isUrgent ? 'border-2 border-[#8b1e2d] shadow-[0_0_0_3px_rgb(139_30_45/0.16)]' : undefined}>
         <div className="flex flex-wrap items-start justify-between gap-3 border-b border-[rgb(var(--glass-edge)/0.16)] px-4 py-3.5 sm:px-5">
           <div className="flex min-w-0 items-center gap-3">
             <span
@@ -308,7 +466,15 @@ export function OrderProcessor({ order }: { order: ProcessOrder }) {
               </p>
             </div>
           </div>
-          <StatusBadge status={order.status} />
+          <span className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
+            {order.isUrgent ? (
+              <span className="inline-flex items-center gap-1 rounded-full bg-[#8b1e2d] px-2.5 py-1 text-[0.72rem] font-bold uppercase tracking-wide text-white">
+                <Siren className="size-3.5" aria-hidden="true" />
+                Urgent — {order.createdBy.fullName}
+              </span>
+            ) : null}
+            <StatusBadge status={order.status} />
+          </span>
         </div>
 
         {/* Les quatre moments de la commande, nommés : « 23:12 » seul ne dit
@@ -378,6 +544,10 @@ export function OrderProcessor({ order }: { order: ProcessOrder }) {
           </p>
         ) : null}
 
+        <div className="no-print border-t border-[rgb(var(--glass-edge)/0.16)] px-4 py-3 sm:px-5">
+          <SearchField value={recherche} onChange={setRecherche} className="max-w-md" />
+        </div>
+
         {/* Actions */}
         <div className="flex flex-wrap items-center gap-2 border-t border-[rgb(var(--glass-edge)/0.16)] px-4 py-3 sm:px-5">
           {/* Rien ne s'imprime avant l'acceptation : un ticket sorti d'une
@@ -428,13 +598,14 @@ export function OrderProcessor({ order }: { order: ProcessOrder }) {
                 <Check className="size-3.5" />
                 Tout valider
               </Button>
-              <Button variant="ghost" size="sm" onClick={() => void resetAll()}>
+              <Button
+                variant="ghost"
+                size="sm"
+                loading={busy === 'reset'}
+                onClick={() => void resetAll()}
+              >
                 <RotateCcw className="size-3.5" />
                 Tout réinitialiser
-              </Button>
-              <Button variant="secondary" size="sm" loading={busy === 'save'} onClick={save}>
-                {busy !== 'save' ? <Save className="size-3.5" /> : null}
-                Enregistrer
               </Button>
               {/* Émettre engage : le bon part au département et la commande
                   n'est plus modifiable. Tant qu'une ligne n'a pas été vue, le
@@ -452,7 +623,7 @@ export function OrderProcessor({ order }: { order: ProcessOrder }) {
                 }
               >
                 {busy !== 'deliver' ? <Truck className="size-4" /> : null}
-                Émettre le bon de livraison
+                bon de livraison
               </Button>
             </>
           ) : null}
@@ -493,6 +664,13 @@ export function OrderProcessor({ order }: { order: ProcessOrder }) {
             </tr>
           </thead>
           <tbody className="divide-y divide-[rgb(var(--glass-edge)/0.12)]">
+            {affichees.length === 0 ? (
+              <tr>
+                <td colSpan={6} className="px-4 py-6 text-center text-[0.85rem] text-fg-muted">
+                  Aucun article ne correspond{recherche ? ` à « ${recherche} »` : ' à ce filtre'}.
+                </td>
+              </tr>
+            ) : null}
             {affichees.map((l, i) => {
               // Un bandeau ouvre chaque famille : on sert le rayon d'un bloc,
               // pas article par article dans le désordre.

@@ -5,12 +5,14 @@ import { ORDER_QUERY } from '@/lib/queries'
 import { Ticket, ticketVariant, type TicketOrder } from '@/components/ui/ticket'
 import { OrderProcessor, type ProcessOrder } from './order-processor'
 import { BackLink } from '@/components/ui/back-link'
+import { retourSur } from '@/lib/utils'
 
 export const metadata: Metadata = { title: 'Traitement de commande' }
 export const dynamic = 'force-dynamic'
 
-export default async function EconomatOrderPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function EconomatOrderPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ retour?: string }> }) {
   const { id } = await params
+  const { retour } = await searchParams
   const { order } = await executeGraphQL<{ order: (ProcessOrder & TicketOrder) | null }>(ORDER_QUERY, { id })
   if (!order) notFound()
 
@@ -22,7 +24,7 @@ export default async function EconomatOrderPage({ params }: { params: Promise<{ 
 
   return (
     <>
-      <BackLink href="/economat">Retour</BackLink>
+      <BackLink href={retourSur(retour, "/economat")}>Retour</BackLink>
 
       <div className="no-print">
         <OrderProcessor order={premierServi} />

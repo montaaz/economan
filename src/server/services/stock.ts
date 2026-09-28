@@ -27,12 +27,31 @@ type Base = {
   lastEntryAt: Date | null
 }
 
-/** Par article : le point de départ et les arrivages qui le suivent. */
-export async function bases(): Promise<Map<number, Base>> {
-  const entries = await prisma.stockEntry.findMany({
-    select: { productId: true, type: true, quantity: true, unitPrice: true, createdAt: true },
-    orderBy: { createdAt: 'asc' },
-  })
+/**
+ * Par article : le point de départ et les arrivages qui le suivent.
+ *
+ * Une préparation compte comme un arrivage pour l'article préparé : ce qui
+ * en est obtenu entre à son stock, au coût que le pur consommé a coûté.
+ */
+export async function bases(productId?: number): Promise<Map<number, Base>> {
+  // Un seul article quand on ne veut que lui : la préparation relisait
+  // toutes les écritures du stock pour le coût d'un seul pur.
+  const [arrivages, preparations] = await Promise.all([
+    prisma.stockEntry.findMany({
+      where: productId ? { productId } : undefined,
+      select: { productId: true, type: true, quantity: true, unitPrice: true, createdAt: true },
+      orderBy: { createdAt: 'asc' },
+    }),
+    prisma.preparation.findMany({
+      where: productId ? { productId } : undefined,
+      select: { productId: true, quantityMade: true, unitCost: true, createdAt: true },
+      orderBy: { createdAt: 'asc' },
+    }),
+  ])
+  const entries = [
+    ...arrivages,
+    ...preparations.map((p) => ({ productId: p.productId, type: 'ARRIVAGE' as const, quantity: p.quantityMade, unitPrice: p.unitCost, createdAt: p.createdAt })),
+  ].sort((x, y) => x.createdAt.getTime() - y.createdAt.getTime())
   const m = new Map<number, Base>()
   for (const e of entries) {
     const q = Number(e.quantity), p = Number(e.unitPrice)
@@ -53,15 +72,18 @@ export async function bases(): Promise<Map<number, Base>> {
 type Livraison = { departmentId: number; productId: number; quantity: number; at: Date; businessDay: Date }
 
 /** Chaque ligne livrée, telle que servie : premier servi des bons émis, compléments des bons émis. */
-export async function livraisons(from: Date | null, to: Date | null): Promise<Livraison[]> {
+export async function livraisons(from: Date | null, to: Date | null, departmentId?: number): Promise<Livraison[]> {
   const jour = from || to ? { ...(from && { gte: from }), ...(to && { lte: to }) } : undefined
+  // Le département se filtre en base quand on le connaît : le contrôle des
+  // stocks relisait toutes les livraisons de tous les services, sept fois.
+  const commande = { deliveredAt: { not: null }, ...(jour && { businessDay: jour }), ...(departmentId && { departmentId }) }
   const [premiers, complements] = await Promise.all([
     prisma.orderLine.findMany({
-      where: { order: { deliveredAt: { not: null }, ...(jour && { businessDay: jour }) } },
+      where: { order: commande },
       select: { productId: true, quantityServed: true, order: { select: { departmentId: true, deliveredAt: true, businessDay: true } } },
     }),
     prisma.orderRefillLine.findMany({
-      where: { refill: { deliveredAt: { not: null }, order: jour ? { businessDay: jour } : undefined } },
+      where: { refill: { deliveredAt: { not: null }, order: jour || departmentId ? { ...(jour && { businessDay: jour }), ...(departmentId && { departmentId }) } : undefined } },
       select: { quantity: true, refill: { select: { deliveredAt: true } }, orderLine: { select: { productId: true, order: { select: { departmentId: true, businessDay: true } } } } },
     }),
   ])
@@ -84,26 +106,38 @@ export async function livraisons(from: Date | null, to: Date | null): Promise<Li
  */
 export async function livraisonsDuService(departmentId: number, from: Date, to: Date): Promise<Map<number, number>> {
   const out = new Map<number, number>()
-  for (const l of await livraisons(from, to)) {
-    if (l.departmentId !== departmentId) continue
+  for (const l of await livraisons(from, to, departmentId)) {
     out.set(l.productId, (out.get(l.productId) ?? 0) + l.quantity)
   }
   return out
 }
 
-/** La table des mères : une portion compte pour sa mère, fois ce qu'elle en consomme. */
+/**
+ * Ce qu'une livraison sort du stock : l'article livré lui-même.
+ *
+ * Une portion ne se ramène plus à sa mère à la livraison : c'est la
+ * préparation qui a fait passer le stock du pur au préparé, et le préparé
+ * a son propre stock et son propre coût. La contenance (`motherQuantity`)
+ * ne sert plus qu'à proposer la quantité de pur au moment de préparer.
+ */
 export async function conversion() {
-  const produits = await prisma.product.findMany({ select: { id: true, parentId: true, motherQuantity: true } })
-  const parent = new Map(produits.map((p) => [p.id, p]))
-  return (productId: number, q: number): [number, number] => {
-    const p = parent.get(productId)
-    if (p?.parentId && Number(p.motherQuantity) > 0) return [p.parentId, q * Number(p.motherQuantity)]
-    return [productId, q]
+  return (productId: number, q: number): [number, number] => [productId, q]
+}
+
+/** Ce que les préparations ont consommé de chaque article pur, avec l'instant de chaque prélèvement. */
+async function consommations(): Promise<Map<number, { quantity: number; at: Date }[]>> {
+  const rows = await prisma.preparation.findMany({ select: { sourceId: true, quantityUsed: true, createdAt: true } })
+  const m = new Map<number, { quantity: number; at: Date }[]>()
+  for (const r of rows) {
+    const l = m.get(r.sourceId) ?? []
+    l.push({ quantity: Number(r.quantityUsed), at: r.createdAt })
+    m.set(r.sourceId, l)
   }
+  return m
 }
 
 export async function generalStock() {
-  const [products, base, sorties, versStock] = await Promise.all([
+  const [products, base, sorties, versStock, preparees] = await Promise.all([
     prisma.product.findMany({
       where: { isActive: true },
       include: { category: true, baseUnit: true, portions: { where: { isActive: true }, include: { baseUnit: true } } },
@@ -112,6 +146,7 @@ export async function generalStock() {
     bases(),
     livraisons(null, null),
     conversion(),
+    consommations(),
   ])
   // Sorti depuis le point de départ de chaque article : en unités de stock
   // (portions converties) pour la mère, en portions pour le préparé.
@@ -128,10 +163,15 @@ export async function generalStock() {
     const prepare = p.kind === 'PREPARE' && p.parentId !== null
     const mere = prepare ? parId.get(p.parentId!) : null
     const b = base.get(p.id)
-    const entered = prepare ? 0 : (b?.entered ?? 0)
-    const delivered = prepare ? (sortiBrut.get(p.id) ?? 0) : (sortiStock.get(p.id) ?? 0)
-    const stock = prepare ? 0 : entered - delivered
-    const unitCost = prepare || !b || b.entered <= 0 ? null : b.value / b.entered
+    // Entré : les arrivages pour un pur, ce que les préparations ont
+    // obtenu pour un préparé. Sorti : les livraisons. Préparé : ce que les
+    // préparations ont pris à un pur, depuis son point de départ.
+    const entered = b?.entered ?? 0
+    const delivered = sortiStock.get(p.id) ?? 0
+    const prepared = (preparees.get(p.id) ?? []).filter((c) => !b?.since || c.at > b.since).reduce((n, c) => n + c.quantity, 0)
+    const stock = entered - delivered - prepared
+    const unitCost = !b || b.entered <= 0 ? null : b.value / b.entered
+    void sortiBrut
     return {
       productId: String(p.id),
       productName: p.name,
@@ -146,17 +186,90 @@ export async function generalStock() {
         productId: String(c.id), productName: c.name, productRef: c.reference,
         unitSymbol: c.baseUnit.symbol, motherQuantity: Number(c.motherQuantity ?? 0),
       })),
-      entered, delivered, stock, unitCost,
+      entered, delivered, prepared, stock, unitCost,
       stockValue: unitCost === null ? 0 : stock * unitCost,
       lastEntryAt: b?.lastEntryAt ?? b?.since ?? null,
     }
   })
-  const stockees = lines.filter((l) => l.kind !== 'PREPARE')
   return {
     lines,
-    totalValue: stockees.reduce((s, l) => s + l.stockValue, 0),
-    negativeCount: stockees.filter((l) => l.stock < -1e-9).length,
+    totalValue: lines.reduce((s, l) => s + l.stockValue, 0),
+    negativeCount: lines.filter((l) => l.stock < -1e-9).length,
   }
+}
+
+/**
+ * Une préparation : tant de pur consommé, tant de préparé obtenu.
+ *
+ * Le coût du préparé se fige à cet instant : le pur consommé, à son coût
+ * moyen du moment, réparti sur ce qui est obtenu. Un article encore « à la
+ * pièce » choisi comme préparé se rattache au pur de lui-même, avec pour
+ * contenance ce que cette préparation en a pris par unité obtenue.
+ */
+export async function addPreparation(params: {
+  sourceId: number; productId: number; quantityUsed: number; quantityMade: number
+  /** L'unité du préparé (« p » pour portion), posée au rattachement : c'est en elle qu'on compte ce qu'on obtient. */
+  madeUnit?: string | null
+  day?: Date | null; note?: string | null; actorId: number
+}) {
+  const { sourceId, productId, quantityUsed, quantityMade } = params
+  if (sourceId === productId) throw new WorkflowError('Le pur et le préparé doivent être deux articles différents.')
+  if (!Number.isFinite(quantityUsed) || quantityUsed <= 0) throw new WorkflowError('La quantité de pur consommée doit être positive.')
+  if (!Number.isFinite(quantityMade) || quantityMade <= 0) throw new WorkflowError('La quantité préparée doit être positive.')
+  const [pur, prep, base] = await Promise.all([
+    prisma.product.findUnique({ where: { id: sourceId }, select: { id: true, name: true, kind: true, parentId: true } }),
+    prisma.product.findUnique({ where: { id: productId }, select: { id: true, name: true, kind: true, parentId: true, portions: { select: { id: true } } } }),
+    bases(sourceId),
+  ])
+  if (!pur || !prep) throw new WorkflowError('Article introuvable.')
+  if (pur.kind === 'PREPARE') throw new WorkflowError(`${pur.name} est un article préparé : on prépare à partir d'un article pur.`)
+  if (prep.portions.length > 0) throw new WorkflowError(`${prep.name} est lui-même un article pur : il ne se prépare pas.`)
+  if (prep.parentId !== null && prep.parentId !== sourceId) throw new WorkflowError(`${prep.name} se prépare à partir d'un autre article pur.`)
+  const b = base.get(sourceId)
+  const coutPur = b && b.entered > 0 ? b.value / b.entered : 0
+  const unitCost = (quantityUsed * coutPur) / quantityMade
+  return prisma.$transaction(async (tx) => {
+    // Le rattachement, s'il manque : le pur devient pur, le préparé devient préparé.
+    if (prep.parentId === null) {
+      await tx.product.update({ where: { id: sourceId }, data: { kind: 'MERE' } })
+      const unite = params.madeUnit?.trim()
+        ? await tx.unit.findFirst({ where: { symbol: { equals: params.madeUnit.trim(), mode: 'insensitive' } }, select: { id: true } })
+        : null
+      await tx.product.update({
+        where: { id: productId },
+        data: { parentId: sourceId, kind: 'PREPARE', motherQuantity: quantityUsed / quantityMade, ...(unite && { baseUnitId: unite.id }) },
+      })
+    }
+    const p = await tx.preparation.create({
+      data: {
+        sourceId, productId, quantityUsed, quantityMade, unitCost,
+        businessDay: params.day ?? businessDay(), note: params.note?.trim() || null, createdById: params.actorId,
+      },
+      select: { id: true },
+    })
+    return { id: p.id, unitCost }
+  })
+}
+
+/** Retirer une préparation : le pur retrouve ce qu'elle avait pris, le préparé perd ce qu'elle avait donné. */
+export async function deletePreparation(id: number) {
+  await prisma.preparation.delete({ where: { id } })
+  return true
+}
+
+/** Les préparations d'une période, les plus récentes d'abord. */
+export async function preparations(from: Date | null, to: Date | null) {
+  const jour = from || to ? { ...(from && { gte: from }), ...(to && { lte: to }) } : undefined
+  return prisma.preparation.findMany({
+    where: jour ? { businessDay: jour } : undefined,
+    orderBy: [{ businessDay: 'desc' }, { createdAt: 'desc' }],
+    take: 500,
+    include: {
+      source: { include: { baseUnit: true } },
+      product: { include: { baseUnit: true } },
+      createdBy: { select: { fullName: true } },
+    },
+  })
 }
 
 /** Ce que chaque département a reçu, en dinars au coût moyen, sur la période. */
@@ -203,10 +316,10 @@ export async function departmentSpend(from: Date | null, to: Date | null) {
 export async function stockMovements(params: { from: Date | null; to: Date | null; type: 'ENTREE' | 'SORTIE' | null; take?: number }) {
   const { from, to, type } = params
   const jour = from || to ? { ...(from && { gte: from }), ...(to && { lte: to }) } : undefined
-  const [entries, orders, refills, base, versStock] = await Promise.all([
+  const [entries, orders, refills, base, versStock, preps] = await Promise.all([
     type === 'SORTIE' ? [] : prisma.stockEntry.findMany({
       where: jour ? { businessDay: jour } : undefined,
-      include: { product: { include: { baseUnit: true } }, createdBy: true },
+      include: { product: { include: { baseUnit: true } }, createdBy: true, supplier: { select: { name: true } } },
       orderBy: [{ businessDay: 'desc' }, { createdAt: 'desc' }],
       take: params.take ?? 300,
     }),
@@ -234,13 +347,19 @@ export async function stockMovements(params: { from: Date | null; to: Date | nul
     }),
     bases(),
     conversion(),
+    type === 'ENTREE' || type === 'SORTIE' ? [] : prisma.preparation.findMany({
+      where: jour ? { businessDay: jour } : undefined,
+      include: { source: { include: { baseUnit: true } }, product: { include: { baseUnit: true } }, createdBy: { select: { fullName: true } } },
+    }),
   ])
   const cout = (id: number) => { const b = base.get(id); return b && b.entered > 0 ? b.value / b.entered : 0 }
   const valeur = (productId: number, q: number) => { const [sid, qs] = versStock(productId, q); return qs * cout(sid) }
   type Mouvement = {
-    id: string; type: 'ENTREE' | 'SORTIE' | 'INVENTAIRE'; at: Date; businessDay: Date; label: string; detail: string | null
+    id: string; type: 'ENTREE' | 'SORTIE' | 'INVENTAIRE' | 'PREPARATION'; at: Date; businessDay: Date; label: string; detail: string | null
     department: { name: string; color: string } | null; by: string | null; lineCount: number
     quantity: number | null; unitSymbol: string | null; amount: number; orderId: string | null
+    /** Le servi complémentaire, quand la sortie en est un : sa fiche est à part. */
+    refillId: string | null
   }
   const out: Mouvement[] = []
   for (const e of entries) {
@@ -248,10 +367,10 @@ export async function stockMovements(params: { from: Date | null; to: Date | nul
     out.push({
       id: `e${e.id}`, type: inventaire ? 'INVENTAIRE' : 'ENTREE', at: e.createdAt, businessDay: e.businessDay,
       label: inventaire ? `Inventaire — ${e.product.name}` : e.product.name,
-      detail: e.reference ? `Facture ${e.reference}` : (e.note ?? null),
+      detail: [e.supplier?.name, e.reference ? `Facture ${e.reference}` : null, e.note].filter(Boolean).join(' · ') || null,
       department: null, by: e.createdBy.fullName, lineCount: 1,
       quantity: Number(e.quantity), unitSymbol: e.product.baseUnit.symbol,
-      amount: Number(e.quantity) * Number(e.unitPrice), orderId: null,
+      amount: Number(e.quantity) * Number(e.unitPrice), orderId: null, refillId: null,
     })
   }
   for (const o of orders) {
@@ -261,7 +380,7 @@ export async function stockMovements(params: { from: Date | null; to: Date | nul
       label: `Bon de livraison n° 1 — ${o.reference}`, detail: null,
       department: o.department, by: o.processedBy?.fullName ?? null, lineCount: lignes.length,
       quantity: null, unitSymbol: null,
-      amount: lignes.reduce((s, l) => s + valeur(l.productId, Number(l.quantityServed ?? 0)), 0), orderId: String(o.id),
+      amount: lignes.reduce((s, l) => s + valeur(l.productId, Number(l.quantityServed ?? 0)), 0), orderId: String(o.id), refillId: null,
     })
   }
   for (const r of refills) {
@@ -270,7 +389,17 @@ export async function stockMovements(params: { from: Date | null; to: Date | nul
       label: `Bon du ${r.rank}ᵉ servi — ${r.order.reference}`, detail: null,
       department: r.order.department, by: r.createdBy?.fullName ?? null, lineCount: r.lines.length,
       quantity: null, unitSymbol: null,
-      amount: r.lines.reduce((s, l) => s + valeur(l.orderLine.productId, Number(l.quantity)), 0), orderId: String(r.order.id),
+      amount: r.lines.reduce((s, l) => s + valeur(l.orderLine.productId, Number(l.quantity)), 0), orderId: String(r.order.id), refillId: String(r.id),
+    })
+  }
+  for (const p of preps) {
+    out.push({
+      id: `p${p.id}`, type: 'PREPARATION', at: p.createdAt, businessDay: p.businessDay,
+      label: `Préparation — ${p.source.name} → ${p.product.name}`,
+      detail: `${Number(p.quantityUsed)} ${p.source.baseUnit.symbol} de pur → ${Number(p.quantityMade)} ${p.product.baseUnit.symbol}${p.note ? ` · ${p.note}` : ''}`,
+      department: null, by: p.createdBy.fullName, lineCount: 1,
+      quantity: Number(p.quantityMade), unitSymbol: p.product.baseUnit.symbol,
+      amount: Number(p.quantityUsed) * cout(p.sourceId), orderId: null, refillId: null,
     })
   }
   return out.sort((a, b) => b.at.getTime() - a.at.getTime())
@@ -304,6 +433,66 @@ export async function addStockEntry(params: {
     },
     select: { id: true },
   })
+}
+
+/** Les fournisseurs connus, du plus récemment utilisé au plus ancien. */
+export async function suppliers() {
+  return prisma.supplier.findMany({ orderBy: [{ updatedAt: 'desc' }, { name: 'asc' }], select: { id: true, name: true, phone: true, taxId: true } })
+}
+
+/**
+ * Une facture entière d'un coup : le fournisseur, puis une entrée par
+ * article. Le fournisseur se retrouve par son nom, sans égard à la casse ;
+ * un nom inconnu le crée, un nom connu met à jour son téléphone et son
+ * matricule si on en donne. Tout ou rien : une ligne refusée ne laisse pas
+ * les autres entrées derrière elle.
+ */
+export async function addStockEntries(params: {
+  supplier: { name: string; phone?: string | null; taxId?: string | null } | null
+  reference?: string | null
+  note?: string | null
+  day?: Date | null
+  lines: { productId: number; quantity: number; unitPrice: number }[]
+  actorId: number
+}) {
+  const lignes = params.lines
+  if (lignes.length === 0) throw new WorkflowError('Aucun article saisi.')
+  const vus = new Set<number>()
+  for (const l of lignes) {
+    if (vus.has(l.productId)) throw new WorkflowError('Un même article figure deux fois sur la facture.')
+    vus.add(l.productId)
+    if (!Number.isFinite(l.quantity) || l.quantity <= 0) throw new WorkflowError('Quantité invalide.')
+    if (!Number.isFinite(l.unitPrice) || l.unitPrice < 0) throw new WorkflowError('Prix unitaire invalide.')
+  }
+  const produits = await prisma.product.findMany({ where: { id: { in: [...vus] } }, select: { id: true, kind: true, name: true } })
+  const parId = new Map(produits.map((p) => [p.id, p]))
+  for (const l of lignes) {
+    const p = parId.get(l.productId)
+    if (!p) throw new WorkflowError('Article introuvable.')
+    if (p.kind === 'PREPARE') throw new WorkflowError(`${p.name} est un article préparé : entrez l’article mère.`)
+  }
+  const nom = params.supplier?.name.trim() ?? ''
+  return prisma.$transaction(async (tx) => {
+    let supplierId: number | null = null
+    if (nom) {
+      const phone = params.supplier?.phone?.trim() || null
+      const taxId = params.supplier?.taxId?.trim() || null
+      const existant = await tx.supplier.findFirst({ where: { name: { equals: nom, mode: 'insensitive' } } })
+      const f = existant
+        ? await tx.supplier.update({ where: { id: existant.id }, data: { ...(phone && { phone }), ...(taxId && { taxId }) } })
+        : await tx.supplier.create({ data: { name: nom, phone, taxId } })
+      supplierId = f.id
+    }
+    const jour = params.day ?? businessDay()
+    await tx.stockEntry.createMany({
+      data: lignes.map((l) => ({
+        productId: l.productId, type: 'ARRIVAGE' as const, quantity: l.quantity, unitPrice: l.unitPrice,
+        reference: params.reference?.trim() || null, note: params.note?.trim() || null,
+        businessDay: jour, supplierId, createdById: params.actorId,
+      })),
+    })
+    return { count: lignes.length, supplierId }
+  }, { timeout: 15_000 })
 }
 
 /**

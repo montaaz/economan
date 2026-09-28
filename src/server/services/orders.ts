@@ -8,7 +8,16 @@ import { resteAServir } from '@/lib/reste'
 export class WorkflowError extends Error {}
 
 /// Ce que l'employé saisit : le stock qu'il a réellement en rayon.
-export type OrderLineInput = { productId: number; quantityOnHand: number }
+export type OrderLineInput = {
+  productId: number
+  quantityOnHand: number
+  /**
+   * Commande urgente : la quantité se tape directement, sans passer par le
+   * stock compté ni s'arrêter au stock fixe — on sort ce qu'il faut, tout
+   * de suite. Absente sur une commande ordinaire.
+   */
+  quantityAsked?: number
+}
 
 /**
  * Rang de chaque article dans la feuille du département.
@@ -40,6 +49,49 @@ async function sheetRanks(
 const HORS_FEUILLE = 1_000_000
 
 /**
+ * Refuse une même ligne citée deux fois dans un servi.
+ *
+ * Chaque occurrence passait seule le contrôle du reste : deux fois 4 sur un
+ * reste de 5 franchissaient la garde, et l'écriture groupée tombait ensuite
+ * en erreur brute de la base.
+ */
+function sansDoublons<T extends { lineId: number }>(lines: T[]): T[] {
+  const vus = new Set<number>()
+  for (const l of lines) {
+    if (vus.has(l.lineId)) throw new WorkflowError('Une même ligne figure deux fois dans ce servi.')
+    vus.add(l.lineId)
+  }
+  return lines
+}
+
+/**
+ * Verrouille la commande le temps de la transaction.
+ *
+ * « On ne sert jamais plus que commandé » se vérifie en lisant puis en
+ * écrivant : deux onglets qui servent la même ligne en même temps passaient
+ * tous deux la lecture. Le verrou met le second en attente du premier.
+ */
+async function verrouiller(tx: Prisma.TransactionClient, orderId: number) {
+  await tx.$executeRaw`SELECT id FROM "orders" WHERE id = ${orderId} FOR UPDATE`
+}
+
+/**
+ * Ce qu'une ligne commande, et le stock qu'on lui attribue.
+ *
+ * Ordinaire : stock fixe − stock compté, jamais négatif. Urgente avec une
+ * quantité tapée : cette quantité, sans plafond ; le stock compté s'en
+ * déduit — ce que le rayon aurait pour justifier cette commande — afin que
+ * le comptage de la veille, qui relit ce champ, reste cohérent.
+ */
+function calculerLigne(l: OrderLineInput, target: number, urgent: boolean) {
+  if (urgent && l.quantityAsked !== undefined) {
+    const asked = l.quantityAsked
+    return { ...l, target, asked, quantityOnHand: Math.max(target - asked, 0) }
+  }
+  return { ...l, target, asked: Math.max(target - l.quantityOnHand, 0) }
+}
+
+/**
  * Enregistre une commande pour le département de l'employé.
  *
  * Règle métier : l'employé doit renseigner toutes les lignes de la feuille,
@@ -68,6 +120,9 @@ export async function createOrder(params: {
     }
     if (!Number.isFinite(l.quantityOnHand) || l.quantityOnHand < 0) {
       throw new WorkflowError('Stock saisi invalide.')
+    }
+    if (l.quantityAsked !== undefined && (!Number.isFinite(l.quantityAsked) || l.quantityAsked < 0)) {
+      throw new WorkflowError('Quantité saisie invalide.')
     }
     seen.add(l.productId)
   }
@@ -117,6 +172,7 @@ export async function createOrder(params: {
     // erreur de saisie. L'accepter donnerait bien 0 à commander, mais figerait
     // un stock faux dans la ligne — celui que l'économat et l'admin liront.
     for (const l of params.lines) {
+      if (urgent && l.quantityAsked !== undefined) continue
       const target = parBy.get(l.productId) ?? 0
       if (target > 0 && l.quantityOnHand > target) {
         const p = byId.get(l.productId)
@@ -130,16 +186,14 @@ export async function createOrder(params: {
     // Quantité = stock fixe − stock compté, jamais négative. Un article sans
     // stock fixe vaut 0 : rien n'est commandé tant que l'admin ne l'a pas réglé.
     const computed = params.lines
-      .map((l) => {
-        const target = parBy.get(l.productId) ?? 0
-        const asked = Math.max(target - l.quantityOnHand, 0)
-        return { ...l, target, asked }
-      })
+      .map((l) => calculerLigne(l, parBy.get(l.productId) ?? 0, urgent))
       .filter((l) => l.asked > 0)
 
     if (computed.length === 0) {
       throw new WorkflowError(
-        'Vos stocks couvrent déjà le stock fixe — il n’y a rien à commander.',
+        urgent
+          ? 'Aucune quantité saisie — il n’y a rien à commander.'
+          : 'Vos stocks couvrent déjà le stock fixe — il n’y a rien à commander.',
       )
     }
 
@@ -229,7 +283,7 @@ export async function updateOrder(params: {
   return prisma.$transaction(async (tx) => {
     const order = await tx.order.findUnique({
       where: { id: orderId },
-      select: { status: true, departmentId: true, createdById: true },
+      select: { status: true, departmentId: true, createdById: true, isUrgent: true },
     })
     if (!order) throw new WorkflowError('Commande introuvable.')
 
@@ -276,6 +330,7 @@ export async function updateOrder(params: {
     // erreur de saisie. L'accepter donnerait bien 0 à commander, mais figerait
     // un stock faux dans la ligne — celui que l'économat et l'admin liront.
     for (const l of params.lines) {
+      if (order.isUrgent && l.quantityAsked !== undefined) continue
       const target = parBy.get(l.productId) ?? 0
       if (target > 0 && l.quantityOnHand > target) {
         const p = byId.get(l.productId)
@@ -287,17 +342,17 @@ export async function updateOrder(params: {
     }
 
     // Même calcul qu'à la création : la quantité se déduit du stock fixe lu en
-    // base, jamais de ce que le client envoie.
+    // base, jamais de ce que le client envoie — sauf en urgence, où elle est
+    // tapée telle quelle.
     const computed = params.lines
-      .map((l) => {
-        const target = parBy.get(l.productId) ?? 0
-        return { ...l, target, asked: Math.max(target - l.quantityOnHand, 0) }
-      })
+      .map((l) => calculerLigne(l, parBy.get(l.productId) ?? 0, order.isUrgent))
       .filter((l) => l.asked > 0)
 
     if (computed.length === 0) {
       throw new WorkflowError(
-        'Vos stocks couvrent déjà le stock fixe — il n’y a rien à commander.',
+        order.isUrgent
+          ? 'Aucune quantité saisie — il n’y a rien à commander.'
+          : 'Vos stocks couvrent déjà le stock fixe — il n’y a rien à commander.',
       )
     }
 
@@ -335,11 +390,14 @@ export async function acceptOrder(orderId: number, actorId: number) {
   if (order.status !== 'PENDING') {
     throw new WorkflowError('Cette commande a déjà été prise en charge.')
   }
-  return prisma.order.update({
-    where: { id: orderId },
+  // Conditionnée sur l'état : deux acceptations simultanées ne peuvent pas
+  // s'écraser l'une l'autre, la seconde ne trouve plus rien à accepter.
+  const { count } = await prisma.order.updateMany({
+    where: { id: orderId, status: 'PENDING' },
     data: { status: 'ACCEPTED', processedById: actorId, acceptedAt: new Date() },
-    select: { id: true },
   })
+  if (count === 0) throw new WorkflowError('Cette commande a déjà été prise en charge.')
+  return { id: orderId }
 }
 
 /**
@@ -408,7 +466,9 @@ export async function addRefill(params: {
 }) {
   const { orderId, actorId } = params
 
+  sansDoublons(params.lines)
   return prisma.$transaction(async (tx) => {
+    await verrouiller(tx, orderId)
     const order = await tx.order.findUnique({
       where: { id: orderId },
       select: {
@@ -492,13 +552,20 @@ export async function completeRefill(params: {
   lines: { lineId: number; quantity: number }[]
 }) {
   const { orderId, rank } = params
+  sansDoublons(params.lines)
 
   return prisma.$transaction(async (tx) => {
+    await verrouiller(tx, orderId)
     const refill = await tx.orderRefill.findUnique({
       where: { orderId_rank: { orderId, rank } },
-      select: { id: true, deliveredAt: true },
+      select: { id: true, deliveredAt: true, receivedAt: true },
     })
     if (!refill) throw new WorkflowError('Ce servi n’existe pas sur cette commande.')
+    // Le département a signé pour ce passage : on n'y ajoute plus rien, la
+    // marchandise supplémentaire part sur le servi suivant.
+    if (refill.receivedAt) {
+      throw new WorkflowError(`Le ${rank}ᵉ servi a été réceptionné par le département : il ne se complète plus.`)
+    }
     // Le bon émis ne ferme pas la porte à une ligne oubliée : elle rejoint
     // le passage qui l'a laissée de côté, et le bon se réimprime. Ce que le
     // bon porte déjà, en revanche, ne se récrit qu'avec l'administration
@@ -598,6 +665,12 @@ export async function cancelService(params: {
 
     // Premier service : les quantités vivent sur les lignes de la commande.
     // On les remet à zéro et on rend chaque ligne à son état d'attente.
+    // Une fois le bon émis, la marchandise est partie : le remettre à zéro
+    // ferait mentir le stock et le papier signé. La commande se rouvre par
+    // l'administration, pas en effaçant son premier servi.
+    if (order.status !== 'PENDING' && order.status !== 'ACCEPTED') {
+      throw new WorkflowError('Le bon de livraison est émis : le premier servi ne s’annule plus.')
+    }
     await tx.orderLine.updateMany({
       where: {
         orderId,
@@ -618,9 +691,11 @@ export type ServedLine = {
 
 /** Enregistre le détail servi ligne par ligne. */
 export async function setServedLines(orderId: number, actorId: number, served: ServedLine[]) {
+  sansDoublons(served)
   // Une seule écriture pour toutes les lignes : cent allers-retours vers une
   // base distante dépassaient les cinq secondes de la transaction.
   return prisma.$transaction(async (tx) => {
+    await verrouiller(tx, orderId)
     const order = await tx.order.findUnique({
       where: { id: orderId },
       select: {
@@ -769,12 +844,14 @@ export async function setRefillLines(params: {
   refillId: number
   lines: { lineId: number; quantity: number }[]
 }) {
+  sansDoublons(params.lines)
   return prisma.$transaction(async (tx) => {
     const refill = await tx.orderRefill.findUnique({
       where: { id: params.refillId },
       select: { id: true, rank: true, orderId: true, deliveredAt: true, receivedAt: true },
     })
     if (!refill) throw new WorkflowError('Ce servi n’existe pas.')
+    await verrouiller(tx, refill.orderId)
     if (refill.receivedAt) {
       throw new WorkflowError(`Le ${refill.rank}ᵉ servi a été réceptionné par le département : il ne se modifie plus.`)
     }
@@ -858,6 +935,16 @@ export async function deleteOrder(orderId: number, actor: SessionUser) {
     await tx.order.delete({ where: { id: orderId } })
     return { id: orderId, reference: order.reference }
   })
+}
+
+/**
+ * Retirer toute la suite d'une commande — ses servis complémentaires —
+ * en gardant le ticket et son premier servi. L'administration seule :
+ * les bons émis et les réceptions signées tombent avec.
+ */
+export async function deleteOrderRefills(orderId: number) {
+  const r = await prisma.orderRefill.deleteMany({ where: { orderId } })
+  return r.count
 }
 
 /** Plusieurs tickets d'un coup, pour l'administration : tout ou rien. */
@@ -961,7 +1048,7 @@ export async function receiveRefill(
   return prisma.$transaction(async (tx) => {
     const refill = await tx.orderRefill.findUnique({
       where: { orderId_rank: { orderId, rank } },
-      select: { id: true, receivedAt: true, order: { select: { departmentId: true } } },
+      select: { id: true, receivedAt: true, deliveredAt: true, order: { select: { departmentId: true } } },
     })
     if (!refill) throw new WorkflowError('Ce servi n’existe pas sur cette commande.')
     if (refill.order.departmentId !== actor.departmentId) {
@@ -971,6 +1058,11 @@ export async function receiveRefill(
     // première, qui sont précisément ce qu'on veut pouvoir retrouver.
     if (refill.receivedAt) {
       throw new WorkflowError('Ce servi a déjà été réceptionné.')
+    }
+    // On ne signe que ce qui est parti : un servi seulement préparé n'a pas
+    // encore de bon, et le réceptionner le figerait avant sa livraison.
+    if (!refill.deliveredAt) {
+      throw new WorkflowError('Le bon de livraison de ce servi n’est pas encore émis.')
     }
     return tx.orderRefill.update({
       where: { id: refill.id },

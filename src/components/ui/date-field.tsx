@@ -1,6 +1,7 @@
 'use client'
 
 import * as React from 'react'
+import { createPortal } from 'react-dom'
 import { CalendarDays, ChevronLeft, ChevronRight, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -75,6 +76,28 @@ export function DateField({
   const marquees = React.useMemo(() => new Set(marques ?? []), [marques])
   const [mois, setMois] = React.useState(() => parse(value) ?? new Date())
   const boite = React.useRef<HTMLDivElement>(null)
+  const calendrier = React.useRef<HTMLDivElement>(null)
+
+  // Le calendrier flotte hors de son conteneur (portal, position fixe) :
+  // dans une boîte de dialogue ou un tableau, il se faisait couper par le
+  // bord. Il s'ouvre sous le champ, passe au-dessus s'il manque de place en
+  // bas, et se recale à gauche s'il déborderait de l'écran à droite.
+  const [pos, setPos] = React.useState<{ left: number; top?: number; bottom?: number } | null>(null)
+  React.useLayoutEffect(() => {
+    if (!ouvert) { setPos(null); return }
+    const LARGEUR = 19 * 16, HAUTEUR = 22 * 16
+    const maj = () => {
+      const r = boite.current?.getBoundingClientRect(); if (!r) return
+      let left = r.left
+      if (left + LARGEUR > window.innerWidth - 8) left = Math.max(8, window.innerWidth - 8 - LARGEUR)
+      const enBas = window.innerHeight - r.bottom
+      if (enBas < HAUTEUR + 8 && r.top > enBas) setPos({ left, bottom: window.innerHeight - r.top + 6 })
+      else setPos({ left, top: r.bottom + 6 })
+    }
+    maj()
+    window.addEventListener('scroll', maj, true); window.addEventListener('resize', maj)
+    return () => { window.removeEventListener('scroll', maj, true); window.removeEventListener('resize', maj) }
+  }, [ouvert])
 
   const choisi = parse(value)
   const borneMin = parse(min ?? null)
@@ -91,7 +114,8 @@ export function DateField({
   React.useEffect(() => {
     if (!ouvert) return
     const auClic = (e: MouseEvent) => {
-      if (!boite.current?.contains(e.target as Node)) setOuvert(false)
+      const t = e.target as Node
+      if (!boite.current?.contains(t) && !calendrier.current?.contains(t)) setOuvert(false)
     }
     const auClavier = (e: KeyboardEvent) => {
       if (e.key === 'Escape') setOuvert(false)
@@ -123,7 +147,9 @@ export function DateField({
         aria-haspopup="dialog"
         aria-expanded={ouvert}
         className={cn(
-          'field inline-flex h-10 items-center gap-2 px-3 text-[0.85rem] tabular-nums transition-colors',
+          // Pleine largeur de son enveloppe : dans une grille de formulaire le
+          // champ s'aligne sur ses voisins ; en ligne, l'enveloppe se serre.
+          'field inline-flex h-10 w-full items-center gap-2 px-3 text-[0.85rem] tabular-nums transition-colors',
           ouvert && 'border-accent/50 ring-2 ring-accent/18',
         )}
       >
@@ -146,11 +172,13 @@ export function DateField({
         </button>
       ) : null}
 
-      {ouvert ? (
+      {ouvert && pos ? createPortal(
         <div
+          ref={calendrier}
           role="dialog"
           aria-label="Calendrier"
-          className="animate-rise glass-deep absolute left-0 top-[calc(100%+0.4rem)] z-50 w-[19rem] rounded-2xl border border-[rgb(var(--glass-edge)/0.28)] p-3 shadow-[0_18px_40px_-16px_rgb(var(--shadow-ambient)/0.55)]"
+          style={{ position: 'fixed', left: pos.left, top: pos.top, bottom: pos.bottom }}
+          className="animate-rise z-[80] w-[19rem] rounded-2xl border border-[rgb(var(--glass-edge)/0.28)] bg-white p-3 shadow-[0_18px_40px_-16px_rgb(var(--shadow-ambient)/0.55)]"
         >
           <div className="mb-2 flex items-center justify-between gap-2">
             <button
@@ -236,7 +264,8 @@ export function DateField({
               Fermer
             </button>
           </div>
-        </div>
+        </div>,
+        document.body,
       ) : null}
     </div>
   )

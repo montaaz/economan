@@ -19,7 +19,7 @@ const QUERY = /* GraphQL */ `
     order(id: $id) {
       id reference status isUrgent note
       department { id }
-      lines { productId quantityOnHand }
+      lines { productId quantityOnHand quantityAsked }
     }
     departmentCatalog(departmentId: $departmentId) {
       id name reference stockFixe
@@ -33,7 +33,7 @@ type Data = {
   order: {
     id: string; reference: string; status: string; isUrgent: boolean; note: string | null
     department: { id: string }
-    lines: { productId: string; quantityOnHand: number }[]
+    lines: { productId: string; quantityOnHand: number; quantityAsked: number }[]
   } | null
   departmentCatalog: CatalogProduct[]
 }
@@ -64,8 +64,10 @@ export default async function EditUrgentOrderPage({
   if (!department || !data.order || data.order.department.id !== String(departmentId)) notFound()
   if (data.order.status !== 'PENDING') redirect(`/admin/commandes/${id}`)
 
+  // En urgence la case saisie est la commande : on repart des quantités
+  // commandées, pas d'un stock compté qui n'a jamais été tapé.
   const onHand = Object.fromEntries(
-    data.order.lines.map((l) => [l.productId, String(l.quantityOnHand)]),
+    data.order.lines.map((l) => [l.productId, String(l.quantityAsked)]),
   )
 
   return (

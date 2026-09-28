@@ -3,7 +3,7 @@ import { cookies } from 'next/headers'
 import { NextResponse } from 'next/server'
 import { prisma } from '@/server/db'
 import { readSession } from '@/server/auth/session'
-import { chargerFeuille, rendrePdf } from '@/server/pdf'
+import { chargerFeuille, rendrePdf, origineInterne, entier } from '@/server/pdf'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
@@ -31,7 +31,7 @@ export async function GET(
   if (!user) return new NextResponse('Non authentifié', { status: 401 })
 
   const order = await prisma.order.findUnique({
-    where: { id: Number(id) },
+    where: { id: entier(id) ?? -1 },
     select: { id: true, reference: true, departmentId: true, createdById: true },
   })
   if (!order) return new NextResponse('Commande introuvable', { status: 404 })
@@ -48,12 +48,13 @@ export async function GET(
       ? `/admin/commandes/${order.id}`
       : `/economat/commandes/${order.id}`
 
-  const base = new URL(request.url).origin
+  const base = origineInterne()
   const jar = await cookies()
   const session = jar.get('economan_session')?.value
   if (!session) return new NextResponse('Session absente', { status: 401 })
 
-  const browser = await chromium.launch()
+  const browser = await chromium.launch().catch(() => null)
+  if (!browser) return new NextResponse('Le rendu PDF est indisponible pour le moment.', { status: 503 })
   try {
     const context = await browser.newContext()
     await context.addCookies([{

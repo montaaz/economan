@@ -11,6 +11,11 @@ import { cn } from '@/lib/utils'
 const DELETE_MANY = /* GraphQL */ `
   mutation DeleteOrders($ids: [ID!]!) { deleteOrders(ids: $ids) }
 `
+const DELETE_SUITE = /* GraphQL */ `
+  mutation DeleteOrderRefills($orderId: ID!) { deleteOrderRefills(orderId: $orderId) }
+`
+/** La carte « suite » d'une commande porte sa propre clé : elle se désagrège seule ou avec le ticket. */
+export const cleSuite = (orderId: string) => `${orderId}:suite`
 
 /**
  * Supprimer des tickets depuis le tableau — le geste de l'administration.
@@ -24,6 +29,8 @@ type Ctx = {
   dissolving: Set<string>
   hidden: Set<string>
   supprimer: (ids: string[], intitule: string) => Promise<void>
+  /** Retire la suite d'une commande — ses servis complémentaires — et garde le ticket. */
+  supprimerSuite: (orderId: string, reference: string, nbServis: number) => Promise<void>
 }
 const DeletionContext = React.createContext<Ctx | null>(null)
 
@@ -49,20 +56,44 @@ export function OrderDeletionProvider({ children }: { children: React.ReactNode 
       tone: 'danger',
     })
     if (!ok) return
-    setDissolving((s) => new Set([...s, ...ids]))
+    // Le ticket et sa carte « suite » partent ensemble.
+    const cles = ids.flatMap((id) => [id, cleSuite(id)])
+    setDissolving((s) => new Set([...s, ...cles]))
     const attente = new Promise<void>((r) => window.setTimeout(r, DUREE))
     try {
       const [d] = await Promise.all([gql<{ deleteOrders: number }>(DELETE_MANY, { ids }), attente])
-      setHidden((s) => new Set([...s, ...ids]))
+      setHidden((s) => new Set([...s, ...cles]))
       push('success', d.deleteOrders > 1 ? `${d.deleteOrders} commandes supprimées.` : 'Commande supprimée.')
       router.refresh()
     } catch (e) {
-      setDissolving((s) => { const n = new Set(s); for (const id of ids) n.delete(id); return n })
+      setDissolving((s) => { const n = new Set(s); for (const c of cles) n.delete(c); return n })
       push('error', errorMessage(e))
     }
   }, [confirmer, push, router])
 
-  const value = React.useMemo(() => ({ dissolving, hidden, supprimer }), [dissolving, hidden, supprimer])
+  const supprimerSuite = React.useCallback(async (orderId: string, reference: string, nbServis: number) => {
+    const ok = await confirmer({
+      title: `Supprimer la suite de ${reference} ?`,
+      message: `${nbServis === 1 ? 'Le servi complémentaire' : `Les ${nbServis} servis complémentaires`} de ce ticket disparaîtr${nbServis === 1 ? 'a' : 'ont'}, bons émis et réceptions compris. Le ticket et son 1ᵉʳ servi restent. Ce qui avait été complété ne comptera plus comme sorti du stock. Cette action ne se défait pas.`,
+      confirmLabel: 'Supprimer',
+      tone: 'danger',
+    })
+    if (!ok) return
+    const cle = cleSuite(orderId)
+    setDissolving((s) => new Set([...s, cle]))
+    const attente = new Promise<void>((r) => window.setTimeout(r, DUREE))
+    try {
+      const [d] = await Promise.all([gql<{ deleteOrderRefills: number }>(DELETE_SUITE, { orderId }), attente])
+      setHidden((s) => new Set([...s, cle]))
+      push('success', d.deleteOrderRefills > 1 ? `${d.deleteOrderRefills} servis supprimés.` : 'Servi supprimé.')
+      router.refresh()
+    } catch (e) {
+      setDissolving((s) => { const n = new Set(s); n.delete(cle); return n })
+      push('error', errorMessage(e))
+    }
+  }, [confirmer, push, router])
+
+  const value = React.useMemo(() => ({ dissolving, hidden, supprimer, supprimerSuite }), [dissolving, hidden, supprimer, supprimerSuite])
   return <DeletionContext.Provider value={value}>{children}</DeletionContext.Provider>
 }
 
@@ -120,13 +151,15 @@ export function Dissolvable({ id, color, children, className }: { id: string; co
 
 /** Le bouton : une corbeille, ou « Tout supprimer » pour un lot. */
 export function DeleteOrdersButton({
-  ids, intitule, variant = 'icon', className,
+  ids, intitule, variant = 'icon', className, cartes,
 }: {
   ids: string[]
   /** Ce qu'on supprime, pour la question : « BAR-…-001 », « du Bar », « de la journée ». */
   intitule: string
   variant?: 'icon' | 'text'
   className?: string
+  /** Le nombre de cartes que le geste fait disparaître, tickets et suites : c'est lui qu'on affiche. */
+  cartes?: number
 }) {
   const ctx = useDeletion()
   const [busy, setBusy] = React.useState(false)
@@ -146,7 +179,7 @@ export function DeleteOrdersButton({
       >
         <Trash2 className="size-3.5" />
         Tout supprimer
-        <span className="text-[0.7rem] font-medium opacity-75">({ids.length})</span>
+        <span className="text-[0.7rem] font-medium opacity-75">({cartes ?? ids.length})</span>
       </button>
     )
   }
@@ -157,6 +190,30 @@ export function DeleteOrdersButton({
       disabled={busy}
       title="Supprimer cette commande"
       aria-label={`Supprimer la commande ${intitule}`}
+      className={cn('grid size-7 place-items-center rounded-lg text-danger transition-colors hover:bg-danger/12 disabled:opacity-60', className)}
+    >
+      <Trash2 className="size-4" />
+    </button>
+  )
+}
+
+/** La corbeille de la carte « suite » : retire les servis complémentaires, garde le ticket. */
+export function DeleteSuiteButton({ orderId, reference, nbServis, className }: { orderId: string; reference: string; nbServis: number; className?: string }) {
+  const ctx = useDeletion()
+  const [busy, setBusy] = React.useState(false)
+  if (!ctx || nbServis === 0) return null
+  const agir = async () => {
+    if (busy) return
+    setBusy(true)
+    try { await ctx.supprimerSuite(orderId, reference, nbServis) } finally { setBusy(false) }
+  }
+  return (
+    <button
+      type="button"
+      onClick={() => void agir()}
+      disabled={busy}
+      title="Supprimer la suite de cette commande"
+      aria-label={`Supprimer la suite de la commande ${reference}`}
       className={cn('grid size-7 place-items-center rounded-lg text-danger transition-colors hover:bg-danger/12 disabled:opacity-60', className)}
     >
       <Trash2 className="size-4" />

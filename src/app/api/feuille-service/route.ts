@@ -3,7 +3,7 @@ import { cookies } from 'next/headers'
 import { NextResponse } from 'next/server'
 import { prisma } from '@/server/db'
 import { readSession } from '@/server/auth/session'
-import { chargerFeuille, rendrePdf } from '@/server/pdf'
+import { chargerFeuille, rendrePdf, origineInterne, entier } from '@/server/pdf'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
@@ -27,12 +27,12 @@ export async function GET(request: Request) {
   if (!dep || !rang) return new NextResponse('Paramètres manquants', { status: 400 })
 
   const departement = await prisma.department.findUnique({
-    where: { id: Number(dep) },
+    where: { id: entier(dep) ?? -1 },
     select: { code: true },
   })
   if (!departement) return new NextResponse('Service introuvable', { status: 404 })
 
-  const base = url.origin
+  const base = origineInterne()
   const jar = await cookies()
   const session = jar.get('economan_session')?.value
   if (!session) return new NextResponse('Session absente', { status: 401 })
@@ -40,7 +40,8 @@ export async function GET(request: Request) {
   const p = new URLSearchParams({ dep, rang })
   if (jour) p.set('jour', jour)
 
-  const browser = await chromium.launch()
+  const browser = await chromium.launch().catch(() => null)
+  if (!browser) return new NextResponse('Le rendu PDF est indisponible pour le moment.', { status: 503 })
   try {
     const context = await browser.newContext()
     await context.addCookies([{

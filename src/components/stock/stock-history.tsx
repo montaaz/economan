@@ -1,7 +1,8 @@
 import Link from 'next/link'
-import { Warehouse, ArrowDownToLine, ArrowUpFromLine, ClipboardCheck, RotateCcw } from 'lucide-react'
+import { Warehouse, ArrowDownToLine, ArrowUpFromLine, ClipboardCheck, RotateCcw, Scissors } from 'lucide-react'
 import { GlassCard, EmptyState, TableWrap, Th, Td } from '@/components/ui/glass'
 import { DateRangeFilter } from '@/components/orders/date-range-filter'
+import { SortiesJourLigne, type SortieJour } from './sorties-jour'
 import { stockMovements } from '@/server/services/stock'
 import { businessDay, cn, formatLongDate, formatMoney, formatQty, formatTime, toDateKey } from '@/lib/utils'
 
@@ -114,6 +115,38 @@ export async function StockHistory({
     )
   }
 
+  // Les sorties d'une même journée se replient sur une seule ligne, posée à
+  // la place de la plus récente ; entrées et inventaires restent une ligne
+  // chacun. Le total de la carte « Sorties » ne change pas.
+  // D'où l'on vient : la fiche ouverte depuis ici ramène ici, période comprise.
+  const retourParams = new URLSearchParams({ vue: 'stock' })
+  if (fromEff) retourParams.set('du', fromEff)
+  if (toEff) retourParams.set('au', toEff)
+  if (type) retourParams.set('type', type)
+  if (tout === '1') retourParams.set('tout', '1')
+  const retour = `${selfPath}?${retourParams}`
+  const lienFiche = (m: { orderId: string | null; refillId: string | null }) =>
+    m.refillId ? `${basePath.replace(/\/commandes$/, '')}/servis/${m.refillId}?retour=${encodeURIComponent(retour)}`
+      : m.orderId ? `${basePath}/${m.orderId}?retour=${encodeURIComponent(retour)}` : null
+  type Item = { kind: 'mouvement'; m: (typeof mouvements)[number] } | { kind: 'sorties'; jour: string; sorties: SortieJour[] }
+  const lignesJournal: Item[] = []
+  const parJour = new Map<string, SortieJour[]>()
+  for (const m of mouvements) {
+    if (m.type !== 'SORTIE') { lignesJournal.push({ kind: 'mouvement', m }); continue }
+    const jour = toDateKey(m.businessDay)
+    let liste = parJour.get(jour)
+    if (!liste) {
+      liste = []
+      parJour.set(jour, liste)
+      lignesJournal.push({ kind: 'sorties', jour, sorties: liste })
+    }
+    liste.push({
+      id: m.id, at: m.at.toISOString(), label: m.label, lineCount: m.lineCount,
+      department: m.department ? { name: m.department.name, color: m.department.color } : null,
+      by: m.by ?? null, amount: m.amount, orderId: m.orderId ? String(m.orderId) : null, refillId: m.refillId ? String(m.refillId) : null,
+    })
+  }
+
   return (
     <>
       {filtre}
@@ -132,9 +165,14 @@ export async function StockHistory({
             </tr>
           </thead>
           <tbody className="divide-y divide-[rgb(var(--glass-edge)/0.12)]">
-            {mouvements.map((m) => {
+            {lignesJournal.map((item) => {
+              if (item.kind === 'sorties') {
+                return <SortiesJourLigne key={`sorties-${item.jour}`} jour={item.jour} sorties={item.sorties} basePath={basePath} admin={admin} retour={retour} />
+              }
+              const m = item.m
               const entree = m.type === 'ENTREE'
               const inventaire = m.type === 'INVENTAIRE'
+              const preparation = m.type === 'PREPARATION'
               const cell = (
                 <>
                   <p className="truncate text-[0.85rem] font-medium text-fg">{m.label}</p>
@@ -144,20 +182,20 @@ export async function StockHistory({
                 </>
               )
               return (
-                <tr key={m.id} className={cn('transition-colors', inventaire ? 'bg-accent/[0.10] shadow-[inset_5px_0_0_0_var(--accent)]' : entree ? 'bg-danger/[0.13] shadow-[inset_5px_0_0_0_var(--danger)]' : 'bg-ok/[0.15] shadow-[inset_5px_0_0_0_var(--ok)]')}>
+                <tr key={m.id} className={cn('transition-colors', preparation ? 'bg-warn/[0.10] shadow-[inset_5px_0_0_0_var(--warn)]' : inventaire ? 'bg-accent/[0.10] shadow-[inset_5px_0_0_0_var(--accent)]' : entree ? 'bg-danger/[0.13] shadow-[inset_5px_0_0_0_var(--danger)]' : 'bg-ok/[0.15] shadow-[inset_5px_0_0_0_var(--ok)]')}>
                   <Td className="whitespace-nowrap capitalize text-fg-muted">
                     {formatLongDate(m.businessDay)}
                     <span className="ml-1.5 text-[0.75rem] text-fg-subtle">{formatTime(m.at)}</span>
                   </Td>
                   <Td>
                     <span className={cn('inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[0.72rem] font-bold uppercase tracking-wide text-white',
-                      inventaire ? 'bg-accent' : entree ? 'bg-danger' : 'bg-ok')}>
-                      {inventaire ? <ClipboardCheck className="size-3" /> : entree ? <ArrowDownToLine className="size-3" /> : <ArrowUpFromLine className="size-3" />}
-                      {inventaire ? 'Inventaire' : entree ? 'Entrée' : 'Sortie'}
+                      preparation ? 'bg-warn' : inventaire ? 'bg-accent' : entree ? 'bg-danger' : 'bg-ok')}>
+                      {preparation ? <Scissors className="size-3" /> : inventaire ? <ClipboardCheck className="size-3" /> : entree ? <ArrowDownToLine className="size-3" /> : <ArrowUpFromLine className="size-3" />}
+                      {preparation ? 'Préparation' : inventaire ? 'Inventaire' : entree ? 'Entrée' : 'Sortie'}
                     </span>
                   </Td>
                   <Td className="max-w-0">
-                    {m.orderId ? <Link href={`${basePath}/${m.orderId}`} className="block hover:underline">{cell}</Link> : cell}
+                    {lienFiche(m) ? <Link href={lienFiche(m)!} className="block hover:underline">{cell}</Link> : cell}
                   </Td>
                   <Td className="whitespace-nowrap">
                     {m.department ? (
@@ -172,8 +210,9 @@ export async function StockHistory({
                     {m.quantity !== null ? `${formatQty(m.quantity)} ${m.unitSymbol ?? ''}` : <span className="text-fg-subtle">—</span>}
                   </Td>
                   {admin ? (
-                    <Td className={cn('whitespace-nowrap text-right font-semibold tabular-nums', inventaire ? 'text-accent' : entree ? 'text-danger' : 'text-ok')}>
-                      {inventaire ? '=' : entree ? '+' : '−'} {formatMoney(m.amount)}
+                    <Td className={cn('whitespace-nowrap text-right font-semibold tabular-nums', preparation ? 'text-warn' : inventaire ? 'text-accent' : entree ? 'text-danger' : 'text-ok')}>
+                      {/* Une préparation déplace de la valeur du pur au préparé : rien n'entre ni ne sort. */}
+                      {preparation ? '⇄' : inventaire ? '=' : entree ? '+' : '−'} {formatMoney(m.amount)}
                     </Td>
                   ) : null}
                 </tr>

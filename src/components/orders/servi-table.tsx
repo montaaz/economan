@@ -260,8 +260,12 @@ export function ServiTable({
                       />
                       <span className="w-6 text-left text-[0.75rem] font-medium text-fg-muted">{l.unitSymbol}</span>
                     </span>
-                  ) : (
+                  ) : l.quantity > 0 ? (
                     <>{formatQty(l.quantity)} {l.unitSymbol}</>
+                  ) : (
+                    /* Rien à ce passage : un tiret, comme dans les colonnes
+                       des passages précédents, plutôt qu'un « 0 u » en gras. */
+                    <span className="font-normal text-fg-subtle">—</span>
                   )}
                 </Td>
                 <Td className="whitespace-nowrap text-right font-bold tabular-nums">

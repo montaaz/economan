@@ -12,7 +12,7 @@ import { DepartmentTotal } from './department-total'
 import { OrderDates } from './order-dates'
 import { ReopenRefill } from './reopen-refill'
 import { ReopenOrder } from './reopen-order'
-import { OrderDeletionProvider, Dissolvable, DeleteOrdersButton } from './order-deletion'
+import { OrderDeletionProvider, Dissolvable, DeleteOrdersButton, DeleteSuiteButton } from './order-deletion'
 
 /** Un servi complémentaire, tel que le tableau le montre en carte. */
 export type BoardRefill = {
@@ -113,6 +113,8 @@ export function DayBoard({
   }
 
   const tous = board.departments.flatMap((g) => g.orders.map((o) => o.id))
+  // Les cartes : un ticket, plus sa suite quand il en a une.
+  const nbCartes = (orders: BoardOrder[]) => orders.reduce((n, o) => n + 1 + (o.refills.length > 0 ? 1 : 0), 0)
   return (
     <OrderDeletionProvider>
     <div className="space-y-5">
@@ -120,7 +122,7 @@ export function DayBoard({
           posée avant dit combien de tickets partent. */}
       {admin && tous.length > 1 ? (
         <div className="flex justify-end">
-          <DeleteOrdersButton variant="text" ids={tous} intitule="de la journée" />
+          <DeleteOrdersButton variant="text" ids={tous} intitule="de la journée" cartes={nbCartes(board.departments.flatMap((g) => g.orders))} />
         </div>
       ) : null}
       {board.departments.map((g) => {
@@ -161,7 +163,7 @@ export function DayBoard({
               {/* La part servie plutôt qu'un total : on ne cumule pas des
                   kilos avec des litres. */}
               <div className="flex shrink-0 items-center gap-3">
-                {admin ? <DeleteOrdersButton variant="text" ids={g.orders.map((o) => o.id)} intitule={`du ${g.department.name}`} /> : null}
+                {admin ? <DeleteOrdersButton variant="text" ids={g.orders.map((o) => o.id)} intitule={`du ${g.department.name}`} cartes={nbCartes(g.orders)} /> : null}
                 <p className="text-right text-[0.9rem] tabular-nums sm:text-[0.82rem]">
                   <span className="font-bold text-ok">
                     {g.totalAsked > 0
@@ -185,24 +187,21 @@ export function DayBoard({
                     admin={admin}
                   />
                   </Dissolvable>
-                  {/* Un servi complémentaire a sa propre carte, juste après
-                      celle de son ticket — comme sur l'écran du département :
-                      il part à part, se réceptionne à part, et l'économat
-                      doit voir d'un coup d'œil s'il a été signé. */}
-                  {o.refills.map((r) => (
-                    <Dissolvable key={r.id} id={o.id} color={c}>
-                    <RefillCard
-                      refill={r}
+                  {/* Tout ce qui suit le premier servi tient sur une seule
+                      carte, à côté du ticket : la suite de commande. Elle
+                      s'ouvre sur la fiche qui montre chaque passage et chaque
+                      article, du 1ᵉʳ servi au dernier. */}
+                  {o.refills.length > 0 ? (
+                    <Dissolvable id={`${o.id}:suite`} color={c}>
+                    <SuiteCard
                       order={o}
                       color={c}
                       showDay={board.isRange}
                       admin={admin}
-                      // La fiche du servi dans le même espace que le tableau :
-                      // « /admin/commandes » → « /admin/servis ».
-                      href={`${basePath.replace(/\/commandes$/, '')}/servis/${r.id}`}
+                      href={`${basePath}/${o.id}/suite`}
                     />
                     </Dissolvable>
-                  ))}
+                  ) : null}
                 </React.Fragment>
               ))}
             </div>
@@ -331,9 +330,9 @@ function TicketCard({
         'group relative flex h-full overflow-hidden rounded-xl border transition-[transform,box-shadow,border-color] duration-200',
         'hover:-translate-y-0.5 hover:shadow-[0_10px_24px_-12px_rgb(var(--shadow-ambient)/0.4)]',
         CARTE[o.status],
-        // Urgente : le bordeaux prime sur la teinte de l'état — c'est la
-        // carte qu'on doit voir en premier sur le tableau.
-        o.isUrgent && 'border-2 border-[#8b1e2d] shadow-[0_0_0_3px_rgb(139_30_45/0.18)]',
+        // Urgente : la carte garde la teinte de son état, mais son contour
+        // pulse en néon rouge — c'est elle qu'on doit voir en premier.
+        o.isUrgent && 'border-2 border-[#c8102e] animate-neon-urgent',
       )}
     >
       {/* Jauge verticale : le remplissage EST l'avancement. */}
@@ -366,7 +365,7 @@ function TicketCard({
               </p>
               <span className="flex shrink-0 flex-wrap items-center justify-end gap-1">
                 {o.isUrgent ? (
-                  <span className="inline-flex items-center gap-1 rounded-full bg-[#8b1e2d] px-2 py-0.5 text-[0.7rem] font-bold uppercase tracking-wide text-white">
+                  <span className="animate-neon-badge inline-flex items-center gap-1 rounded-full bg-[#c8102e] px-2 py-0.5 text-[0.7rem] font-bold uppercase tracking-wide text-white">
                     <Siren className="size-3" aria-hidden="true" />
                     Urgent
                   </span>
@@ -456,13 +455,122 @@ function TicketCard({
 }
 
 /**
+ * Carte de la suite d'une commande : tous les passages après le premier.
+ *
+ * Une carte par passage encombrait le tableau — trois servis, trois
+ * cartes — sans rien dire de plus qu'une ligne chacun. Celle-ci les résume,
+ * teintée comme le passage le moins avancé : reçu partout en vert, un bon
+ * en route en bleu, un passage encore ouvert en orange.
+ */
+function SuiteCard({
+  order: o, color, showDay, admin = false, href,
+}: {
+  order: BoardOrder
+  color: string
+  showDay?: boolean
+  admin?: boolean
+  href: string
+}) {
+  const servis = [...o.refills].sort((a, b) => a.rank - b.rank)
+  const recus = servis.filter((r) => r.receivedAt).length
+  const ouverts = servis.filter((r) => !r.deliveredAt).length
+  const enRoute = servis.length - recus - ouverts
+  const articles = servis.reduce((n, r) => n + r.lineCount, 0)
+  const dernier = servis[servis.length - 1]
+  const etat: BoardOrder['status'] = ouverts > 0 ? 'ACCEPTED' : enRoute > 0 ? 'DELIVERED' : 'RECEIVED'
+  return (
+    <div
+      className={cn(
+        'group relative flex h-full overflow-hidden rounded-xl border transition-[transform,box-shadow,border-color] duration-200',
+        'hover:-translate-y-0.5 hover:shadow-[0_10px_24px_-12px_rgb(var(--shadow-ambient)/0.4)]',
+        CARTE[etat],
+        // Une commande urgente le reste jusqu'au bout : sa suite porte le
+        // même bordeaux que son ticket, et se nomme comme lui.
+        o.isUrgent && 'border-2 border-[#c8102e] animate-neon-urgent',
+      )}
+    >
+      <span aria-hidden className={cn('w-1.5 shrink-0', ouverts > 0 ? 'bg-warn/70' : 'bg-ok')} />
+      <div className="flex min-w-0 flex-1 flex-col">
+      <Link href={href} className="min-w-0 flex-1 p-3">
+        <div className="flex items-start gap-2.5">
+          <span
+            className="grid size-10 shrink-0 place-items-center rounded-xl text-white shadow-sm sm:size-9"
+            style={{ background: o.isUrgent ? 'linear-gradient(140deg, #8b1e2d, #b3384a)' : `linear-gradient(140deg, ${color}, ${color}c4)` }}
+          >
+            {o.isUrgent ? <Siren className="size-5 sm:size-4" /> : <PackagePlus className="size-5 sm:size-4" />}
+          </span>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-start justify-between gap-2">
+              <p className="min-w-0 truncate text-[1rem] font-bold leading-tight text-fg sm:text-[0.92rem]">
+                {o.isUrgent ? 'Commande urgente' : 'Suite de commande'}
+                <span className="ml-1.5 font-semibold text-fg-muted">{servis.length} servi{servis.length > 1 ? 's' : ''}</span>
+              </p>
+              <span className="flex shrink-0 flex-wrap items-center justify-end gap-1">
+              {o.isUrgent ? (
+                <span className="inline-flex items-center gap-1 rounded-full bg-[#8b1e2d] px-2 py-0.5 text-[0.7rem] font-bold uppercase tracking-wide text-white">
+                  <Siren className="size-3" aria-hidden="true" />
+                  Urgent
+                </span>
+              ) : null}
+              {ouverts > 0 ? (
+                <Badge tone="warn" icon={<PackagePlus className="size-3.5" aria-hidden="true" />}>Ouvert</Badge>
+              ) : recus === servis.length ? (
+                <Badge tone="ok" icon={<CheckCircle2 className="size-3.5" aria-hidden="true" />}>Reçu</Badge>
+              ) : (
+                <Badge tone="info" icon={<Truck className="size-3.5" aria-hidden="true" />}>Livré</Badge>
+              )}
+              </span>
+            </div>
+            <p className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-[0.88rem] font-semibold tabular-nums text-fg sm:text-[0.82rem]">
+              {showDay ? (
+                <span className="rounded-md bg-[rgb(var(--glass-edge)/0.22)] px-1.5 font-semibold capitalize text-fg">{formatShortDay(o.businessDay)}</span>
+              ) : null}
+              <span className="truncate">dernier servi {formatInstantDate(dernier.createdAt)} à {formatTime(dernier.createdAt)}</span>
+            </p>
+            <p className="truncate font-mono text-[0.82rem] font-bold text-fg sm:text-[0.76rem]">{o.reference}</p>
+            {/* Chaque passage, en une pastille : son rang, son heure, son état. */}
+            <p className="mt-1.5 flex flex-wrap gap-1">
+              {servis.map((r) => (
+                <span key={r.id} className={cn('inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[0.72rem] font-semibold tabular-nums',
+                  r.receivedAt ? 'bg-ok/14 text-ok' : r.deliveredAt ? 'bg-info/14 text-info' : 'bg-warn/16 text-warn')}>
+                  {r.rank}ᵉ · {formatTime(r.createdAt)}
+                  {r.receivedAt ? <CheckCircle2 className="size-3" /> : r.deliveredAt ? <Truck className="size-3" /> : <PackagePlus className="size-3" />}
+                </span>
+              ))}
+            </p>
+          </div>
+        </div>
+        <div className="mt-2.5 flex flex-wrap items-center gap-x-2.5 gap-y-1.5 border-t border-[rgb(var(--glass-edge)/0.16)] pt-2.5 text-[0.85rem] tabular-nums sm:text-[0.78rem]">
+          <span className="font-medium text-fg">{articles} article{articles > 1 ? 's' : ''} complété{articles > 1 ? 's' : ''}</span>
+          {recus > 0 ? <span className="rounded-full bg-ok/14 px-1.5 font-medium text-ok">{recus} reçu{recus > 1 ? 's' : ''}</span> : null}
+          {enRoute > 0 ? <span className="rounded-full bg-info/14 px-1.5 font-medium text-info">{enRoute} à réceptionner</span> : null}
+          {ouverts > 0 ? <span className="rounded-full bg-warn/16 px-1.5 font-medium text-warn">{ouverts} ouvert{ouverts > 1 ? 's' : ''}</span> : null}
+          <ChevronRight className="ml-auto size-4 shrink-0 text-fg-subtle transition-transform duration-200 group-hover:translate-x-0.5 group-hover:text-accent" />
+        </div>
+      </Link>
+      {/* L'administration rouvre ou referme chaque passage non signé d'ici. */}
+      {admin ? (
+        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-[rgb(var(--glass-edge)/0.18)] px-3 py-1.5">
+          <span className="text-[0.72rem] font-semibold uppercase tracking-wide text-fg-subtle">Administration</span>
+          <span className="flex flex-wrap items-center gap-1.5">
+            {servis.filter((r) => !r.receivedAt).map((r) => <ReopenRefill key={r.id} id={r.id} rank={r.rank} ouvert={!r.deliveredAt} />)}
+            <DeleteSuiteButton orderId={o.id} reference={o.reference} nbServis={servis.length} />
+          </span>
+        </div>
+      ) : null}
+      </div>
+    </div>
+  )
+}
+
+/**
  * Carte d'un servi complémentaire.
  *
  * Même vocabulaire et mêmes teintes que le ticket : livré tant que le
  * département n'a pas signé, reçu ensuite. Elle ouvre le bon de livraison du
  * passage, prêt à imprimer.
  */
-function RefillCard({
+export function RefillCard({
   refill: r, order: o, color, showDay, admin = false, href,
 }: {
   refill: BoardRefill

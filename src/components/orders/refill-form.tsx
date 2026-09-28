@@ -8,9 +8,9 @@ import {
   AlertCircle,
 } from 'lucide-react'
 import { Button, Badge, TableWrap, Th, Td, usePending } from '@/components/ui/glass'
+import { boutonBon } from '@/components/ui/bon-style'
 import { Icon } from '@/components/ui/icon'
 import { FamilyBand, groupSize } from '@/components/ui/family-band'
-import { useToast } from '@/components/ui/toast'
 import { useConfirm } from '@/components/ui/confirm'
 import { gql, errorMessage } from '@/lib/graphql-client'
 import { cn, formatQty, formatTime, toNumber } from '@/lib/utils'
@@ -206,7 +206,6 @@ export function RefillForm({
   admin?: boolean
 }) {
   const router = useRouter()
-  const { push } = useToast()
   const confirmer = useConfirm()
   /**
    * Un avertissement au milieu de l'écran, fermé d'un « OK ».
@@ -222,6 +221,24 @@ export function RefillForm({
       single: true,
       tone: 'warn',
       confirmLabel: 'OK',
+      icon: <AlertCircle className="size-6" />,
+    })
+  }
+  /**
+   * Ce qui vient d'être fait, dit au centre de l'écran et refermé seul.
+   *
+   * Les bandeaux en bas à droite passaient inaperçus : ici, le bon vient de
+   * partir, et celui qui l'a émis doit le voir sans chercher.
+   */
+  const signaler = (title: string, message: string) => {
+    void confirmer({
+      title, message, single: true, tone: 'info', autoClose: 2500,
+      icon: <CheckCircle2 className="size-6" />,
+    })
+  }
+  const echouer = (message: string) => {
+    void confirmer({
+      title: 'Échec', message, single: true, tone: 'danger', autoClose: 4000,
       icon: <AlertCircle className="size-6" />,
     })
   }
@@ -286,8 +303,6 @@ export function RefillForm({
   // colonne en lecture, avec son X pour l'annuler.
   // Le dernier passage de chaque commande : c'est lui qu'on imprime, jamais
   // le premier service — son bon est déjà parti avec la livraison.
-  const rangDernier = Math.max(0, ...service.passages.map((p) => p.rank))
-  const dernierPassage = service.passages.filter((p) => p.rank === rangDernier)
 
   /**
    * Les passages enregistrés dont le bon n'est pas encore parti.
@@ -417,7 +432,7 @@ export function RefillForm({
       setEdition({ rang, saisie })
       router.refresh()
     } catch (e) {
-      push('error', errorMessage(e))
+      echouer(errorMessage(e))
     } finally {
       setBusy(false)
     }
@@ -504,11 +519,11 @@ export function RefillForm({
           // bouton vert le proposera dès le rechargement.
         }
       }
-      push('success', `${libelle} enregistré.`)
+      signaler('Servi enregistré', `${libelle} enregistré.`)
       setEdition(null)
       router.refresh()
     } catch (e) {
-      push('error', errorMessage(e))
+      echouer(errorMessage(e))
     } finally {
       setBusy(false)
     }
@@ -603,7 +618,12 @@ export function RefillForm({
    * a été servi, en gris et en lecture seule — la relecture avant d'émettre
    * le bon, où l'on ne veut surtout rien modifier par mégarde.
    */
-  const [vue, setVue] = React.useState<'attente' | 'toutes' | 'servies'>('attente')
+  // Plus rien à servir : le tableau s'ouvre sur tout ce qui a été servi,
+  // pas sur une liste d'attente vide. C'est le cas juste après le dernier
+  // passage, quand il reste précisément un bon à imprimer.
+  const [vue, setVue] = React.useState<'attente' | 'toutes' | 'servies'>(
+    () => (service.lignes.some((l) => reste(l) > 0) ? 'attente' : 'toutes'),
+  )
   const voirSoldees = vue === 'toutes'
 
   /**
@@ -648,13 +668,32 @@ export function RefillForm({
    * montrer la saisie en cours, sans quoi elle présenterait une feuille vide
    * juste avant d'émettre le papier.
    */
+  /** Les passages où un rattrapage est tapé, pas encore en base. */
+  const rangsRattrapes = React.useMemo(
+    () => Object.entries(rattrapage)
+      .filter(([, par]) => Object.values(par).some((v) => toNumber(v) > 0))
+      .map(([r]) => Number(r)),
+    [rattrapage],
+  )
+
+  /**
+   * Quelque chose de neuf est tapé — un rattrapage ou une colonne remplie.
+   *
+   * Le bon qu'on vient d'émettre reste alors derrière soi : la relecture ne
+   * montre plus ses lignes, seulement celles du prochain bon. Sinon un
+   * article du 6ᵉ servi traînait parmi les trois qu'on rattrape, et le
+   * compte était faux.
+   */
+  const saisieNouvelle = rangsRattrapes.length > 0
+    || colonnes.some((c) => Object.values(saisie[String(c.cle)] ?? {}).some((v) => toNumber(v) > 0))
+
   const servies = React.useMemo(
     () => service.lignes.filter((l) => {
       // Les passages qui attendent leur papier, et celui qu'on vient
       // d'imprimer : après l'émission, la relecture doit encore montrer ce
       // que le bon portait, sinon l'écran se vide sous les yeux de celui qui
-      // s'apprête à l'imprimer.
-      const retenus = [...rangsSansBon, ...rangsBon]
+      // s'apprête à l'imprimer. Dès qu'on tape autre chose, il s'efface.
+      const retenus = saisieNouvelle ? rangsSansBon : [...rangsSansBon, ...rangsBon]
       if (l.refills.some((r) => r.quantity > 0 && retenus.includes(r.rank))) return true
       const saisi = colonnes.reduce(
         (n, c) => n + toNumber(saisie[String(c.cle)]?.[l.id] ?? ''), 0,
@@ -663,7 +702,7 @@ export function RefillForm({
         .reduce((n, par) => n + toNumber(par[l.id] ?? ''), 0)
       return saisi + rattrape > 0
     }),
-    [service.lignes, colonnes, saisie, rattrapage, rangsSansBon, rangsBon],
+    [service.lignes, colonnes, saisie, rattrapage, rangsSansBon, rangsBon, saisieNouvelle],
   )
 
   // « Toutes » ajoute les soldées à ce qui attend, pas les lignes closes par
@@ -784,6 +823,46 @@ export function RefillForm({
     [...parCommande(cle).values()].reduce((n, c) => n + c.lines.length, 0)
 
   /**
+   * Les colonnes que le tableau montre.
+   *
+   * En relecture, une colonne ouverte où rien n'a été tapé n'est pas un
+   * servi : l'afficher — « 4ᵉ servi », vide de bout en bout — laissait
+   * croire à un passage qui n'a jamais eu lieu, et le bon en prenait le
+   * numéro. Elle reste en saisie, prête pour la suite, mais ne compte pas.
+   */
+  const colonnesVisibles = vue === 'servies' ? colonnes.filter((c) => compte(c.cle) > 0) : colonnes
+
+  /**
+   * Ce que le bouton vert émettrait : les passages sans papier, ceux qu'on
+   * rattrape, ou ce qu'on vient de taper dans une colonne. Rien de tout
+   * cela, et il n'y a pas de bon à faire — le bouton se retire au lieu de
+   * promettre le bon d'un servi qui n'existe pas.
+   */
+  const rangsAEmettreMaintenant: number[] = [...new Set([
+    ...rangsSansBon,
+    ...rangsRattrapes,
+    ...(colonnesVisibles.length > 0 ? [rangDe(colonnesVisibles[0].cle)] : []),
+  ])].sort((a, b) => a - b)
+  const bonAFaire = rangsAEmettreMaintenant.length > 0
+
+  /**
+   * Les colonnes de passages que le tableau montre.
+   *
+   * En relecture, on ne regarde que ce que le bon portera : les passages
+   * qu'il couvre, et rien d'autre. Un 3ᵉ servi fait de tirets, ou les
+   * colonnes d'un bon déjà parti, n'y ont pas leur place. Après l'émission,
+   * ce sont les passages du bon qui vient de sortir.
+   */
+  const rangsAffiches = (() => {
+    if (vue !== 'servies') return rangsServis
+    const utiles = new Set<number>(bonAFaire ? rangsAEmettreMaintenant : rangsBon)
+    if (utiles.size === 0) {
+      for (const l of servies) for (const r of l.refills) if (r.quantity > 0) utiles.add(r.rank)
+    }
+    return rangsServis.filter((r) => utiles.has(r))
+  })()
+
+  /**
    * Les passages d'un rang, séparés selon que le département les a signés.
    *
    * Un même rang touche plusieurs tickets du rayon, et chacun se réceptionne
@@ -839,10 +918,10 @@ export function RefillForm({
     setBusy(true)
     try {
       for (const id of ids) await gql(CANCEL_SERVICE, { id, rank: rang })
-      push('success', `Le ${rang}ᵉ servi a été supprimé.`)
+      signaler('Servi supprimé', `Le ${rang}ᵉ servi a été supprimé.`)
       router.refresh()
     } catch (e) {
-      push('error', errorMessage(e))
+      echouer(errorMessage(e))
     } finally {
       setBusy(false)
     }
@@ -895,10 +974,10 @@ export function RefillForm({
       })
       setRangsARenvoyer([])
       setRangsBon(rangsSansBon)
-      push('success', `Bon de livraison du ${libelleRangs(rangsSansBon)} — prêt à imprimer.`)
+      signaler('Bon de livraison', `Bon de livraison du ${libelleRangs(rangsSansBon)} — prêt à imprimer.`)
       router.refresh()
     } catch (e) {
-      push('error', errorMessage(e))
+      echouer(errorMessage(e))
     } finally {
       setBusy(false)
     }
@@ -917,10 +996,11 @@ export function RefillForm({
 
   /**
    * Envoie les rattrapages : ils complètent un passage existant, rang par
-   * rang et commande par commande. Rend le nombre de passages touchés.
+   * rang et commande par commande. Rend les rangs des passages touchés :
+   * le bon qui suit doit les porter, pas seulement la colonne nouvelle.
    */
-  const envoyerRattrapages = async (): Promise<number> => {
-    let touches = 0
+  const envoyerRattrapages = async (): Promise<number[]> => {
+    const touches: number[] = []
     for (const [rang, parLigne] of Object.entries(rattrapage)) {
       const parCmd = new Map<string, { lineId: string; quantity: number }[]>()
       for (const [lineId, v] of Object.entries(parLigne)) {
@@ -937,11 +1017,11 @@ export function RefillForm({
       }
       // Ce passage a changé depuis son bon : il en faudra un nouveau.
       if (parCmd.size > 0) {
-        touches += 1
+        touches.push(Number(rang))
         setRangsARenvoyer((v) => [...new Set([...v, Number(rang)])])
       }
     }
-    return touches
+    return touches.sort((a, b) => a - b)
   }
 
   /**
@@ -954,22 +1034,26 @@ export function RefillForm({
    * intempestive.
    */
   const imprimer = async (rangs: number[]) => {
-    const url = `/api/bon-service/departement?dep=${service.id}&rang=${rangs.join(',')}&jour=${service.jour}`
+    const lien = (r: number[]) =>
+      `/api/bon-service/departement?dep=${service.id}&rang=${r.join(',')}&jour=${service.jour}`
     if (rattrapagesEnAttente === 0 || busy) {
-      window.open(url, '_blank', 'noopener,noreferrer')
+      window.open(lien(rangs), '_blank', 'noopener,noreferrer')
       return
     }
     const onglet = window.open('', '_blank')
     setBusy(true)
     try {
-      await envoyerRattrapages()
+      // Les passages rattrapés rejoignent le papier : c'est pour eux qu'on
+      // réimprime.
+      const touches = await envoyerRattrapages()
+      const url = lien([...new Set([...rangs, ...touches])].sort((a, b) => a - b))
       setRattrapage({})
       router.refresh()
       if (onglet) onglet.location.href = url
       else window.open(url, '_blank', 'noopener,noreferrer')
     } catch (e) {
       onglet?.close()
-      push('error', errorMessage(e))
+      echouer(errorMessage(e))
     } finally {
       setBusy(false)
     }
@@ -1015,7 +1099,7 @@ export function RefillForm({
       // Les rattrapages d'abord : ils complètent un passage existant, rang par
       // rang et commande par commande. Le nouveau passage vient ensuite, avec
       // ce qui reste.
-      await envoyerRattrapages()
+      const touches = await envoyerRattrapages()
 
       // Un passage par commande : les bons partent séparément, chacun vers
       // son ticket.
@@ -1036,10 +1120,12 @@ export function RefillForm({
         // Le bon précédent n'est plus « celui qu'on vient d'émettre ».
         setRangsBon([])
       }
-      // Le bon couvre les passages en attente d'impression, celui-ci compris :
-      // on les fige d'un coup, et le papier les portera tous.
+      // Le bon couvre les passages en attente d'impression, ceux qu'on vient
+      // de rattraper et celui-ci : on les fige d'un coup, et le papier les
+      // porte tous. Sans les rattrapés, trois articles sur quatre
+      // disparaissaient du bon et de la relecture.
       const rangsDuBon = avertir
-        ? [...new Set([...rangsSansBon, ...crees.map((c) => c.rang)])].sort((a, b) => a - b)
+        ? [...new Set([...rangsSansBon, ...touches, ...crees.map((c) => c.rang)])].sort((a, b) => a - b)
         : []
       if (avertir && rangsDuBon.length > 0) {
         await gql(DELIVER_REFILLS, {
@@ -1049,12 +1135,14 @@ export function RefillForm({
         setRangsBon(rangsDuBon)
       }
       setBons(crees)
-      push('success',
+      signaler(
+        avertir ? 'Bon de livraison' : 'Servi enregistré',
         crees.length === 0
           ? `${rattrapages} ligne(s) rattrapée(s) dans un servi existant.`
           : avertir
-            ? `${crees.length} commande(s) complétée(s) — le bon de livraison du ${crees[0].rang}ᵉ servi est prêt.`
-            : `${crees.length} commande(s) complétée(s) — le ${crees[0].rang}ᵉ servi est enregistré.`)
+            ? `${crees.length} commande(s) complétée(s) — le bon de livraison du ${libelleRangs(rangsDuBon)} est prêt.`
+            : `${crees.length} commande(s) complétée(s) — le ${crees[0].rang}ᵉ servi est enregistré.`,
+      )
       // Le bon émis clôt le passage : la colonne disparaît, et il faut en
       // ouvrir une nouvelle pour servir de nouveau. « Enregistrer » la
       // laisse ouverte mais vidée — son contenu est en base, et le « déjà
@@ -1063,7 +1151,7 @@ export function RefillForm({
       else vider(cle)
       router.refresh()
     } catch (e) {
-      push('error', errorMessage(e))
+      echouer(errorMessage(e))
     } finally {
       setBusy(false)
     }
@@ -1086,9 +1174,9 @@ export function RefillForm({
             type="button"
             onClick={() => void imprimer(rangsAEmettre)}
             disabled={busy}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-info/40 bg-white/70 px-2.5 py-1 text-[0.8rem] font-semibold text-info transition-colors hover:bg-white disabled:opacity-60"
+            className={boutonBon()}
           >
-            <Printer className="size-3.5" />
+            <Printer className="size-5" />
             Bon de livraison du {libelleRangs(rangsAEmettre)} — {service.nom}
           </button>
         </div>
@@ -1107,9 +1195,9 @@ export function RefillForm({
             type="button"
             onClick={() => void imprimer(rangsEmis)}
             disabled={busy}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-[rgb(var(--glass-edge)/0.34)] bg-white/70 px-2.5 py-1 text-[0.8rem] font-semibold text-fg transition-colors hover:bg-white disabled:opacity-60"
+            className={boutonBon()}
           >
-            <Printer className="size-3.5" />
+            <Printer className="size-5" />
             Réimprimer le bon — {service.nom}
           </button>
         </div>
@@ -1126,9 +1214,9 @@ export function RefillForm({
             type="button"
             onClick={() => void imprimer(rangsImprimables)}
             disabled={busy}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-info/40 bg-white/70 px-2.5 py-1 text-[0.8rem] font-semibold text-info transition-colors hover:bg-white disabled:opacity-60"
+            className={boutonBon()}
           >
-            <Printer className="size-3.5" />
+            <Printer className="size-5" />
             Bon de livraison du {libelleRangs(rangsImprimables)} — {service.nom}
           </button>
         </div>
@@ -1189,9 +1277,24 @@ export function RefillForm({
               c'est elle qu'on lit avant d'émettre, et les boutons du papier
               se rangent au bout de la ligne. */}
           {vue === 'servies' ? (
-            <p className="no-print text-[0.85rem] font-semibold text-danger">
-              Vérifiez la commande avant de passer au bon de livraison.
-            </p>
+            bonAFaire ? (
+              <p className="no-print text-[0.85rem] font-semibold text-danger">
+                Vérifiez la commande avant de passer au bon de livraison.
+              </p>
+            ) : (
+              /* Tout est parti : on le dit, plutôt que de réclamer une
+                 vérification qui ne mène à aucun bon. */
+              <p className="no-print inline-flex items-center gap-1.5 text-[0.85rem] font-semibold text-ok">
+                <CheckCircle2 className="size-4" />
+                {/* Le bon qui vient de partir, avant tout : c'est lui qu'on
+                    regarde. Les autres sont déjà connus. */}
+                {rangsBon.length > 0
+                  ? `Bon de livraison du ${libelleRangs(rangsBon)} émis.`
+                  : rangsEmis.length > 0
+                    ? `Bon de livraison émis pour le ${libelleRangs(rangsEmis)}.`
+                    : 'Aucun servi à émettre.'}
+              </p>
+            )
           ) : null}
 
           {vue !== 'servies' && colonnes.length > 0 && !edition ? (
@@ -1287,7 +1390,20 @@ export function RefillForm({
             {vue === 'servies' ? (
               <button
                 type="button"
-                onClick={() => setVue('attente')}
+                onClick={() => {
+                  // Le bon est parti et rien de neuf n'est tapé : on repart
+                  // de zéro. Sans cela, le servi émis restait sous les yeux —
+                  // colonne ouverte, cases à 0 sur les mêmes articles, « 4
+                  // articles servis » — comme s'il attendait encore.
+                  if (rangsBon.length > 0 && !bonAFaire) {
+                    setRangsBon([])
+                    setBons([])
+                    setColonnes([])
+                    setSaisie({})
+                    setRattrapage({})
+                  }
+                  setVue('attente')
+                }}
                 className={cn(
                   'inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border',
                   'border-[rgb(var(--glass-edge)/0.34)] bg-white/60 px-3 py-1.5',
@@ -1303,46 +1419,62 @@ export function RefillForm({
                 couverts : plus de saisie ni de suppression ensuite. */}
             {/* Le bon vient d'être émis : on l'imprime sans quitter la
                 relecture, qui montre exactement ce qu'il porte. */}
-            {vue === 'servies' && rangsImprimables.length > 0 ? (
+            {vue === 'servies' && rangsImprimables.length > 0 && !bonAFaire ? (
+              /* Le bon qui vient de sortir. Dès qu'un nouveau se prépare, il
+                 s'efface : c'est le bouton vert qu'on cherche alors. */
               <button
                 type="button"
                 onClick={() => void imprimer(rangsImprimables)}
                 disabled={busy}
-                className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-info/40 bg-info/10 px-3 text-[0.8rem] font-semibold text-info transition-colors hover:bg-info/15 disabled:opacity-60"
+                className={boutonBon()}
               >
-                <Printer className="size-3.5" />
+                <Printer className="size-5" />
                 Imprimer le bon du {libelleRangs(rangsImprimables)}
+              </button>
+            ) : vue === 'servies' && !bonAFaire && rangsEmis.length > 0 ? (
+              /* Rien à émettre, mais un bon est parti : le dernier reste
+                 réimprimable d'ici — le papier se perd, se redemande. */
+              <button
+                type="button"
+                onClick={() => void imprimer([Math.max(...rangsEmis)])}
+                disabled={busy}
+                className={boutonBon()}
+              >
+                <Printer className="size-5" />
+                Réimprimer le bon du {libelleRangs([Math.max(...rangsEmis)])}
               </button>
             ) : null}
 
             {/* Au bout de la relecture, le papier : c'est le seul endroit
-                d'où il part désormais, une fois les lignes vérifiées. */}
-            {vue === 'servies' && (rangsSansBon.length > 0 || (bons.length === 0 && servies.length > 0)) ? (
+                d'où il part désormais, une fois les lignes vérifiées. Il ne
+                s'offre que s'il y a un bon à faire. */}
+            {vue === 'servies' && bonAFaire ? (
               <Button
                 variant="success"
                 size="sm"
                 loading={busy}
-                onClick={() => void emettreBon(colonnes[0]?.cle)}
+                onClick={() => void emettreBon(colonnesVisibles[0]?.cle)}
               >
                 {!busy ? <PackageCheck className="size-4" /> : null}
                 {/* Le rang que le papier portera : celui de la colonne en
                     cours quand rien n'est encore en base, sinon les passages
                     qui attendent leur bon. « du servi » ne disait pas lequel. */}
-                Bon de livraison du {libelleRangs(
-                  rangsSansBon.length > 0
-                    ? rangsSansBon
-                    : colonnes.length > 0 ? [rangDe(colonnes[0].cle)] : [],
-                )}
+                Bon de livraison du {libelleRangs(rangsAEmettreMaintenant)}
               </Button>
             ) : null}
           </div>
         </header>
 
-        <TableWrap minWidth={`${46 + (rangsServis.length + colonnes.length) * 7}rem`}>
+        <TableWrap minWidth={`${46 + (rangsAffiches.length + colonnesVisibles.length) * 7}rem`}>
           <thead>
             <tr>
               <Th className="w-10 text-right">#</Th>
-              <Th className="w-full">Article</Th>
+              <Th className="w-full">
+                Article
+                {/* Le compte des lignes affichées, comme sur le bon : on sait
+                    d'un coup d'œil combien d'articles la vue porte. */}
+                <span className="ml-1 font-normal text-fg-muted">({visibles.length})</span>
+              </Th>
               <Th className="text-right">Commande</Th>
               <Th className="text-right">
                 {admin ? (
@@ -1363,7 +1495,7 @@ export function RefillForm({
               {/* Les passages s'intercalent entre le premier service et le
                   reste : la ligne se lit alors dans l'ordre où elle s'est
                   jouée, et le reste conclut. */}
-              {rangsServis.map((rang) => {
+              {rangsAffiches.map((rang) => {
                 const { recus, enAttente } = reception(rang)
                 // Qui a signé, et quand : le nom se lit au survol de la coche.
                 const signature = recus
@@ -1422,7 +1554,7 @@ export function RefillForm({
                   </Th>
                 )
               })}
-              {colonnes.map((c) => (
+              {colonnesVisibles.map((c) => (
                 <Th key={c.cle} className="w-36 text-right">
                   <span className="inline-flex items-center gap-1.5">
                     {rangDe(c.cle)}ᵉ servi
@@ -1469,7 +1601,7 @@ export function RefillForm({
             {visibles.length === 0 ? (
               <tr>
                 <td
-                  colSpan={6 + rangsServis.length + colonnes.length}
+                  colSpan={6 + rangsAffiches.length + colonnesVisibles.length}
                   className="px-4 py-6 text-center text-[0.85rem] text-fg-muted"
                 >
                   {mot !== ''
@@ -1520,7 +1652,7 @@ export function RefillForm({
                     <FamilyBand
                       name={l.categoryName}
                       count={groupSize(visibles, i)}
-                      colSpan={6 + rangsServis.length + colonnes.length}
+                      colSpan={6 + rangsAffiches.length + colonnesVisibles.length}
                     />
                   ) : null}
                   <tr
@@ -1568,7 +1700,7 @@ export function RefillForm({
                         <>{formatQty(servi)} {l.unitSymbol}</>
                       )}
                     </Td>
-                    {rangsServis.map((rang) => {
+                    {rangsAffiches.map((rang) => {
                       const q = l.refills.find((x) => x.rank === rang)?.quantity ?? 0
                       // On ne rattrape que dans le premier passage resté vide
                       // pour cette ligne : le magasin l'y a sorti, et le bon
@@ -1627,7 +1759,7 @@ export function RefillForm({
                         </Td>
                       )
                     })}
-                    {colonnes.map((c) => (
+                    {colonnesVisibles.map((c) => (
                       <Td key={c.cle} className="text-right">
                         {/* La même charpente que les colonnes servies : le
                             nombre sur le même axe d'une ligne à l'autre. */}

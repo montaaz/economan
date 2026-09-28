@@ -88,7 +88,9 @@ export function ReopenRefill({
       )}
     >
       {ouvert ? <Lock className="size-3.5" /> : <LockOpen className="size-3.5" />}
-      <span>{ouvert ? 'Refermer' : 'Rouvrir'}</span>
+      {/* Le rang sur le bouton : sur une carte qui en porte plusieurs, deux
+          « Rouvrir » côte à côte ne disaient pas lequel. */}
+      <span>{ouvert ? 'Refermer' : 'Rouvrir'} {rank}ᵉ servi</span>
     </button>
   )
 }

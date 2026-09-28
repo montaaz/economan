@@ -127,7 +127,11 @@ export function RefillTicketSheet({
       {/* Le bandeau qui rappelait les commandes a disparu : le titre dit déjà
           quel service c'est, et les références sont juste sous lui. Il
           repoussait le tableau d'un tiers de page. */}
-      <table className="mt-2 w-full border-collapse">
+      {/* Au-delà de neuf colonnes — un 8ᵉ servi traîne derrière lui les six
+          passages d'avant — le tableau débordait de la feuille et le dernier
+          servi, celui qu'on imprime, était coupé. On réduit alors l'ensemble
+          pour qu'il tienne : tout reste lisible, rien ne sort de la page. */}
+      <table className="mt-2 w-full border-collapse" style={{ zoom: colonnes > 9 ? 8 / colonnes : 1 }}>
         <thead>
           <tr className="border-y border-[#0f1e33] bg-[#f0f4fa]">
             <th className="w-8 px-2 py-1.5 text-right font-semibold">#</th>

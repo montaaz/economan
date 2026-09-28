@@ -1,6 +1,11 @@
-import { dirname } from 'path'
-import { fileURLToPath } from 'url'
-import { FlatCompat } from '@eslint/eslintrc'
+import nextVitals from 'eslint-config-next/core-web-vitals'
+import nextTypescript from 'eslint-config-next/typescript'
 
-const compat = new FlatCompat({ baseDirectory: dirname(fileURLToPath(import.meta.url)) })
-export default [...compat.extends('next/core-web-vitals', 'next/typescript')]
+// Les configurations plates fournies par Next 16, telles quelles : la couche
+// de compatibilité `FlatCompat` plantait sur une référence circulaire du
+// greffon React, et le lint ne tournait plus du tout.
+export default [
+  ...nextVitals,
+  ...nextTypescript,
+  { ignores: ['src/generated/**', '.next/**', 'node_modules/**', 'scripts/.tmp-*'] },
+]

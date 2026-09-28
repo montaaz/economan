@@ -185,7 +185,8 @@ export async function rentabilite(from: Date | null, to: Date | null): Promise<R
       const part = total > 0 ? c / total : 1 / couts.length
       accumule(p.departmentId, pid, par * p.quantity, (p.revenue ?? 0) * part)
     }
-    const { _consomme: _c, ...plat } = p
+    const { _consomme, ...plat } = p
+    void _consomme
     plats.push(plat)
   }
   plats.sort((a, b) => (a.margin ?? Infinity) - (b.margin ?? Infinity) || b.quantity - a.quantity)

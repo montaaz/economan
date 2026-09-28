@@ -31,9 +31,9 @@ const QUERY = /* GraphQL */ `
  * La feuille d'un département, ouverte par l'administration pour une
  * commande urgente.
  *
- * Exactement l'écran de l'employé — même feuille, mêmes familles, même
- * saisie du stock compté, même brouillon — parce que c'est ce geste-là qu'on
- * connaît. Seules changent la personne qui signe et la couleur du ticket.
+ * Le même écran que l'employé — même feuille, mêmes familles, même
+ * brouillon — mais on y tape la quantité à commander, directement et sans
+ * plafond : l'urgence ne recompte pas un rayon, elle sort ce qui manque.
  */
 export default async function UrgentOrderPage({ params }: { params: Promise<{ dep: string }> }) {
   const user = await requireRole(['ADMIN'], '/admin/login')
@@ -55,7 +55,7 @@ export default async function UrgentOrderPage({ params }: { params: Promise<{ de
       <BackLink href="/admin">Retour</BackLink>
       <PageHeader
         title="Commande urgente"
-        description={`La feuille de ${department.name}, telle que ses employés la remplissent. Le ticket portera votre nom.`}
+        description={`La feuille de ${department.name}. Tapez directement les quantités à commander, sans limite de stock fixe. Le ticket portera votre nom.`}
         actions={
           <p className="flex items-baseline gap-2.5 text-[1.15rem] font-bold tabular-nums text-fg sm:text-[1.3rem]">
             <span className="capitalize">{formatLongDate(businessDay())}</span>

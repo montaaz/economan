@@ -2,10 +2,9 @@
 
 import * as React from 'react'
 import { useRouter } from 'next/navigation'
-import { Search, Send, Trash2, PackageSearch, ListChecks, Save } from 'lucide-react'
+import { Search, Send, Trash2, PackageSearch, ListChecks, Save, Info, CheckCircle2 } from 'lucide-react'
 import { GlassCard, Button, EmptyState, TableWrap, Th, Td } from '@/components/ui/glass'
 import { Icon } from '@/components/ui/icon'
-import { useToast } from '@/components/ui/toast'
 import { useConfirm } from '@/components/ui/confirm'
 import { gql, errorMessage } from '@/lib/graphql-client'
 import { cn, formatLongDate, formatQty, toNumber } from '@/lib/utils'
@@ -67,8 +66,9 @@ export function NewOrderForm({
   userName: string
   businessDay: string
   /**
-   * Commande urgente de l'administration : la même feuille, le même geste,
-   * mais passée pour un département choisi et signalée partout. Le ticket
+   * Commande urgente de l'administration : la même feuille, mais on y tape
+   * directement la quantité à commander — pas de stock compté, pas de
+   * plafond au stock fixe : on sort ce qu'il faut, tout de suite. Le ticket
    * s'ouvre ensuite dans l'espace de l'administration.
    */
   urgent?: { departmentId: string }
@@ -86,12 +86,16 @@ export function NewOrderForm({
   }
 }) {
   const router = useRouter()
-  const { push } = useToast()
   const confirmer = useConfirm()
   // Un refus se lit au centre de l'écran, comme à l'économat : la boîte se
   // ferme d'elle-même après quelques secondes, ou d'un clic sur OK ou la croix.
   const refuser = (title: string, message: string) => {
-    void confirmer({ title, message, single: true, tone: 'danger', autoClose: 6000 })
+    void confirmer({ title, message, single: true, tone: 'danger', autoClose: 4000 })
+  }
+  // Une information se lit au centre elle aussi, et s'efface vite : deux
+  // secondes et demie, le temps de la lire, sans rien à cliquer.
+  const informer = (title: string, message: string) => {
+    void confirmer({ title, message, single: true, tone: 'info', autoClose: 2500, icon: <Info className="size-6" /> })
   }
 
   const [search, setSearch] = React.useState('')
@@ -165,20 +169,23 @@ export function NewOrderForm({
     [products, isFilled, urgent],
   )
 
+  // En urgence, la case saisie est la commande elle-même : `onHand` porte
+  // alors la quantité à sortir, pas un stock compté.
+  const direct = Boolean(urgent)
+  /** Ce qu'une ligne commande, d'après ce qui est tapé. */
+  const askedFor = React.useCallback(
+    (p: CatalogProduct) => (direct ? toNumber(onHand[p.id]) : toOrder(p.stockFixe, toNumber(onHand[p.id]))),
+    [direct, onHand],
+  )
+
   /** Les lignes qui partiront réellement : celles dont l'écart est positif. */
   const selected = React.useMemo(
     () =>
       products
         .filter((p) => isFilled(p.id))
-        .map((p) => ({ product: p, asked: toOrder(p.stockFixe, toNumber(onHand[p.id])) }))
+        .map((p) => ({ product: p, asked: askedFor(p) }))
         .filter((x) => x.asked > 0),
-    [products, onHand, isFilled],
-  )
-
-  /** Articles sans stock fixe : ils ne peuvent rien générer. */
-  const withoutPar = React.useMemo(
-    () => products.filter((p) => p.stockFixe <= 0).length,
-    [products],
+    [products, isFilled, askedFor],
   )
 
   const setStock = (product: CatalogProduct, value: string) => {
@@ -188,7 +195,8 @@ export function NewOrderForm({
     // Un rayon ne contient pas plus que sa cible : au-delà, c'est une faute de
     // frappe. Le serveur refuse de toute façon, autant le dire tout de suite.
     if (
-      normalised !== ''
+      !direct
+      && normalised !== ''
       && product.stockFixe > 0
       && Number(normalised) > product.stockFixe
     ) {
@@ -207,7 +215,7 @@ export function NewOrderForm({
       for (const p of products) if ((next[p.id] ?? '').trim() === '') next[p.id] = '0'
       return next
     })
-    push('info', 'Les lignes vides ont été mises à 0 (rien en rayon).')
+    informer('Rien en rayon', 'Les lignes vides ont été mises à 0.')
   }
 
   const clearAll = () => {
@@ -253,9 +261,12 @@ export function NewOrderForm({
     setSubmitting(true)
     try {
       // On envoie le stock compté ; le serveur recalcule l'écart lui-même.
-      const lines = products
-        .filter((p) => isFilled(p.id))
-        .map((p) => ({ productId: p.id, quantityOnHand: toNumber(onHand[p.id]) }))
+      // En urgence, c'est la quantité commandée qui part, telle que tapée.
+      const lines = direct
+        ? selected.map((x) => ({ productId: x.product.id, quantityOnHand: 0, quantityAsked: x.asked }))
+        : products
+          .filter((p) => isFilled(p.id))
+          .map((p) => ({ productId: p.id, quantityOnHand: toNumber(onHand[p.id]) }))
 
       type Resultat = { id: string; reference: string; ticketNumber: number; lineCount: number }
       const o = editing
@@ -273,14 +284,15 @@ export function NewOrderForm({
       // La commande est partie : garder le brouillon la ferait revenir sur la
       // feuille suivante.
       draft.clear()
-      push(
-        'success',
-        editing
-          ? `Commande ${o.reference} modifiée — ${o.lineCount} article(s).`
-          : urgent
-            ? `Commande urgente ${o.reference} passée — ticket n°${o.ticketNumber}, ${o.lineCount} article(s).`
-            : `Commande ${o.reference} envoyée — ticket n°${o.ticketNumber}, ${o.lineCount} article(s).`,
-      )
+      // La confirmation au centre, comme les autres avis : elle suit sur la
+      // fiche de la commande et s'efface d'elle-même.
+      void confirmer({
+        title: editing ? 'Commande modifiée' : urgent ? 'Commande urgente passée' : 'Commande envoyée',
+        message: editing
+          ? `${o.reference} — ${o.lineCount} article(s).`
+          : `${o.reference} — ticket n°${o.ticketNumber}, ${o.lineCount} article(s).`,
+        single: true, tone: 'info', autoClose: 2500, icon: <CheckCircle2 className="size-6" />,
+      })
       router.push(urgent ? `/admin/commandes/${o.id}` : `/employe/commandes/${o.id}`)
       router.refresh()
     } catch (error) {
@@ -424,14 +436,22 @@ export function NewOrderForm({
                 <span className="sm:hidden">Fixe</span>
                 <span className="hidden sm:inline">Stock fixe</span>
               </Th>
+              {/* En urgence, la case saisie est la commande : une seule
+                  colonne, et pas de stock compté à recopier. */}
               <Th className="w-[5.5rem] px-1 text-right sm:w-32 sm:px-3">
-                <span className="sm:hidden">En rayon</span>
-                <span className="hidden sm:inline">Mon stock</span>
+                {direct ? 'Commande' : (
+                  <>
+                    <span className="sm:hidden">En rayon</span>
+                    <span className="hidden sm:inline">Mon stock</span>
+                  </>
+                )}
               </Th>
-              <Th className="px-1 text-right sm:px-3">
-                <span className="sm:hidden">Cmd.</span>
-                <span className="hidden sm:inline">commande</span>
-              </Th>
+              {direct ? null : (
+                <Th className="px-1 text-right sm:px-3">
+                  <span className="sm:hidden">Cmd.</span>
+                  <span className="hidden sm:inline">commande</span>
+                </Th>
+              )}
             </tr>
           </thead>
           <tbody className="divide-y divide-[rgb(var(--glass-edge)/0.12)] [&_td:not(:last-child)]:border-r [&_td]:border-[rgb(var(--glass-edge)/0.12)]">
@@ -440,15 +460,17 @@ export function NewOrderForm({
               const opensFamily = previous?.category.id !== p.category.id
               const filled = isFilled(p.id)
               const flagged = showMissing && !filled
-              const stock = toNumber(onHand[p.id])
-              const asked = filled ? toOrder(p.stockFixe, stock) : 0
+              const asked = filled ? askedFor(p) : 0
               const noPar = p.stockFixe <= 0
+              // En urgence, tout ce qu'on commande s'ajoute au stock du rayon :
+              // la flèche le dit sur chaque quantité tapée.
+              const auDela = direct && asked > 0
               return (
                 <React.Fragment key={p.id}>
                   {opensFamily ? (
                     <tr className="[&>td]:border-r-0">
                       <td
-                        colSpan={5}
+                        colSpan={direct ? 4 : 5}
                         className="bg-ok/12 px-2 py-1.5 text-[0.72rem] font-bold uppercase tracking-[0.06em] text-ok sm:px-3 sm:text-[0.76rem]"
                       >
                         <span className="flex items-center gap-1.5">
@@ -505,26 +527,37 @@ export function NewOrderForm({
                         onChange={(e) => setStock(p, e.target.value)}
                         onKeyDown={(e) => onKeyDown(e, i)}
                         placeholder="—"
-                        aria-label={`Stock en rayon pour ${p.name}`}
+                        aria-label={direct ? `Quantité à commander pour ${p.name}` : `Stock en rayon pour ${p.name}`}
                         aria-invalid={flagged}
                         className={cn(
                           'field h-9 w-14 px-1.5 py-0 text-right text-[0.8rem] tabular-nums sm:w-24 sm:px-3 sm:text-[0.85rem]',
                           flagged && 'border-danger/60 ring-1 ring-danger/30',
+                          auDela && 'border-ok/60 font-bold text-ok ring-1 ring-ok/30',
                         )}
                       />
-                      <button
-                        type="button"
-                        onClick={() => setStock(p, '0')}
-                        title="Rien en rayon"
-                        aria-label={`Rien en rayon pour ${p.name}`}
-                        className="h-9 shrink-0 rounded-lg border border-[rgb(var(--glass-edge)/0.3)] bg-white/60 px-2 text-[0.72rem] font-semibold tabular-nums text-fg-muted transition-colors hover:bg-white/90 hover:text-fg"
-                      >
-                        0
-                      </button>
+                      {direct ? (
+                        /* L'unité, et la flèche quand on dépasse le stock fixe. */
+                        <span className="w-8 text-[0.72rem] text-fg-subtle">
+                          {auDela ? <span className="mr-0.5 font-bold text-ok">▲</span> : null}
+                          {p.baseUnit.symbol}
+                        </span>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => setStock(p, '0')}
+                          title="Rien en rayon"
+                          aria-label={`Rien en rayon pour ${p.name}`}
+                          className="h-9 shrink-0 rounded-lg border border-[rgb(var(--glass-edge)/0.3)] bg-white/60 px-2 text-[0.72rem] font-semibold tabular-nums text-fg-muted transition-colors hover:bg-white/90 hover:text-fg"
+                        >
+                          0
+                        </button>
+                      )}
                     </div>
                   </Td>
 
-                  {/* Résultat du calcul, mis à jour à la frappe. */}
+                  {/* Résultat du calcul, mis à jour à la frappe. Absent en
+                      urgence : la case saisie est déjà la commande. */}
+                  {direct ? null : (
                   <Td className="whitespace-nowrap px-1 text-right sm:px-3">
                     {!filled ? (
                       <span className="text-[0.72rem] text-fg-subtle sm:text-[0.78rem]">—</span>
@@ -548,6 +581,7 @@ export function NewOrderForm({
                       </span>
                     )}
                   </Td>
+                  )}
                 </tr>
                 </React.Fragment>
               )

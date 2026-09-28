@@ -17,6 +17,7 @@ const QUERY = /* GraphQL */ `
       uncountedCount
       soldOn
       zMissing
+      recipes { recipeId name articleCount preparation salesItemId }
       lines {
         productId
         productName
@@ -36,6 +37,7 @@ const QUERY = /* GraphQL */ `
         soldDeclared
         expected
         variance
+        dishes { recipeId name perPortion }
       }
     }
   }
@@ -121,7 +123,7 @@ export async function ControlPage({
       ) : (
         <div className="space-y-5">
           {stockControl.map((g) => (
-            <ControlTable key={g.department.id} group={g} day={day} zPath={base === '/controle' ? '/controle/z' : null} />
+            <ControlTable key={g.department.id} group={g} day={day} zPath={base === '/controle' ? '/controle/z' : null} fichesPath={`${base}/fiches`} />
           ))}
         </div>
       )}

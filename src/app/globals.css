@@ -248,6 +248,41 @@ body::before {
   animation: fade-out 0.25s ease-out both;
 }
 
+/* Une commande urgente pulse en néon rouge : la carte garde la teinte de
+   son état — livrée, reçue — mais son contour respire, et l'œil y va en
+   premier. Le halo va et vient plutôt que de clignoter : lisible, pas
+   agressif. */
+@keyframes neon-urgent {
+  0%, 100% {
+    border-color: #c8102e;
+    box-shadow:
+      0 0 0 2px rgb(200 16 46 / 0.25),
+      0 0 10px 1px rgb(255 40 70 / 0.45),
+      0 0 22px 4px rgb(255 40 70 / 0.22);
+  }
+  50% {
+    border-color: #ff2d55;
+    box-shadow:
+      0 0 0 3px rgb(255 45 85 / 0.45),
+      0 0 18px 4px rgb(255 45 85 / 0.7),
+      0 0 40px 10px rgb(255 45 85 / 0.35);
+  }
+}
+@utility animate-neon-urgent {
+  animation: neon-urgent 1.6s ease-in-out infinite;
+}
+/* Le badge « Urgent » scintille au même rythme. */
+@keyframes neon-badge {
+  0%, 100% { box-shadow: 0 0 4px 0 rgb(255 45 85 / 0.5); }
+  50% { box-shadow: 0 0 12px 3px rgb(255 45 85 / 0.9); }
+}
+@utility animate-neon-badge {
+  animation: neon-badge 1.6s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .animate-neon-urgent, .animate-neon-badge { animation: none; }
+}
+
 /* Le temps qui reste avant qu'un avertissement se ferme seul. */
 @keyframes deplete {
   from { transform: scaleX(1); }

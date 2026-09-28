@@ -77,6 +77,15 @@ export async function deleteDepartment(id: number): Promise<ActionResult> {
       error: `Ce département porte ${orders} commande(s). Désactivez-le plutôt que de le supprimer.`,
     }
   }
+  // Les fiches techniques le référencent aussi, sans cascade : la suppression
+  // tombait en erreur brute de la base.
+  const fiches = await prisma.recipe.count({ where: { departmentId: id } })
+  if (fiches > 0) {
+    return {
+      ok: false,
+      error: `Ce département porte ${fiches} fiche(s) technique(s). Désactivez-le plutôt que de le supprimer.`,
+    }
+  }
 
   await prisma.user.updateMany({ where: { departmentId: id }, data: { departmentId: null } })
   await prisma.department.delete({ where: { id } })
@@ -182,6 +191,19 @@ export async function deleteUser(id: number): Promise<ActionResult> {
     return {
       ok: false,
       error: `Ce compte porte ${orders} commande(s). Désactivez-le plutôt que de le supprimer.`,
+    }
+  }
+  // Les écritures de stock, préparations et ventes déclarées portent aussi
+  // son nom, sans cascade : on le dit plutôt que de laisser la base refuser.
+  const [entrees, preparations, declarees] = await Promise.all([
+    prisma.stockEntry.count({ where: { createdById: id } }),
+    prisma.preparation.count({ where: { createdById: id } }),
+    prisma.declaredSale.count({ where: { createdById: id } }),
+  ])
+  if (entrees + preparations + declarees > 0) {
+    return {
+      ok: false,
+      error: `Ce compte a signé ${entrees + preparations + declarees} écriture(s) de stock ou de contrôle. Désactivez-le plutôt que de le supprimer.`,
     }
   }
 
@@ -431,11 +453,19 @@ export async function deleteProduct(id: number): Promise<ActionResult> {
 
   const product = await prisma.product.findUnique({
     where: { id },
-    select: { name: true, _count: { select: { lines: true } } },
+    select: {
+      name: true,
+      // Tout ce qui le référence sans cascade : commandes, écritures de
+      // stock, préparations (comme source ou comme résultat), fiches. Un
+      // article ainsi lié se désactive ; le supprimer tombait en erreur brute.
+      _count: { select: { lines: true, stockEntries: true, preparationsMade: true, preparationsFrom: true, recipeLines: true } },
+    },
   })
   if (!product) return { ok: false, error: 'Article introuvable.' }
 
-  if (product._count.lines > 0) {
+  const liens = product._count.lines + product._count.stockEntries + product._count.preparationsMade
+    + product._count.preparationsFrom + product._count.recipeLines
+  if (liens > 0) {
     await prisma.$transaction([
       prisma.product.update({ where: { id }, data: { isActive: false } }),
       prisma.departmentProduct.deleteMany({ where: { productId: id } }),
@@ -446,7 +476,7 @@ export async function deleteProduct(id: number): Promise<ActionResult> {
     revalidatePath('/employe/commande')
     return {
       ok: true,
-      error: `« ${product.name} » figure dans ${product._count.lines} ligne(s) de commande : il a été désactivé et retiré des feuilles, l’historique est conservé.`,
+      error: `« ${product.name} » figure dans ${liens} ligne(s) de commande, de stock ou de fiche : il a été désactivé et retiré des feuilles, l’historique est conservé.`,
     }
   }
 

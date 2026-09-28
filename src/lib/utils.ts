@@ -186,3 +186,12 @@ export function addDays(d: Date, n: number): Date {
 export function toDateKey(d: Date): string {
   return d.toISOString().slice(0, 10)
 }
+
+/**
+ * Un « retour » lu dans l'adresse : seulement un chemin de l'application,
+ * jamais une adresse extérieure. Sinon, le repli.
+ */
+export function retourSur(v: string | string[] | undefined, repli: string): string {
+  const r = Array.isArray(v) ? v[0] : v
+  return r && r.startsWith('/') && !r.startsWith('//') ? r : repli
+}

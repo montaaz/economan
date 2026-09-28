@@ -1,6 +1,8 @@
 'use client'
 
 import { Button, type ButtonProps } from '@/components/ui/glass'
+import { cn } from '@/lib/utils'
+import { TEINTES_FORTES, type TeinteBon } from '@/components/ui/bon-style'
 
 /**
  * Ouvre la feuille en PDF, dans un onglet.
@@ -15,11 +17,14 @@ import { Button, type ButtonProps } from '@/components/ui/glass'
  * imprime un document déjà propre.
  */
 export function PrintButton({
-  orderId, children, ...props
-}: ButtonProps & { orderId: string }) {
+  orderId, teinte = 'livraison', children, className, ...props
+}: ButtonProps & { orderId: string; teinte?: TeinteBon }) {
   return (
     <Button
+      variant="primary"
+      size="lg"
       {...props}
+      className={cn('!h-12 !rounded-2xl !px-6 !text-[1rem] !font-bold !text-white hover:!brightness-110', TEINTES_FORTES[teinte], className)}
       onClick={() => window.open(`/api/bon/${orderId}`, '_blank', 'noopener')}
       title="Ouvre la feuille en PDF, prête à imprimer"
     >

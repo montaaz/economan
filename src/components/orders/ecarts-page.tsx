@@ -55,10 +55,15 @@ export async function EcartsPage({
   const groupes = dep
     ? board.departments.filter((g) => g.department.id === dep)
     : board.departments
-  const concerne = (o: { rejectedCount: number; adjustedCount: number }) =>
-    vue === 'rupture' ? o.rejectedCount > 0
+  // Une commande soldée par son dernier passage n'a plus d'écart : la
+  // retirer ici faisait disparaître tout le tableau à l'instant même où
+  // l'économat s'apprêtait à imprimer le bon de ce passage. Ce qui a été
+  // complété reste donc sur l'écran, écart ou pas.
+  const concerne = (o: { rejectedCount: number; adjustedCount: number; refills: unknown[] }) =>
+    o.refills.length > 0
+    || (vue === 'rupture' ? o.rejectedCount > 0
       : vue === 'ajuste' ? o.adjustedCount > 0
-      : o.rejectedCount > 0 || o.adjustedCount > 0
+      : o.rejectedCount > 0 || o.adjustedCount > 0)
   const ids = groupes.flatMap((g) => g.orders.filter(concerne).map((o) => o.id))
 
   // Les pastilles comptent les lignes en écart, pas les tickets : c'est ce
@@ -84,12 +89,6 @@ export async function EcartsPage({
     ? []
     : (await executeGraphQL<{ orders: ProcessOrder[] }>(ORDERS_QUERY, { ids })).orders
 
-  const retenus = vue === 'rupture' ? ['REJECTED']
-    : vue === 'ajuste' ? ['ADJUSTED']
-    : ['REJECTED', 'ADJUSTED']
-  const lignes = orders.reduce(
-    (n, o) => n + o.lines.filter((l) => retenus.includes(l.status)).length, 0,
-  )
   const ruptures = orders.reduce(
     (n, o) => n + o.lines.filter((l) => l.status === 'REJECTED').length, 0,
   )

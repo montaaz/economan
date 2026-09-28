@@ -16,7 +16,7 @@ export default async function EconomatStockPage() {
     <>
       <PageHeader
         title="Stock général"
-        description="Les arrivages entrent ici avec leur prix ; chaque bon de livraison en sort. Les portions comptent pour leur article mère."
+        description="Les arrivages entrent ici avec leur prix ; chaque bon de livraison en sort. Les portions comptent pour leur article pur."
       />
       <GeneralStock admin={user.role === 'ADMIN'} base="/economat" />
     </>

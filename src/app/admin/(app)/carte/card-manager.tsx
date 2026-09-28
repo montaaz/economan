@@ -3,7 +3,7 @@
 import * as React from 'react'
 import { useRouter } from 'next/navigation'
 import { Plus, Pencil, Trash2, Receipt, FolderPlus } from 'lucide-react'
-import { GlassCard, Button, Badge, Field, EmptyState, TableWrap, Th, Td, usePending } from '@/components/ui/glass'
+import { GlassCard, Button, Field, EmptyState, TableWrap, Th, Td, usePending } from '@/components/ui/glass'
 import { Modal } from '@/components/ui/modal'
 import { useToast } from '@/components/ui/toast'
 import { useConfirm } from '@/components/ui/confirm'

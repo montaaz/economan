@@ -5,7 +5,7 @@ import { notFound } from 'next/navigation'
 import { Printer, ListRestart } from 'lucide-react'
 import { executeGraphQL } from '@/server/graphql/execute'
 import { requireEmployeeDepartment } from '@/server/auth/guards'
-import { GlassCard, Badge, TableWrap, Th, Td, Button } from '@/components/ui/glass'
+import { GlassCard, Badge, Button } from '@/components/ui/glass'
 import { StatusBadge, statusSteps } from '@/components/ui/status'
 import { Ticket, ticketVariant, type TicketOrder } from '@/components/ui/ticket'
 import { formatLongDate, formatTime, cn } from '@/lib/utils'
@@ -101,20 +101,6 @@ type Order = Omit<TicketOrder, 'createdBy' | 'lines'> & {
   department: { name: string; code: string; color: string }
 }
 
-const LINE_TONE = {
-  PENDING: 'neutral',
-  VALIDATED: 'ok',
-  ADJUSTED: 'warn',
-  REJECTED: 'danger',
-} as const
-
-const LINE_LABEL = {
-  PENDING: 'En attente',
-  VALIDATED: 'Servi',
-  ADJUSTED: 'Ajusté',
-  REJECTED: 'Rupture',
-} as const
-
 export default async function OrderDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
   const [user, { order, myCatalog }] = await Promise.all([
@@ -197,9 +183,9 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
               </Button>
             </Link>
           ) : null}
-          <PrintButton orderId={order.id} variant="secondary" size="sm">
-            <Printer className="size-3.5" />
-            Imprimer
+          <PrintButton orderId={order.id} teinte="commande">
+            <Printer className="size-5" />
+            Imprimer le bon de commande
           </PrintButton>
           {/* La confirmation vit désormais dans le panneau de vérification. */}
         </div>

@@ -5,7 +5,7 @@ import { useActionState } from 'react'
 import { useFormStatus } from 'react-dom'
 import { useRouter } from 'next/navigation'
 import { Search, PackageSearch, Target, Plus, AlertCircle, Pencil, Trash2, Check, Loader2 } from 'lucide-react'
-import { GlassCard, Button, Badge, EmptyState, TableWrap, Th, Td, usePending } from '@/components/ui/glass'
+import { GlassCard, Button, EmptyState, TableWrap, Th, Td, usePending } from '@/components/ui/glass'
 import { Icon } from '@/components/ui/icon'
 import { useToast } from '@/components/ui/toast'
 import { Modal } from '@/components/ui/modal'
@@ -19,7 +19,7 @@ import { InlineEdit } from '@/components/ui/inline-edit'
 import { useConfirm } from '@/components/ui/confirm'
 import { UnitPicker } from './unit-picker'
 import { EditProductModal } from './edit-product-modal'
-import { cn, formatQty, toNumber } from '@/lib/utils'
+import { cn, toNumber } from '@/lib/utils'
 
 type Dept = { id: number; name: string; code: string; color: string; icon: string | null }
 
@@ -117,11 +117,6 @@ export function StockFixeEditor({
     products.forEach((p, i) => m.set(p.id, i + 1))
     return m
   }, [products])
-
-  const dirty = React.useMemo(
-    () => products.filter((p) => toNumber(values[p.id]) !== p.quantity),
-    [products, values],
-  )
 
   const configured = React.useMemo(
     () => products.filter((p) => toNumber(values[p.id]) > 0).length,

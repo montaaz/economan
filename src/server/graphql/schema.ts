@@ -1,16 +1,17 @@
 import 'server-only'
 import { createSchema } from 'graphql-yoga'
 import { GraphQLError } from 'graphql'
+import { Prisma } from '@/generated/prisma/client'
 import { prisma } from '@/server/db'
 import { businessDay, salesDay, addDays } from '@/lib/utils'
 import { resteAServir } from '@/lib/reste'
-import { generalStock, departmentSpend, addStockEntry, setProductPortion, setProductKind, stockMovements, setStockLevel, livraisonsDuService } from '@/server/services/stock'
+import { generalStock, departmentSpend, addStockEntry, addStockEntries, suppliers, setProductPortion, setProductKind, stockMovements, setStockLevel, livraisonsDuService, addPreparation, deletePreparation, preparations } from '@/server/services/stock'
 import { rentabilite } from '@/server/services/rentabilite'
-import { consommationVentes, updateRecipeLine, linkRecipeItem, createRecipe, deleteRecipe, addRecipeLine, deleteRecipeLine } from '@/server/services/recipes'
+import { consommationVentes, consommationParPortion, updateRecipeLine, linkRecipeItem, createRecipe, deleteRecipe, addRecipeLine, deleteRecipeLine, type Fiche } from '@/server/services/recipes'
 import type { SessionUser } from '@/server/auth/session'
 import {
   createOrder, updateOrder, acceptOrder, cancelAcceptance, setServedLines, deliverOrder,
-  reopenOrder, closeOrder, setRefillLines, deleteOrder, deleteOrders,
+  reopenOrder, closeOrder, setRefillLines, deleteOrder, deleteOrders, deleteOrderRefills,
   receiveOrder, addRefill, completeRefill, cancelService, receiveRefill, WorkflowError,
 } from '@/server/services/orders'
 
@@ -88,10 +89,12 @@ const typeDefs = /* GraphQL */ `
     mother: StockMother
     "Les articles portionnés à partir de celui-ci, avec leur ratio."
     portions: [StockPortion!]!
-    "Total entré, en unités de l'article."
+    "Total entré : arrivages pour un pur, préparations pour un préparé."
     entered: Float!
-    "Total parti vers les départements, ramené en unités de l'article (portions converties)."
+    "Total parti vers les départements, en unités de l'article."
     delivered: Float!
+    "Pris par les préparations, pour un article pur."
+    prepared: Float!
     "Entré moins sorti."
     stock: Float!
     "Coût moyen pondéré des entrées, en dinars par unité. Nul sans entrée."
@@ -118,8 +121,9 @@ const typeDefs = /* GraphQL */ `
     unitSymbol: String
     amount: Float!
     orderId: ID
+    refillId: ID
   }
-  enum StockMovementType { ENTREE SORTIE INVENTAIRE }
+  enum StockMovementType { ENTREE SORTIE INVENTAIRE PREPARATION }
   type DepartmentRef { name: String!, color: String! }
   type StockPortion {
     productId: ID!
@@ -141,6 +145,8 @@ const typeDefs = /* GraphQL */ `
     businessDay: Date!
     createdAt: DateTime!
     createdBy: User!
+    "Le fournisseur qui a livré, quand l'entrée en a un."
+    supplier: Supplier
   }
   "Ce qu'un département a reçu du stock général sur une période, en dinars."
   type DepartmentSpend {
@@ -160,6 +166,30 @@ const typeDefs = /* GraphQL */ `
     quantity: Float!
     amount: Float!
   }
+  "Une préparation : du pur consommé, du préparé obtenu."
+  type Preparation {
+    id: ID!
+    source: Product!
+    product: Product!
+    quantityUsed: Float!
+    quantityMade: Float!
+    "Coût d'une unité de préparé, figé à la préparation."
+    unitCost: Float!
+    businessDay: Date!
+    note: String
+    createdAt: DateTime!
+    createdBy: User!
+  }
+  "Un fournisseur du stock général."
+  type Supplier {
+    id: ID!
+    name: String!
+    phone: String
+    "Matricule fiscal."
+    taxId: String
+  }
+  input SupplierInput { name: String!, phone: String, taxId: String }
+  input StockEntryLineInput { productId: ID!, quantity: Float!, unitPrice: Float! }
   "Un plat de la carte vendu sur la période : ce qu'il rapporte contre ce qu'il coûte."
   type ProfitDish {
     salesItemId: ID!
@@ -322,6 +352,27 @@ const typeDefs = /* GraphQL */ `
     expected: Float
     "Compté − théorique : positif, le rayon compte plus que prévu ; négatif, il manque."
     variance: Float
+    "Les plats de la carte qui consomment cet article, et combien par portion (en unités de l'article)."
+    dishes: [ControlDish!]!
+  }
+  "Un plat de la carte, vu d'un article : ce qu'une portion en consomme."
+  type ControlDish {
+    recipeId: ID!
+    name: String!
+    "Consommé par portion, en unités de l'article."
+    perPortion: Float!
+  }
+  "Un plat du service, pour filtrer sa feuille sur ses ingrédients."
+  type ControlRecipe {
+    "Nul quand le plat de la carte n'a pas encore de fiche technique."
+    recipeId: ID
+    name: String!
+    "Nombre d'articles de la feuille que ce plat consomme."
+    articleCount: Int!
+    "Une préparation (pâte, portion…) plutôt qu'un plat vendu."
+    preparation: Boolean!
+    "Le plat de la carte correspondant, pour créer sa fiche s'il n'en a pas."
+    salesItemId: ID
   }
 
   "Le contrôle des stocks d'un département sur une journée."
@@ -334,6 +385,8 @@ const typeDefs = /* GraphQL */ `
     soldOn: Date
     "Aucun Z n'est saisi entre le comptage précédent et cette journée."
     zMissing: Boolean!
+    "Les plats de la carte de ce service, avec le nombre d'articles de la feuille que chacun consomme."
+    recipes: [ControlRecipe!]!
     lines: [ControlLine!]!
   }
 
@@ -377,9 +430,9 @@ const typeDefs = /* GraphQL */ `
     quantityAsked: Float!
     quantityServed: Float
     """
-    L'état de la ligne une fois les compléments réceptionnés pris en compte :
-    une rupture complétée et signée par le département n'en est plus une.
-    Un servi seulement préparé ne change rien tant qu'il n'est pas reçu.
+    L'état de la ligne, tous servis enregistrés compris : une rupture soldée
+    par un servi n'en est plus une, servie en partie elle devient un
+    ajustement. La réception par le département se suit à part.
     """
     status: LineStatus!
     """
@@ -553,7 +606,7 @@ const typeDefs = /* GraphQL */ `
   }
 
   "L'employé déclare le stock qu'il a en rayon ; le serveur en déduit la quantité."
-  input OrderLineInput { productId: ID!, quantityOnHand: Float! }
+  input OrderLineInput { productId: ID!, quantityOnHand: Float!, quantityAsked: Float }
   input StockFixeInput { productId: ID!, quantity: Float! }
   input RefillInput { lineId: ID!, quantity: Float! }
   input SalesFamilyInput { name: String!, icon: String, sortOrder: Int }
@@ -577,11 +630,17 @@ const typeDefs = /* GraphQL */ `
     "Le stock général : chaque article mère (ou à la pièce), ses entrées, ses sorties, sa valeur."
     generalStock: StockSummary!
     "Les dernières entrées au stock général, les plus récentes d'abord."
-    stockEntries(limit: Int, productId: ID): [StockEntry!]!
+    stockEntries(limit: Int, productId: ID, from: Date, to: Date): [StockEntry!]!
     "Les articles qu'on peut entrer ou désigner comme mère : tous les actifs, portions comprises."
     stockProducts: [Product!]!
     "Ce que chaque département a reçu, en dinars, sur la période (journées de service)."
     departmentSpend(from: Date, to: Date): [DepartmentSpend!]!
+    "Toutes les unités connues, pour la saisie des arrivages."
+    units: [Unit!]!
+    "Les fournisseurs connus, pour retrouver un nom à la frappe."
+    suppliers: [Supplier!]!
+    "Les préparations d'une période (toutes sans bornes)."
+    preparations(from: Date, to: Date): [Preparation!]!
     "Achats contre ventes : ce que les ventes du Z rapportent contre ce qu'elles coûtent en matière (admin)."
     profitability(from: Date, to: Date): Profitability!
     "Le journal du stock général : entrées et sorties, les plus récentes d'abord."
@@ -626,6 +685,14 @@ const typeDefs = /* GraphQL */ `
     submitUrgentOrder(departmentId: ID!, lines: [OrderLineInput!]!, note: String): Order!
     "Un arrivage : entre une quantité d'un article au stock général, avec son prix unitaire en dinars."
     addStockEntry(productId: ID!, quantity: Float!, unitPrice: Float!, reference: String, note: String, day: Date): StockEntry!
+    "Une nouvelle unité de saisie (carton, sac…), par l'économat ou l'administration."
+    createUnit(name: String!, symbol: String!): Unit!
+    "Une facture entière : le fournisseur et une entrée par article. Rend le nombre d'entrées."
+    addStockEntries(supplier: SupplierInput, reference: String, note: String, day: Date, lines: [StockEntryLineInput!]!): Int!
+    "Préparer : tant de pur consommé, tant de préparé obtenu. Rend l'identifiant."
+    addPreparation(sourceId: ID!, productId: ID!, quantityUsed: Float!, quantityMade: Float!, madeUnit: String, day: Date, note: String): ID!
+    "Retirer une préparation (admin)."
+    deletePreparation(id: ID!): Boolean!
     "Retire une entrée saisie par erreur. Administration seulement."
     deleteStockEntry(id: ID!): Boolean!
     """
@@ -655,6 +722,8 @@ const typeDefs = /* GraphQL */ `
     deleteOrder(id: ID!): String!
     "Supprimer plusieurs commandes d'un coup, avec leurs servis (admin). Rend le nombre supprimé."
     deleteOrders(ids: [ID!]!): Int!
+    "Supprimer la suite d'une commande : tous ses servis complémentaires (admin). Rend le nombre retiré."
+    deleteOrderRefills(orderId: ID!): Int!
     "Déclarer ce qu'un rayon a vendu d'un article une journée donnée (contrôle). 0 efface."
     setDeclaredSale(departmentId: ID!, productId: ID!, day: Date!, quantity: Float!): Boolean!
     acceptOrder(id: ID!): Order!
@@ -813,14 +882,6 @@ function refilledReceived(l: LigneServie): number {
 }
 
 /**
- * L'état d'une ligne, compléments reçus compris.
- *
- * Une rupture complétée par un servi que le département a signé n'en est plus
- * une : la marchandise est au rayon. Complétée en partie, elle devient un
- * ajustement. Un servi seulement préparé ne change rien : rien n'est encore
- * arrivé, et l'économat doit pouvoir le voir encore — et l'annuler.
- */
-/**
  * Tout ce qui est sorti pour la ligne : le premier servi et chaque
  * complément. C'est ce que mesure « % servi » : une commande soldée par ses
  * compléments est servie à 100 %, pas à la part du seul premier passage.
@@ -830,6 +891,17 @@ function sortiTotal(l: LigneServie): number {
     + (l.refills ?? []).reduce((n, r) => n + Number(r.quantity), 0)
 }
 
+/**
+ * L'état d'une ligne, tous servis enregistrés compris.
+ *
+ * La règle, une seule partout : ce qui est enregistré comme servi compte,
+ * que le bon soit émis ou non, signé ou non. C'est le même total que le
+ * « reste à servir » de l'écran et que la garde « jamais plus que commandé »
+ * du serveur : trois chiffres qui se contrediraient si l'état suivait une
+ * autre règle. Dans l'usage, un servi s'enregistre et son bon part du même
+ * geste ; les deux ne diffèrent que le temps d'une correction rouverte par
+ * l'administration, et remettre alors la ligne en rupture tromperait.
+ */
 function effectiveStatus(l: LigneServie): string {
   if (l.status !== 'REJECTED' && l.status !== 'ADJUSTED') return l.status
   // Tout ce qui est sorti du magasin, signé ou non : une ligne soldée par un
@@ -853,10 +925,13 @@ const ORDER_INCLUDE = {
   // les affiche, et le compte des passages à réceptionner en dépend.
   refills: {
     select: {
-      id: true, rank: true, createdAt: true, receivedAt: true, receptionNote: true,
+      id: true, rank: true, orderId: true, createdAt: true, receivedAt: true, receptionNote: true,
       deliveredAt: true,
       createdBy: { include: { department: true } },
       receivedBy: { include: { department: true } },
+      // Le nombre de lignes vient avec le passage : compté ici, il n'exige
+      // plus une requête par carte du tableau de bord.
+      _count: { select: { lines: true } },
     },
     orderBy: { rank: 'asc' as const },
   },
@@ -877,8 +952,28 @@ const ORDER_INCLUDE = {
 
 function toDate(v: unknown): Date {
   if (v instanceof Date) return v
-  if (typeof v === 'string') return new Date(`${v}T00:00:00.000Z`)
+  if (typeof v === 'string') {
+    // « 2026-13-45 » ou « 24/09/2026 » donnaient une date invalide, que la
+    // base refusait en erreur brute : on refuse ici, proprement.
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) throw new GraphQLError(`Date invalide : ${v}`, { extensions: { code: 'BAD_USER_INPUT' } })
+    const d = new Date(`${v}T00:00:00.000Z`)
+    if (Number.isNaN(d.getTime())) throw new GraphQLError(`Date invalide : ${v}`, { extensions: { code: 'BAD_USER_INPUT' } })
+    return d
+  }
   return businessDay()
+}
+
+/** Une limite de liste bornée : négative ou énorme, elle renversait l'ordre ou vidait la table. */
+function borner(limit: number | null | undefined, defaut: number, max = 500): number {
+  const n = Number(limit)
+  if (!Number.isFinite(n) || n <= 0) return defaut
+  return Math.min(Math.floor(n), max)
+}
+
+/** Des identifiants entiers positifs, bornés en nombre : « abc » devenait NaN et faisait tomber la requête. */
+function identifiants(ids: string[], max = 500): number[] {
+  const out = ids.slice(0, max).map(Number).filter((n) => Number.isInteger(n) && n > 0)
+  return [...new Set(out)]
 }
 
 /**
@@ -1025,12 +1120,12 @@ async function cumulerArticles(
  * de 1 à n ferait dire « ligne 3 » d'un article que le ticket appelle 47.
  * On reprend le numéro du ticket, le seul que tout le monde connaît.
  */
-async function rangsDuTicket(refillId: number): Promise<Map<number, number>> {
-  // Par le passage, et non par un `orderId` que l'appelant n'a pas toujours
-  // chargé : un identifiant absent aurait levé le filtre et numéroté toutes
-  // les commandes à la suite.
+async function rangsDuTicket(refillId: number, orderId?: number): Promise<Map<number, number>> {
+  // Par la commande quand on la connaît — un filtre direct — sinon par le
+  // passage : un identifiant absent aurait levé le filtre et numéroté
+  // toutes les commandes à la suite.
   const lignes = await prisma.orderLine.findMany({
-    where: { order: { refills: { some: { id: refillId } } } },
+    where: orderId ? { orderId } : { order: { refills: { some: { id: refillId } } } },
     select: { id: true },
     orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
   })
@@ -1205,8 +1300,8 @@ const resolvers = {
   Refill: {
     // Une carte de la liste ne montre que le nombre : compter en base évite
     // de charger les lignes de chaque passage pour les jeter ensuite.
-    lineCount: async (r: { id: number; lines?: unknown[] }) =>
-      r.lines ? r.lines.length : prisma.orderRefillLine.count({ where: { refillId: r.id } }),
+    lineCount: async (r: { id: number; lines?: unknown[]; _count?: { lines: number } }) =>
+      r.lines ? r.lines.length : r._count ? r._count.lines : prisma.orderRefillLine.count({ where: { refillId: r.id } }),
     // La ligne de passage ne porte qu'une quantité : le reste vient de la
     // ligne de commande, figée à l'envoi.
     //
@@ -1217,7 +1312,7 @@ const resolvers = {
     // Le reste après ce passage a besoin des passages précédents de chaque
     // ligne : on recharge toujours depuis la base, quel que soit ce que
     // l'appelant avait déjà sous la main.
-    lines: async (r: { id: number; rank: number }) => {
+    lines: async (r: { id: number; rank: number; orderId?: number }) => {
       const [lines, rangs] = await Promise.all([
         prisma.orderRefillLine.findMany({
           where: { refillId: r.id },
@@ -1230,7 +1325,7 @@ const resolvers = {
             },
           },
         }),
-        rangsDuTicket(r.id),
+        rangsDuTicket(r.id, r.orderId),
       ])
       return lines
         .slice()
@@ -1301,25 +1396,28 @@ const resolvers = {
     departments: () =>
       prisma.department.findMany({ where: { isActive: true }, orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }] }),
 
-    departmentUsers: (_p: unknown, a: { departmentId: string }) =>
-      prisma.user.findMany({
+    // Réservé aux sessions ouvertes : la liste des comptes d'un département
+    // (identifiants compris) n'a pas à être lisible sans être connecté.
+    departmentUsers: (_p: unknown, a: { departmentId: string }, ctx: Ctx) =>
+      (requireUser(ctx), prisma.user.findMany({
         where: { departmentId: Number(a.departmentId), isActive: true, role: 'EMPLOYEE' },
         orderBy: { fullName: 'asc' },
         include: { department: true },
-      }),
+      })),
 
     generalStock: async (_p: unknown, _a: unknown, ctx: Ctx) => {
       requireStaff(ctx)
       return generalStock()
     },
 
-    stockEntries: (_p: unknown, a: { limit?: number; productId?: string }, ctx: Ctx) => {
+    stockEntries: (_p: unknown, a: { limit?: number; productId?: string; from?: string; to?: string }, ctx: Ctx) => {
       requireStaff(ctx)
+      const jour = a.from || a.to ? { ...(a.from && { gte: toDate(a.from) }), ...(a.to && { lte: toDate(a.to) }) } : undefined
       return prisma.stockEntry.findMany({
-        where: a.productId ? { productId: Number(a.productId) } : undefined,
+        where: { ...(a.productId && { productId: Number(a.productId) }), ...(jour && { businessDay: jour }) },
         orderBy: [{ businessDay: 'desc' }, { createdAt: 'desc' }],
-        take: a.limit ?? 50,
-        include: { product: { include: { category: true, baseUnit: true } }, createdBy: { include: { department: true } } },
+        take: borner(a.limit, 50),
+        include: { product: { include: { category: true, baseUnit: true } }, createdBy: { include: { department: true } }, supplier: true },
       })
     },
 
@@ -1340,6 +1438,21 @@ const resolvers = {
     departmentSpend: async (_p: unknown, a: { from?: string; to?: string }, ctx: Ctx) => {
       requireAdmin(ctx)
       return departmentSpend(a.from ? toDate(a.from) : null, a.to ? toDate(a.to) : null)
+    },
+
+    suppliers: async (_p: unknown, _a: unknown, ctx: Ctx) => {
+      requireStaff(ctx)
+      return suppliers()
+    },
+
+    preparations: async (_p: unknown, a: { from?: string; to?: string }, ctx: Ctx) => {
+      requireStaff(ctx)
+      return preparations(a.from ? toDate(a.from) : null, a.to ? toDate(a.to) : null)
+    },
+
+    units: async (_p: unknown, _a: unknown, ctx: Ctx) => {
+      requireUser(ctx)
+      return prisma.unit.findMany({ orderBy: { name: 'asc' } })
     },
 
     profitability: async (_p: unknown, a: { from?: string; to?: string }, ctx: Ctx) => {
@@ -1369,7 +1482,7 @@ const resolvers = {
 
     stockMovements: (_p: unknown, a: { from?: string; to?: string; type?: 'ENTREE' | 'SORTIE'; limit?: number }, ctx: Ctx) => {
       requireStaff(ctx)
-      return stockMovements({ from: a.from ? toDate(a.from) : null, to: a.to ? toDate(a.to) : null, type: a.type ?? null, take: a.limit })
+      return stockMovements({ from: a.from ? toDate(a.from) : null, to: a.to ? toDate(a.to) : null, type: a.type ?? null, take: borner(a.limit, 300, 2000) })
     },
 
     departmentCatalog: async (_p: unknown, a: { departmentId: string }, ctx: Ctx) => {
@@ -1415,10 +1528,11 @@ const resolvers = {
 
     orders: async (_p: unknown, a: { ids: string[] }, ctx: Ctx) => {
       const u = requireUser(ctx)
-      if (a.ids.length === 0) return []
+      const ids = identifiants(a.ids)
+      if (ids.length === 0) return []
       const rows = await prisma.order.findMany({
         where: {
-          id: { in: a.ids.map(Number) },
+          id: { in: ids },
           ...(u.role === 'EMPLOYEE' ? { departmentId: u.departmentId ?? -1 } : {}),
         },
         include: ORDER_INCLUDE,
@@ -1439,11 +1553,12 @@ const resolvers = {
 
     activeDays: async (_p: unknown, a: { limit?: number }, ctx: Ctx) => {
       requireStaff(ctx)
-      const rows = await prisma.order.findMany({
-        distinct: ['businessDay'],
-        select: { businessDay: true },
+      // `distinct` se faisait en mémoire, sur toutes les commandes : un
+      // regroupement en base ne lit que les journées.
+      const rows = await prisma.order.groupBy({
+        by: ['businessDay'],
         orderBy: { businessDay: 'desc' },
-        take: a.limit ?? 30,
+        take: borner(a.limit, 30, 366),
       })
       return rows.map((r) => r.businessDay)
     },
@@ -1527,7 +1642,7 @@ const resolvers = {
           ? { businessDay: { ...(a1 && { gte: a1 }), ...(a2 && { lte: a2 }) } }
           : undefined,
         orderBy: { businessDay: 'desc' },
-        take: a.limit ?? 60,
+        take: borner(a.limit, 60, 366),
         include: {
           createdBy: { include: { department: true } },
           lines: { include: { item: { include: { family: true, department: true } } } },
@@ -1555,21 +1670,49 @@ const resolvers = {
         orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
       })
 
+      // Ce qui ne dépend pas du département se charge une fois : les fiches et
+      // les unités des articles étaient relues pour chacun des sept services,
+      // et les ventes recalculées autant de fois pour la même fenêtre.
+      const finFenetre = addDays(day, -1)
+      const [fichesDep, produitsUnites] = await Promise.all([
+        prisma.recipe.findMany({
+          where: { isActive: true },
+          select: { id: true, name: true, departmentId: true, kind: true, salesItemId: true, lines: { select: { quantity: true, unit: true, productId: true, subRecipeId: true } } },
+        }),
+        prisma.product.findMany({ select: { id: true, baseUnit: { select: { symbol: true } } } }),
+      ])
+      const unitesParId = new Map(produitsUnites.map((p) => [p.id, p.baseUnit.symbol]))
+      const fichesParId = new Map<number, Fiche>(fichesDep.map((f) => [f.id, { id: f.id, departmentId: f.departmentId, kind: f.kind, lines: f.lines.map((l) => ({ quantity: Number(l.quantity), unit: l.unit, productId: l.productId, subRecipeId: l.subRecipeId })) }]))
+      const ventesParFenetre = new Map<string, Promise<Map<number, Map<number, number>>>>()
+      const ventesDepuis = (veille: Date) => {
+        const cle = veille.toISOString()
+        let p = ventesParFenetre.get(cle)
+        if (!p) { p = consommationVentes(veille, finFenetre); ventesParFenetre.set(cle, p) }
+        return p
+      }
+
       return Promise.all(departments.map(async (department) => {
-        // Le comptage précédent : la dernière commande du service avant cette
-        // journée. Entre elle et aujourd'hui : ce qui est entré (bons émis) et
-        // ce qui est sorti (ventes du Z, d'après les fiches).
-        const precedente = await prisma.order.findFirst({
+        // Le comptage précédent : la dernière journée commandée avant
+        // celle-ci. Si le service a commandé deux fois ce jour-là, chaque
+        // article prend le comptage de son dernier ticket — n'en lire qu'un
+        // laissait sans stock de veille les articles de l'autre.
+        const derniere = await prisma.order.findFirst({
           where: { departmentId: department.id, businessDay: { lt: day } },
-          orderBy: [{ businessDay: 'desc' }, { ticketNumber: 'desc' }],
-          select: { businessDay: true, lines: { select: { productId: true, quantityOnHand: true } } },
+          orderBy: [{ businessDay: 'desc' }],
+          select: { businessDay: true },
         })
-        const veille = precedente?.businessDay ?? null
-        const finFenetre = addDays(day, -1)
+        const veille = derniere?.businessDay ?? null
+        const precedentes = veille
+          ? await prisma.order.findMany({
+            where: { departmentId: department.id, businessDay: veille },
+            orderBy: { ticketNumber: 'asc' },
+            select: { lines: { select: { productId: true, quantityOnHand: true } } },
+          })
+          : []
         const [livre, ventes, declarees, nbZ] = veille
           ? await Promise.all([
             livraisonsDuService(department.id, veille, finFenetre),
-            consommationVentes(veille, finFenetre).then((m) => m.get(department.id) ?? new Map<number, number>()),
+            ventesDepuis(veille).then((m) => m.get(department.id) ?? new Map<number, number>()),
             // Les ventes saisies à la main par le contrôle, sur la même fenêtre.
             prisma.declaredSale.findMany({
               where: { departmentId: department.id, businessDay: { gte: veille, lte: finFenetre } },
@@ -1582,7 +1725,35 @@ const resolvers = {
             prisma.salesReport.count({ where: { businessDay: { gte: veille, lte: finFenetre } } }),
           ])
           : [new Map<number, number>(), new Map<number, number>(), new Map<number, number>(), 0]
-        const compteVeille = new Map((precedente?.lines ?? []).map((l) => [l.productId, Number(l.quantityOnHand)]))
+        const compteVeille = new Map<number, number>()
+        for (const o of precedentes) for (const l of o.lines) compteVeille.set(l.productId, Number(l.quantityOnHand))
+
+        // Les plats du service et ce qu'une portion de chacun consomme,
+        // article par article : c'est l'index « menu » de la feuille.
+        const platsParArticle = new Map<number, { recipeId: string; name: string; perPortion: number }[]>()
+        const platsDuService: { recipeId: string | null; name: string; articleCount: number; preparation: boolean; salesItemId: string | null }[] = []
+        for (const f of fichesDep) {
+          if (f.departmentId !== department.id) continue
+          const conso = consommationParPortion(fichesParId.get(f.id)!, fichesParId, unitesParId)
+          let n = 0
+          for (const [pid, q] of conso) {
+            if (q <= 0) continue
+            n += 1
+            const l = platsParArticle.get(pid) ?? []
+            l.push({ recipeId: String(f.id), name: f.name, perPortion: q })
+            platsParArticle.set(pid, l)
+          }
+          platsDuService.push({ recipeId: String(f.id), name: f.name, articleCount: n, preparation: f.kind === 'PREPARATION', salesItemId: f.salesItemId === null ? null : String(f.salesItemId) })
+        }
+        // Les plats de la carte sans fiche : on les montre aussi, grisés, pour
+        // que le contrôle voie ce qui manque et aille l'écrire.
+        const sansFiche = await prisma.salesItem.findMany({
+          where: { departmentId: department.id, isActive: true, recipe: null },
+          select: { id: true, name: true },
+          orderBy: { name: 'asc' },
+        })
+        for (const it of sansFiche) platsDuService.push({ recipeId: null, name: it.name, articleCount: 0, preparation: false, salesItemId: String(it.id) })
+        platsDuService.sort((a, b) => (a.recipeId ? 0 : 1) - (b.recipeId ? 0 : 1) || a.name.localeCompare(b.name))
 
         const [products, pars, lines] = await Promise.all([
           departmentCatalog(department.id),
@@ -1608,6 +1779,15 @@ const resolvers = {
 
         const parBy = new Map(pars.map((x) => [x.productId, Number(x.quantity)]))
         const lineBy = new Map(lines.map((l) => [l.productId, l]))
+        // Le compte d'ingrédients d'un plat ne retient que les articles de la
+        // feuille : un plat dont rien n'est sur cette feuille n'a rien à filtrer.
+        const surLaFeuille = new Set(products.map((x) => x.id))
+        for (const r of platsDuService) {
+          if (r.recipeId === null) continue
+          let n = 0
+          for (const [pid, l] of platsParArticle) if (surLaFeuille.has(pid) && l.some((d) => d.recipeId === r.recipeId)) n += 1
+          r.articleCount = n
+        }
 
         const out = products.map((prod) => {
           const l = lineBy.get(prod.id)
@@ -1644,6 +1824,7 @@ const resolvers = {
             soldDeclared,
             expected,
             variance: compte === null || expected === null ? null : compte - expected,
+            dishes: (platsParArticle.get(prod.id) ?? []).sort((a, b) => b.perPortion - a.perPortion),
           }
         })
 
@@ -1653,6 +1834,8 @@ const resolvers = {
           uncountedCount: out.filter((x) => x.countedStock === null).length,
           soldOn: veille,
           zMissing: veille !== null && nbZ === 0,
+          // Seuls les plats qui touchent au moins un article de la feuille servent de filtre.
+          recipes: platsDuService.filter((r) => r.articleCount > 0 || r.recipeId === null),
           lines: out,
         }
       }))
@@ -1667,9 +1850,10 @@ const resolvers = {
       const period = resolvePeriod(a.day, a.dayTo)
       const lines = await prisma.orderLine.findMany({
         where: {
-          // Les ruptures par défaut ; les ajustements sur demande. Ce sont les
-          // deux écarts à la commande, qui se consultent de la même façon.
-          status: a.status ?? 'REJECTED',
+          // Les deux écarts à la commande sont lus, puis triés par leur état
+          // effectif : filtrer ici sur l'état enregistré faisait disparaître
+          // des deux listes une rupture devenue ajustement par un servi.
+          status: { in: ['REJECTED', 'ADJUSTED'] },
           order: {
             businessDay: periodFilter(period),
             // La liste suit le filtre de l'écran : montrer les ruptures des
@@ -1746,19 +1930,19 @@ const resolvers = {
         orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
       })
 
-      const result = []
-      for (const d of departments) {
+      // Les départements se cumulent en parallèle : l'un après l'autre,
+      // sept services faisaient sept allers-retours en file.
+      return Promise.all(departments.map(async (d) => {
         const lines = await cumulerArticles(period, d.id)
-        result.push({
+        return {
           department: d,
           lines,
           articleCount: lines.length,
           orderCount: groups.find((g) => g.departmentId === d.id)?._count._all ?? 0,
           totalAsked: lines.reduce((s, l) => s + l.quantityAsked, 0),
           totalServed: lines.reduce((s, l) => s + l.quantityServed, 0),
-        })
-      }
-      return result
+        }
+      }))
     },
 
     dayBoard: async (_p: unknown, a: { day?: string; dayTo?: string }, ctx: Ctx) => {
@@ -1838,7 +2022,7 @@ const resolvers = {
 
     submitUrgentOrder: async (
       _p: unknown,
-      a: { departmentId: string; lines: { productId: string; quantityOnHand: number }[]; note?: string },
+      a: { departmentId: string; lines: { productId: string; quantityOnHand: number; quantityAsked?: number | null }[]; note?: string },
       ctx: Ctx,
     ) => {
       const u = requireAdmin(ctx)
@@ -1850,6 +2034,7 @@ const resolvers = {
           lines: a.lines.map((l) => ({
             productId: Number(l.productId),
             quantityOnHand: l.quantityOnHand,
+            quantityAsked: l.quantityAsked ?? undefined,
           })),
           note: a.note,
         }),
@@ -1859,7 +2044,7 @@ const resolvers = {
 
     updateOrder: async (
       _p: unknown,
-      a: { id: string; lines: { productId: string; quantityOnHand: number }[]; note?: string },
+      a: { id: string; lines: { productId: string; quantityOnHand: number; quantityAsked?: number | null }[]; note?: string },
       ctx: Ctx,
     ) => {
       // L'employé sur son département, ou l'administration sur une commande
@@ -1872,6 +2057,9 @@ const resolvers = {
           lines: a.lines.map((l) => ({
             productId: Number(l.productId),
             quantityOnHand: l.quantityOnHand,
+            // Seule l'administration, sur une commande urgente, tape la
+            // quantité : le service ignore ce champ ailleurs.
+            quantityAsked: u.role === 'ADMIN' ? (l.quantityAsked ?? undefined) : undefined,
           })),
           note: a.note,
         }),
@@ -1934,8 +2122,10 @@ const resolvers = {
           { extensions: { code: 'BUSINESS_RULE' } },
         )
       }
+      // La condition est répétée dans l'écriture : une réception arrivée
+      // entre le compte et la mise à jour ne serait pas rouverte.
       const { count } = await prisma.orderRefill.updateMany({
-        where: { ...perimetre, deliveredAt: { not: null } },
+        where: { ...perimetre, deliveredAt: { not: null }, receivedAt: null },
         data: { deliveredAt: null },
       })
       return count
@@ -2033,18 +2223,60 @@ const resolvers = {
       }))
       return prisma.stockEntry.findUniqueOrThrow({
         where: { id: e.id },
-        include: { product: { include: { category: true, baseUnit: true } }, createdBy: { include: { department: true } } },
+        include: { product: { include: { category: true, baseUnit: true } }, createdBy: { include: { department: true } }, supplier: true },
       })
+    },
+
+    createUnit: async (_p: unknown, a: { name: string; symbol: string }, ctx: Ctx) => {
+      requireStaff(ctx)
+      const name = a.name.trim(), symbol = a.symbol.trim()
+      if (!name || !symbol) throw new GraphQLError('Nom et symbole sont obligatoires.', { extensions: { code: 'BAD_USER_INPUT' } })
+      if (symbol.length > 8) throw new GraphQLError('Le symbole tient en 8 caractères au plus.', { extensions: { code: 'BAD_USER_INPUT' } })
+      const existe = await prisma.unit.findFirst({ where: { OR: [{ name: { equals: name, mode: 'insensitive' } }, { symbol: { equals: symbol, mode: 'insensitive' } }] } })
+      if (existe) return existe
+      return prisma.unit.create({ data: { name, symbol, allowsDecimals: true } })
+    },
+
+    addStockEntries: async (
+      _p: unknown,
+      a: { supplier?: { name: string; phone?: string | null; taxId?: string | null } | null; reference?: string; note?: string; day?: string; lines: { productId: string; quantity: number; unitPrice: number }[] },
+      ctx: Ctx,
+    ) => {
+      const u = requireStaff(ctx)
+      const r = await run(() => addStockEntries({
+        supplier: a.supplier ?? null, reference: a.reference, note: a.note, day: a.day ? toDate(a.day) : null,
+        lines: a.lines.map((l) => ({ productId: Number(l.productId), quantity: l.quantity, unitPrice: l.unitPrice })),
+        actorId: u.id,
+      }))
+      return r.count
+    },
+
+    addPreparation: async (_p: unknown, a: { sourceId: string; productId: string; quantityUsed: number; quantityMade: number; madeUnit?: string | null; day?: string; note?: string }, ctx: Ctx) => {
+      const u = requireStaff(ctx)
+      const r = await run(() => addPreparation({
+        sourceId: Number(a.sourceId), productId: Number(a.productId), quantityUsed: a.quantityUsed, quantityMade: a.quantityMade, madeUnit: a.madeUnit,
+        day: a.day ? toDate(a.day) : null, note: a.note, actorId: u.id,
+      }))
+      return String(r.id)
+    },
+
+    deletePreparation: async (_p: unknown, a: { id: string }, ctx: Ctx) => {
+      requireAdmin(ctx)
+      return run(() => deletePreparation(Number(a.id)))
     },
 
     deleteStockEntry: async (_p: unknown, a: { id: string }, ctx: Ctx) => {
       requireAdmin(ctx)
-      await prisma.stockEntry.delete({ where: { id: Number(a.id) } })
+      const id = Number(a.id)
+      if (!Number.isInteger(id)) throw new GraphQLError('Écriture introuvable.', { extensions: { code: 'NOT_FOUND' } })
+      const { count } = await prisma.stockEntry.deleteMany({ where: { id } })
+      if (count === 0) throw new GraphQLError('Écriture introuvable.', { extensions: { code: 'NOT_FOUND' } })
       return true
     },
 
     setProductPortion: async (_p: unknown, a: { productId: string; parentId?: string | null; motherQuantity?: number | null }, ctx: Ctx) => {
-      requireAdmin(ctx)
+      // L'économat prépare : c'est lui qui relie les préparés à leur pur.
+      requireStaff(ctx)
       await run(() => setProductPortion({
         productId: Number(a.productId),
         parentId: a.parentId ? Number(a.parentId) : null,
@@ -2125,7 +2357,12 @@ const resolvers = {
 
     deleteOrders: async (_p: unknown, a: { ids: string[] }, ctx: Ctx) => {
       requireAdmin(ctx)
-      return run(() => deleteOrders(a.ids.map(Number)))
+      return run(() => deleteOrders(identifiants(a.ids)))
+    },
+
+    deleteOrderRefills: async (_p: unknown, a: { orderId: string }, ctx: Ctx) => {
+      requireAdmin(ctx)
+      return run(() => deleteOrderRefills(Number(a.orderId)))
     },
 
     setDeclaredSale: async (_p: unknown, a: { departmentId: string; productId: string; day: string; quantity: number }, ctx: Ctx) => {
@@ -2211,20 +2448,28 @@ const resolvers = {
       const toZero = a.lines.filter((l) => l.quantity === 0).map((l) => Number(l.productId))
       const toSet = a.lines.filter((l) => l.quantity > 0)
 
-      await prisma.$transaction([
-        prisma.stockFixe.deleteMany({
-          where: { departmentId, productId: { in: toZero } },
-        }),
-        ...toSet.map((l) =>
-          prisma.stockFixe.upsert({
-            where: {
-              departmentId_productId: { departmentId, productId: Number(l.productId) },
-            },
-            update: { quantity: l.quantity },
-            create: { departmentId, productId: Number(l.productId), quantity: l.quantity },
-          }),
-        ),
-      ])
+      // Seuls les articles existants prennent un stock fixe : un identifiant
+      // inconnu tombait en violation de clé étrangère, en erreur brute.
+      const ids = identifiants(a.lines.map((l) => l.productId), 5000)
+      const connus = await prisma.product.count({ where: { id: { in: ids } } })
+      if (connus !== ids.length) {
+        throw new GraphQLError('Un des articles est inconnu.', { extensions: { code: 'BUSINESS_RULE' } })
+      }
+
+      await prisma.$transaction(async (tx) => {
+        if (toZero.length > 0) {
+          await tx.stockFixe.deleteMany({ where: { departmentId, productId: { in: toZero } } })
+        }
+        // Une seule écriture pour toute la feuille, au lieu d'un upsert par
+        // ligne : quatre cents allers-retours dépassaient le délai.
+        if (toSet.length > 0) {
+          await tx.$executeRaw`
+            INSERT INTO "stock_fixe" ("departmentId", "productId", "quantity", "updatedAt")
+            VALUES ${Prisma.join(toSet.map((l) => Prisma.sql`(${departmentId}::int, ${Number(l.productId)}::int, ${l.quantity}::numeric, now())`))}
+            ON CONFLICT ("departmentId", "productId")
+            DO UPDATE SET "quantity" = EXCLUDED."quantity", "updatedAt" = now()`
+        }
+      }, { timeout: 15_000 })
 
       return toSet.length
     },
@@ -2369,7 +2614,19 @@ const resolvers = {
           throw new GraphQLError('Montant invalide.', { extensions: { code: 'BUSINESS_RULE' } })
         }
       }
-      const retenues = a.lines.filter((l) => l.quantity > 0)
+      // Un même plat cité deux fois se cumule : sans cela, le compte des
+      // articles connus ne tombait plus juste et l'erreur parlait d'un
+      // « article inconnu » qui ne l'était pas.
+      const parPlat = new Map<string, { quantity: number; amount: number | null }>()
+      for (const l of a.lines) {
+        if (l.quantity <= 0) continue
+        const cur = parPlat.get(l.itemId) ?? { quantity: 0, amount: null }
+        parPlat.set(l.itemId, {
+          quantity: cur.quantity + l.quantity,
+          amount: l.amount == null && cur.amount == null ? null : (cur.amount ?? 0) + (l.amount ?? 0),
+        })
+      }
+      const retenues = [...parPlat].map(([itemId, v]) => ({ itemId, quantity: v.quantity, amount: v.amount }))
       if (retenues.length === 0) {
         throw new GraphQLError('Saisissez au moins une quantité vendue.', {
           extensions: { code: 'BUSINESS_RULE' },

@@ -8,6 +8,7 @@ import { CancelUrgentOrder } from '@/components/orders/cancel-urgent-order'
 import { Ticket, ticketVariant, type TicketOrder } from '@/components/ui/ticket'
 import type { ProcessOrder } from '@/lib/order-types'
 import { BackLink } from '@/components/ui/back-link'
+import { retourSur } from '@/lib/utils'
 
 export const metadata: Metadata = { title: 'Commande' }
 export const dynamic = 'force-dynamic'
@@ -20,8 +21,9 @@ export const dynamic = 'force-dynamic'
  * gestes, mêmes gardes. Le verrou se lève et se remet depuis l'en-tête, sans
  * repasser par le tableau du jour.
  */
-export default async function AdminOrderPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function AdminOrderPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ retour?: string }> }) {
   const { id } = await params
+  const { retour } = await searchParams
   const { order } = await executeGraphQL<{ order: (ProcessOrder & TicketOrder) | null }>(ORDER_QUERY, { id })
   if (!order) notFound()
 
@@ -37,7 +39,7 @@ export default async function AdminOrderPage({ params }: { params: Promise<{ id:
   return (
     <>
       <div className="no-print mb-4 flex flex-wrap items-center justify-between gap-3">
-        <BackLink href="/admin" className="mb-0">Retour</BackLink>
+        <BackLink href={retourSur(retour, "/admin")} className="mb-0">Retour</BackLink>
         {/* Une urgente pas encore prise en charge se retire ou se corrige :
             le choix se fait dans une boîte, pas sur deux boutons côte à côte. */}
         {order.isUrgent && order.status === 'PENDING' ? (

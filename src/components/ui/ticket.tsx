@@ -208,7 +208,14 @@ export function Ticket({
                   <td className="px-2 py-1 text-right tabular-nums text-[#4a5f7d]">
                     {formatQty(l.stockFixe)}
                   </td>
-                  <td className="px-2 py-1 text-right font-semibold tabular-nums">
+                  <td className="whitespace-nowrap px-2 py-1 text-right font-semibold tabular-nums">
+                    {/* Une commande urgente s'ajoute au stock du rayon : chaque
+                        ligne porte la flèche, le magasin sort en plus de la
+                        cible. Hors urgence, seule une commande au-delà du
+                        stock fixe la porte. */}
+                    {order.isUrgent || (l.stockFixe > 0 && l.quantityAsked > l.stockFixe) ? (
+                      <span className="mr-1.5 font-bold text-[#0f9b6c]">▲</span>
+                    ) : null}
                     {formatQty(l.quantityAsked)}
                     <span className="ml-1 text-[0.72rem] font-normal text-[#4a5f7d]">
                       {l.unitSymbol}
@@ -255,6 +262,16 @@ export function Ticket({
         <p className="mt-3 text-[0.76rem] text-[#4a5f7d]">
           <span className="font-bold text-[#b4630f]">▼</span> servi en moins que commandé ·{' '}
           <span className="font-bold text-[#b4630f]">▲</span> servi en plus
+        </p>
+      ) : null}
+
+      {order.isUrgent ? (
+        <p className="mt-3 text-[0.76rem] text-[#4a5f7d]">
+          <span className="font-bold text-[#0f9b6c]">▲</span> commande urgente : en plus du stock fixe du rayon
+        </p>
+      ) : lines.some((l) => l.stockFixe > 0 && l.quantityAsked > l.stockFixe) ? (
+        <p className="mt-3 text-[0.76rem] text-[#4a5f7d]">
+          <span className="font-bold text-[#0f9b6c]">▲</span> commandé au-delà du stock fixe
         </p>
       ) : null}
 

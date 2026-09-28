@@ -2,7 +2,7 @@ import * as React from 'react'
 import type { Metadata } from 'next'
 import Link from 'next/link'
 import {
-  ClipboardList, PlusCircle, PackageCheck, UserCheck, PackagePlus, Truck, CheckCircle2,
+  ClipboardList, PlusCircle, PackageCheck, UserCheck, PackagePlus, Truck, CheckCircle2, Siren,
 } from 'lucide-react'
 import { executeGraphQL } from '@/server/graphql/execute'
 import { PageHeader } from '@/components/ui/stat'
@@ -22,6 +22,7 @@ const QUERY = /* GraphQL */ `
       ticketNumber
       businessDay
       status
+      isUrgent
       createdAt
       lineCount
       acceptedAt
@@ -65,6 +66,7 @@ type Order = {
   ticketNumber: number
   businessDay: string
   status: 'PENDING' | 'ACCEPTED' | 'DELIVERED' | 'RECEIVED' | 'CANCELLED'
+  isUrgent: boolean
   createdAt: string
   lineCount: number
   acceptedAt: string | null
@@ -266,94 +268,72 @@ export default async function MyOrdersPage() {
                     </GlassCard>
                   </Link>
 
-                  {/* Un servi complémentaire a sa propre carte, juste après
-                      celle de sa commande : il arrive à part, se réceptionne à
-                      part, et une ligne dans la carte de la commande ne
-                      disait ni quand ni par qui. La carte ouvre le servi seul,
-                      pas la commande entière : le barman compte ce qui vient
-                      d'arriver, pas cent lignes déjà reçues. */}
-                  {o.refills.map((r) => (
-                    <Link key={r.id} href={`/employe/commandes/${o.id}/servi/${r.rank}`}>
-                      <GlassCard
-                        hover
-                        className={cn('h-full', CARTE[r.receivedAt ? 'RECEIVED' : 'DELIVERED'])}
-                      >
+                  {/* Tout ce qui suit le premier servi tient sur une carte :
+                      la suite de commande. Elle ouvre la fiche de tous les
+                      passages, et c'est de là qu'on réceptionne chacun. */}
+                  {o.refills.length > 0 ? (() => {
+                    const servis = [...o.refills].sort((a, b) => a.rank - b.rank)
+                    const recus = servis.filter((r) => r.receivedAt).length
+                    const articles = servis.reduce((n, r) => n + r.lineCount, 0)
+                    const dernier = servis[servis.length - 1]
+                    const tousRecus = recus === servis.length
+                    return (
+                    <Link href={`/employe/commandes/${o.id}/suite`}>
+                      <GlassCard hover className={cn('h-full', CARTE[tousRecus ? 'RECEIVED' : 'DELIVERED'], o.isUrgent && '!border-2 !border-[#8b1e2d] shadow-[0_0_0_3px_rgb(139_30_45/0.18)]')}>
                         <div className="space-y-3 p-4">
                           <div className="flex items-start justify-between gap-2">
                             <div className="min-w-0">
                               <p className="truncate text-[0.95rem] font-bold leading-tight text-fg">
-                                {r.rank}ᵉ servi
-                                {r.createdBy ? (
-                                  <span className="ml-1.5 font-semibold text-fg-muted">
-                                    par {r.createdBy.fullName}
-                                  </span>
-                                ) : null}
+                                {o.isUrgent ? 'Commande urgente' : 'Suite de commande'}
+                                <span className="ml-1.5 font-semibold text-fg-muted">{servis.length} servi{servis.length > 1 ? 's' : ''}</span>
                               </p>
                               <p className="mt-0.5 text-[0.88rem] font-semibold tabular-nums text-fg">
-                                {formatInstantDate(r.createdAt)} à {formatTime(r.createdAt)}
+                                dernier servi {formatInstantDate(dernier.createdAt)} à {formatTime(dernier.createdAt)}
                               </p>
                             </div>
-                            {/* Le même vocabulaire que la commande, au masculin :
-                                un service est livré tant que personne n'a
-                                signé, reçu ensuite. */}
-                            {r.receivedAt ? (
-                              <Badge tone="ok" icon={<CheckCircle2 className="size-3.5" aria-hidden="true" />}>
-                                Reçu
-                              </Badge>
-                            ) : (
-                              <Badge tone="info" icon={<Truck className="size-3.5" aria-hidden="true" />}>
-                                Livré
-                              </Badge>
-                            )}
-                          </div>
-
-                          <p className="flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-[0.74rem] tabular-nums">
-                            <span className="whitespace-nowrap">
-                              <span className="font-semibold text-fg">Servi </span>
-                              <span className="font-bold text-accent">{formatTime(r.createdAt)}</span>
-                            </span>
-                            {r.receivedAt ? (
-                              <span className="whitespace-nowrap">
-                                <span className="font-semibold text-fg">Réception </span>
-                                <span className="font-bold text-accent">{formatTime(r.receivedAt)}</span>
-                              </span>
+                            <span className="flex shrink-0 flex-wrap items-center justify-end gap-1">
+                            {o.isUrgent ? (
+                              <span className="inline-flex items-center gap-1 rounded-full bg-[#8b1e2d] px-2 py-0.5 text-[0.7rem] font-bold uppercase tracking-wide text-white"><Siren className="size-3" aria-hidden="true" />Urgent</span>
                             ) : null}
-                          </p>
-
-                          {/* Le ticket de la commande complétée : c'est lui
-                              qu'on retrouve sur le bon qui accompagne la
-                              marchandise. */}
-                          <p className="flex items-center gap-2">
-                            <span className="grid size-7 shrink-0 place-items-center rounded-lg bg-accent/12 text-accent">
-                              <PackagePlus className="size-4" />
+                            {tousRecus ? (
+                              <Badge tone="ok" icon={<CheckCircle2 className="size-3.5" aria-hidden="true" />}>Reçu</Badge>
+                            ) : (
+                              <Badge tone="info" icon={<Truck className="size-3.5" aria-hidden="true" />}>Livré</Badge>
+                            )}
                             </span>
-                            <span className="truncate font-mono text-[0.85rem] font-bold text-fg">
-                              {o.reference}
-                            </span>
-                          </p>
-
-                          <div className="flex flex-wrap items-center gap-1.5">
-                            <Badge tone="neutral">
-                              {r.lineCount} article{r.lineCount > 1 ? 's' : ''} complété
-                              {r.lineCount > 1 ? 's' : ''}
-                            </Badge>
                           </div>
-
-                          {r.receivedAt ? (
+                          <p className="flex flex-wrap gap-1">
+                            {servis.map((r) => (
+                              <span key={r.id} className={cn('inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[0.74rem] font-semibold tabular-nums', r.receivedAt ? 'bg-ok/14 text-ok' : 'bg-info/14 text-info')}>
+                                {r.rank}ᵉ · {formatTime(r.createdAt)}
+                                {r.receivedAt ? <CheckCircle2 className="size-3" /> : <Truck className="size-3" />}
+                              </span>
+                            ))}
+                          </p>
+                          <p className="flex items-center gap-2">
+                            <span className="grid size-7 shrink-0 place-items-center rounded-lg bg-accent/12 text-accent"><PackagePlus className="size-4" /></span>
+                            <span className="truncate font-mono text-[0.85rem] font-bold text-fg">{o.reference}</span>
+                          </p>
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <Badge tone="neutral">{articles} article{articles > 1 ? 's' : ''} complété{articles > 1 ? 's' : ''}</Badge>
+                            {recus > 0 ? <Badge tone="ok">{recus} reçu{recus > 1 ? 's' : ''}</Badge> : null}
+                          </div>
+                          {tousRecus ? (
                             <p className="flex items-center gap-1.5 rounded-lg bg-info/10 px-2.5 py-1.5 text-[0.78rem] font-medium text-info">
                               <UserCheck className="size-4 shrink-0" />
-                              Reçu par {r.receivedBy?.fullName ?? 'le département'}
+                              Tous les servis sont réceptionnés
                             </p>
                           ) : (
                             <p className="flex items-center gap-1.5 rounded-lg bg-info/10 px-2.5 py-1.5 text-[0.78rem] font-medium text-info">
                               <PackageCheck className="size-4 shrink-0" />
-                              À confirmer en réception
+                              {servis.length - recus} servi{servis.length - recus > 1 ? 's' : ''} à confirmer en réception
                             </p>
                           )}
                         </div>
                       </GlassCard>
                     </Link>
-                  ))}
+                    )
+                  })() : null}
                   </React.Fragment>
                 ))}
               </div>

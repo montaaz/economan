@@ -1,6 +1,26 @@
 import type { Page } from 'playwright'
 
 /**
+ * L'adresse à laquelle le navigateur sans interface relit nos pages.
+ *
+ * Elle venait de l'en-tête Host de la requête : un appelant pouvait y
+ * mettre une adresse interne et faire rendre — avec sa session — une page
+ * qui n'est pas la nôtre. Elle se fixe donc ici : APP_ORIGIN si le
+ * déploiement le règle, sinon le serveur lui-même.
+ */
+export function origineInterne(): string {
+  const o = process.env.APP_ORIGIN?.replace(/\/$/, '')
+  if (o) return o
+  return `http://127.0.0.1:${process.env.PORT ?? 3000}`
+}
+
+/** Un identifiant de route : entier positif, sinon rien. */
+export function entier(v: string | null | undefined): number | null {
+  const n = Number(v)
+  return Number.isInteger(n) && n > 0 ? n : null
+}
+
+/**
  * Ouvre la feuille à rendre, et s'assure qu'elle est bien là.
  *
  * Le navigateur sans interface peut tomber sur un serveur en pleine

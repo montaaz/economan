@@ -5,7 +5,7 @@ import { X } from 'lucide-react'
 
 /** Feuille montante sur mobile, boîte centrée à partir de `sm`. */
 export function Modal({
-  title, onClose, children, footer, wide,
+  title, onClose, children, footer, wide, size,
 }: {
   title: string
   onClose: () => void
@@ -13,6 +13,8 @@ export function Modal({
   footer?: React.ReactNode
   /** Panneau large : pour les vues à plusieurs colonnes. */
   wide?: boolean
+  /** « xl » : presque toute la largeur, pour une facture avec son tableau. */
+  size?: 'xl'
 }) {
   React.useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -34,7 +36,7 @@ export function Modal({
         aria-modal="true"
         aria-label={title}
         className={`glass-deep glass-specular animate-rise relative flex max-h-[92dvh] w-full flex-col rounded-[calc(var(--radius)+4px)] ${
-          wide ? 'max-w-3xl' : 'max-w-md'
+          size === 'xl' ? 'max-w-6xl' : wide ? 'max-w-3xl' : 'max-w-md'
         }`}
       >
         <div className="flex items-start justify-between gap-3 border-b border-[rgb(var(--glass-edge)/0.16)] p-4 sm:p-5">

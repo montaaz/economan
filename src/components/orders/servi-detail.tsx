@@ -5,10 +5,10 @@ import { prisma } from '@/server/db'
 import { BackLink } from '@/components/ui/back-link'
 import { GlassCard, Badge } from '@/components/ui/glass'
 import { Icon } from '@/components/ui/icon'
-import { countByFamily } from '@/components/ui/family-band'
 import { ServiTable } from './servi-table'
 import { ReopenRefill } from './reopen-refill'
-import { formatLongDate, formatQty, formatTime, toDateKey } from '@/lib/utils'
+import { boutonBon } from '@/components/ui/bon-style'
+import { formatLongDate, formatQty, formatTime, toDateKey, retourSur } from '@/lib/utils'
 
 /**
  * Un servi complémentaire, en fiche.
@@ -24,9 +24,11 @@ import { formatLongDate, formatQty, formatTime, toDateKey } from '@/lib/utils'
  * l'économat.
  */
 export async function ServiDetail({
-  id, base,
+  id, base, retour,
 }: {
   id: string
+  /** D'où l'on vient, si ce n'est pas le tableau du jour : l'historique, par exemple. */
+  retour?: string
   /** L'espace appelant : « /economat » ou « /admin ». */
   base: '/economat' | '/admin'
 }) {
@@ -133,14 +135,13 @@ export async function ServiDetail({
         })
         .filter((l) => l.reste > 0)
     : []
-  const parFamille = countByFamily(lignes)
   const total = lignes.reduce((n, l) => n + l.quantity, 0)
   const soldees = lignes.filter((l) => l.remaining === 0).length
 
   return (
     <>
       <div className="no-print mb-4 flex flex-wrap items-center justify-between gap-3">
-        <BackLink href={`${base}?jour=${jour}`} className="mb-0">Retour</BackLink>
+        <BackLink href={retourSur(retour, `${base}?jour=${jour}`)} className="mb-0">Retour</BackLink>
         <div className="flex flex-wrap items-center gap-2">
           {/* L'administration lève ou remet le verrou d'ici aussi : c'est en
               relisant la fiche qu'on décide d'y revenir. */}
@@ -160,10 +161,10 @@ export async function ServiDetail({
             href={`/api/bon-service/departement?dep=${o.department.id}&rang=${refill.rank}&jour=${jour}`}
             target="_blank"
             rel="noreferrer"
-            className="inline-flex items-center gap-1.5 rounded-xl border border-info/40 bg-info/10 px-3 py-2 text-[0.83rem] font-semibold text-info transition-colors hover:bg-info/15"
+            className={boutonBon()}
           >
-            <Printer className="size-4" />
-            Bon de livraison
+            <Printer className="size-5" />
+            Imprimer le bon de livraison
           </a>
         </div>
       </div>

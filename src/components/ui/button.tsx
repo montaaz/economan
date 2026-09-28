@@ -59,7 +59,13 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(function 
   const [pending, setPending] = React.useState(false)
   const enCours = React.useRef(false)
   const monte = React.useRef(true)
-  React.useEffect(() => () => { monte.current = false }, [])
+  // Le drapeau se repose au montage : en développement, React monte et
+  // démonte une fois de plus, et sans cela le bouton restait « en cours »
+  // après son premier clic — impossible d'émettre le bon une seconde fois.
+  React.useEffect(() => {
+    monte.current = true
+    return () => { monte.current = false }
+  }, [])
 
   const handleClick = React.useCallback(
     (e: React.MouseEvent<HTMLButtonElement>) => {

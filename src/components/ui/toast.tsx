@@ -1,7 +1,9 @@
 'use client'
 
 import * as React from 'react'
-import { CheckCircle2, AlertCircle, Info, X } from 'lucide-react'
+import { CheckCircle2, AlertCircle, Info } from 'lucide-react'
+import { Button } from '@/components/ui/glass'
+import { Modal } from '@/components/ui/modal'
 import { cn } from '@/lib/utils'
 
 type ToastTone = 'success' | 'error' | 'info'
@@ -23,63 +25,81 @@ const ICONS: Record<ToastTone, React.ElementType> = {
   info: Info,
 }
 
-const TONES: Record<ToastTone, string> = {
-  success: 'border-ok/35 text-ok',
-  error: 'border-danger/35 text-danger',
-  info: 'border-accent/35 text-accent',
+const TITRES: Record<ToastTone, string> = {
+  success: 'Enregistré',
+  error: 'Échec',
+  info: 'Information',
 }
 
+/** Le temps de lecture avant que l'avis se ferme seul. */
+const DELAIS: Record<ToastTone, number> = { success: 2500, info: 2500, error: 4000 }
+
+/**
+ * Les avis de l'application — « enregistré », « refusé » — au centre de
+ * l'écran.
+ *
+ * Ils passaient en bandeau dans un coin, où personne ne les voyait : on
+ * cherchait la confirmation, elle s'était déjà effacée. Ils prennent
+ * désormais la forme des autres boîtes de l'application : au centre, une
+ * icône, la phrase, et une barre qui dit le temps qui reste. OK, la croix,
+ * Échap ou le fond les ferment ; sinon ils se ferment seuls.
+ *
+ * Un seul avis à la fois : le dernier remplace le précédent, comme les
+ * confirmations. Les appels existants gardent leur forme, `push(tone, msg)`.
+ */
 export function ToastProvider({ children }: { children: React.ReactNode }) {
-  const [toasts, setToasts] = React.useState<Toast[]>([])
+  const [avis, setAvis] = React.useState<Toast | null>(null)
   const nextId = React.useRef(0)
 
-  const remove = React.useCallback((id: number) => {
-    setToasts((list) => list.filter((t) => t.id !== id))
+  const push = React.useCallback((tone: ToastTone, message: string) => {
+    setAvis({ id: nextId.current++, tone, message })
   }, [])
 
-  const push = React.useCallback(
-    (tone: ToastTone, message: string) => {
-      const id = nextId.current++
-      setToasts((list) => [...list, { id, tone, message }])
-      // Les erreurs restent ; les succès s'effacent vite.
-      window.setTimeout(() => remove(id), tone === 'error' ? 7000 : 4000)
-    },
-    [remove],
-  )
+  // La fermeture automatique court depuis l'ouverture, et s'annule si un
+  // autre avis prend la place ou si l'on ferme avant.
+  React.useEffect(() => {
+    if (!avis) return
+    const t = window.setTimeout(() => setAvis((a) => (a?.id === avis.id ? null : a)), DELAIS[avis.tone])
+    return () => window.clearTimeout(t)
+  }, [avis])
 
   const value = React.useMemo(() => ({ push }), [push])
+  const fermer = () => setAvis(null)
+  const Icon = avis ? ICONS[avis.tone] : Info
 
   return (
     <ToastContext.Provider value={value}>
       {children}
-      <div
-        role="status"
-        aria-live="polite"
-        className="no-print pointer-events-none fixed inset-x-0 bottom-20 z-[60] flex flex-col items-center gap-2 px-4 sm:bottom-6 sm:left-auto sm:right-6 sm:items-end sm:px-0"
-      >
-        {toasts.map((t) => {
-          const Icon = ICONS[t.tone]
-          return (
-            <div
-              key={t.id}
+      {avis ? (
+        <Modal
+          title={TITRES[avis.tone]}
+          onClose={fermer}
+          footer={
+            <div className="flex w-full justify-center">
+              <Button variant="primary" autoFocus onClick={fermer}>OK</Button>
+            </div>
+          }
+        >
+          <div role="status" aria-live="polite" className="flex flex-col items-center gap-3 text-center">
+            <span
               className={cn(
-                'animate-rise glass glass-specular pointer-events-auto flex w-full max-w-sm items-start gap-2.5 border p-3 pr-2 shadow-lg',
-                TONES[t.tone],
+                'grid size-12 shrink-0 place-items-center rounded-2xl',
+                avis.tone === 'success' ? 'bg-ok/12 text-ok' : avis.tone === 'error' ? 'bg-danger/12 text-danger' : 'bg-accent/12 text-accent',
               )}
             >
-              <Icon className="mt-px size-[1.05rem] shrink-0" />
-              <p className="min-w-0 flex-1 text-[0.84rem] font-medium leading-snug text-fg">{t.message}</p>
-              <button
-                onClick={() => remove(t.id)}
-                aria-label="Fermer"
-                className="grid size-6 shrink-0 place-items-center rounded-md text-fg-subtle transition-colors hover:bg-[rgb(var(--glass-edge)/0.2)] hover:text-fg"
-              >
-                <X className="size-3.5" />
-              </button>
-            </div>
-          )
-        })}
-      </div>
+              <Icon className="size-6" />
+            </span>
+            <p className="text-[0.9rem] font-medium leading-relaxed text-fg">{avis.message}</p>
+            <span aria-hidden className="mt-1 block h-1 w-full overflow-hidden rounded-full bg-[rgb(var(--glass-edge)/0.2)]">
+              <span
+                key={avis.id}
+                className={cn('animate-deplete block h-full origin-left', avis.tone === 'error' ? 'bg-danger' : avis.tone === 'success' ? 'bg-ok' : 'bg-accent')}
+                style={{ animationDuration: `${DELAIS[avis.tone]}ms` }}
+              />
+            </span>
+          </div>
+        </Modal>
+      ) : null}
     </ToastContext.Provider>
   )
 }

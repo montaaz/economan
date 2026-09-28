@@ -65,7 +65,13 @@ type Data = { recipes: Fiche[]; stockProducts: Produit[]; salesCard: { id: strin
 export function Fiches() {
   const [data, setData] = React.useState<Data | null>(null)
   const [erreur, setErreur] = React.useState<string | null>(null)
+  // Arrivé depuis le contrôle des stocks avec un plat en tête (« ?q=… ») :
+  // la recherche s'ouvre dessus, pour écrire sa fiche sans le chercher.
   const [recherche, setRecherche] = React.useState('')
+  React.useEffect(() => {
+    const q = new URLSearchParams(window.location.search).get('q')
+    if (q) setRecherche(q)
+  }, [])
   const [dep, setDep] = React.useState<string | null>(null)
   const [vue, setVue] = React.useState<'tous' | 'incompletes' | 'sans-carte'>('tous')
   const [ouvertes, setOuvertes] = React.useState<Set<string>>(new Set())
@@ -324,7 +330,13 @@ function RechercheArticle({ produits, preparations, cible, nomCible, onChoix, au
   produits: Produit[]; preparations: Fiche[]; cible: string; nomCible: string | null
   onChoix: (cible: string, nom: string, unit: string | null) => void; autoFocus?: boolean
 }) {
+  // Arrivé depuis le contrôle des stocks avec un plat en tête (« ?q=… ») :
+  // la recherche s'ouvre dessus, pour écrire sa fiche sans le chercher.
   const [recherche, setRecherche] = React.useState('')
+  React.useEffect(() => {
+    const q = new URLSearchParams(window.location.search).get('q')
+    if (q) setRecherche(q)
+  }, [])
   const [ouvert, setOuvert] = React.useState(false)
   const [actif, setActif] = React.useState(0)
   // « changer » ouvre la barre sans lâcher l'article : tant qu'on n'a rien
@@ -384,6 +396,8 @@ function RechercheArticle({ produits, preparations, cible, nomCible, onChoix, au
         }}
         placeholder={edition ? 'Remplacer par…' : 'Rechercher un article ou une préparation…'}
         role="combobox"
+        aria-controls="liste-articles-fiche"
+        aria-autocomplete="list"
         aria-expanded={ouvert && candidats.length > 0}
         aria-label="Rechercher un article du stock"
         autoFocus={autoFocus || edition}

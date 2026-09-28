@@ -118,12 +118,14 @@ model Product {
   @@index([categoryId, isActive, sortOrder])
   @@index([isActive])
   @@index([name])
-  // Le dispatching : les portions d'une mère, les articles d'une nature.
+  @@index([baseUnitId])
+  // Le dispatching : les portions d'une mère.
   @@index([parentId])
-  @@index([kind])
   recipeLines  RecipeLine[]
   @@map("products")
   declaredSales DeclaredSale[]
+  preparationsFrom Preparation[] @relation("PreparationSource")
+  preparationsMade Preparation[] @relation("PreparationProduct")
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -167,6 +169,7 @@ model User {
   @@index([role, isActive])
   @@map("users")
   declaredSales DeclaredSale[] @relation("DeclaredSaleCreatedBy")
+  preparations Preparation[] @relation("PreparationCreatedBy")
 }
 
 /// Empreinte digitale / passkey (WebAuthn). Un utilisateur peut enrôler plusieurs appareils.
@@ -260,14 +263,18 @@ model Order {
   lines       OrderLine[]
   refills     OrderRefill[]
 
-  // Un seul numéro de ticket par jour et par département.
+  // Un seul numéro de ticket par jour et par département. Sert aussi le
+  // tableau du jour : « toutes les commandes du jour, par département ».
   @@unique([businessDay, departmentId, ticketNumber])
-  // Dashboard admin/économat : « toutes les commandes du jour, groupées par département ».
-  @@index([businessDay, departmentId, ticketNumber])
-  @@index([status, businessDay])
+  // Un département sur une période, dernier ticket en tête : le contrôle
+  // des stocks, « mes commandes », les bons d'un rayon.
+  @@index([departmentId, businessDay, ticketNumber])
   // « Mes commandes des 3 derniers jours ».
   @@index([createdById, createdAt])
-  @@index([departmentId, createdAt])
+  // Clés étrangères vers les utilisateurs : sans index, effacer un compte
+  // rebalayait toute la table.
+  @@index([processedById])
+  @@index([receivedById])
   // Le journal du stock et l'argent lisent « les bons émis » : sans index,
   // chaque page rebalayait toutes les commandes.
   @@index([deliveredAt])
@@ -305,9 +312,10 @@ model OrderRefill {
   lines     OrderRefillLine[]
 
   @@unique([orderId, rank])
-  @@index([orderId])
   @@index([deliveredAt])
   @@index([receivedAt])
+  @@index([createdById])
+  @@index([receivedById])
   @@map("order_refills")
 }
 
@@ -358,6 +366,7 @@ model OrderLine {
   @@unique([orderId, productId])
   @@index([orderId, sortOrder])
   @@index([productId])
+  @@index([unitId])
   @@map("order_lines")
 }
 
@@ -425,17 +434,72 @@ model StockEntry {
   note        String?
   /// Journée de service de l'arrivage.
   businessDay DateTime @db.Date
+  /// Le fournisseur qui a livré, quand l'arrivage en a un.
+  supplierId  Int?
   createdById Int
   createdAt   DateTime @default(now())
 
-  product   Product @relation(fields: [productId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  createdBy User    @relation("StockEntryCreatedBy", fields: [createdById], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  product   Product   @relation(fields: [productId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  supplier  Supplier? @relation(fields: [supplierId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  createdBy User      @relation("StockEntryCreatedBy", fields: [createdById], references: [id], onDelete: Restrict, onUpdate: Cascade)
 
+  @@index([supplierId])
   @@index([productId, businessDay])
-  @@index([businessDay])
+  // Le journal : par jour, la dernière écriture en tête.
+  @@index([businessDay, createdAt])
+  @@index([createdById])
   // Le stock se recalcule dans l'ordre des écritures : inventaire puis suite.
   @@index([productId, createdAt])
   @@map("stock_entries")
+}
+
+/// Un fournisseur : la société qui livre au stock général. Son nom se
+/// retrouve à la frappe sur une nouvelle entrée ; téléphone et matricule
+/// fiscal reviennent avec lui.
+model Supplier {
+  id        Int      @id @default(autoincrement())
+  name      String   @unique
+  phone     String?
+  /// Matricule fiscal.
+  taxId     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  entries StockEntry[]
+
+  @@map("suppliers")
+}
+
+/// Une préparation : l'économat tire d'un article pur (100 kg d'escalope)
+/// un article préparé (50 paquets d'escalope cuisine). Le stock du pur
+/// descend de ce qui est consommé, celui du préparé monte de ce qui est
+/// fait ; le coût du préparé est ce que le pur consommé a coûté, réparti.
+model Preparation {
+  id           Int      @id @default(autoincrement())
+  /// L'article pur consommé.
+  sourceId     Int
+  /// L'article préparé obtenu.
+  productId    Int
+  /// Consommé, dans l'unité du pur.
+  quantityUsed Decimal  @db.Decimal(14, 3)
+  /// Obtenu, dans l'unité du préparé.
+  quantityMade Decimal  @db.Decimal(14, 3)
+  /// Coût d'une unité de préparé, figé à la préparation : pur consommé × son coût moyen ÷ obtenu.
+  unitCost     Decimal  @db.Decimal(14, 4)
+  businessDay  DateTime @db.Date
+  note         String?
+  createdById  Int
+  createdAt    DateTime @default(now())
+
+  source    Product @relation("PreparationSource", fields: [sourceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  product   Product @relation("PreparationProduct", fields: [productId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  createdBy User    @relation("PreparationCreatedBy", fields: [createdById], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@index([sourceId, createdAt])
+  @@index([productId, createdAt])
+  @@index([businessDay, createdAt])
+  @@index([createdById])
+  @@map("preparations")
 }
 
 /// Une fiche technique : ce qu'un plat de la carte (ou une préparation
@@ -583,7 +647,6 @@ model SalesReport {
   createdBy User?             @relation("SalesReportCreatedBy", fields: [createdById], references: [id], onDelete: SetNull, onUpdate: Cascade)
   lines     SalesReportLine[]
 
-  @@index([businessDay])
   @@map("sales_reports")
 }
 
@@ -624,5 +687,7 @@ model DeclaredSale {
 
   @@unique([departmentId, productId, businessDay])
   @@index([departmentId, businessDay])
+  @@index([productId])
+  @@index([createdById])
   @@map("declared_sales")
 }

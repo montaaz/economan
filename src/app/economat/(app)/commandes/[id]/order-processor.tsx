@@ -42,6 +42,9 @@ const CANCEL_SERVICE = /* GraphQL */ `
 
 type Draft = { status: LineStatus; served: string; reason: string }
 
+/** La forme commune des gros boutons de la barre d'actions. */
+const GROS = '!h-12 !rounded-2xl !px-4 !text-[1rem] !font-bold'
+
 export function OrderProcessor({ order }: { order: ProcessOrder }) {
   const router = useRouter()
   const { push } = useToast()
@@ -113,7 +116,6 @@ export function OrderProcessor({ order }: { order: ProcessOrder }) {
   }, [signature, initial])
 
   const open = order.status === 'ACCEPTED'
-  const closed = order.status === 'DELIVERED' || order.status === 'RECEIVED'
 
   const setLine = (id: string, patch: Partial<Draft>) =>
     setDraft((d) => ({ ...d, [id]: { ...d[id], ...patch } }))
@@ -187,17 +189,6 @@ export function OrderProcessor({ order }: { order: ProcessOrder }) {
     return { validated, adjusted, rejected, pending: order.lines.length - validated - adjusted - rejected }
   }, [draft, order.lines])
 
-  const servedTotal = React.useMemo(
-    () =>
-      order.lines.reduce((sum, l) => {
-        const d = draft[l.id]
-        if (!d || d.status === 'REJECTED') return sum
-        if (d.status === 'VALIDATED') return sum + l.quantityAsked
-        if (d.status === 'ADJUSTED') return sum + toNumber(d.served)
-        return sum
-      }, 0),
-    [draft, order.lines],
-  )
 
   const payload = () =>
     order.lines
@@ -560,13 +551,12 @@ export function OrderProcessor({ order }: { order: ProcessOrder }) {
               PrintButton vide le titre de l'onglet le temps de l'impression :
               l'en-tête haut reste blanc. */}
           {order.status !== 'PENDING' ? (
-            <PrintButton orderId={order.id} variant="secondary" size="sm">
-              <Printer className="size-3.5" />
-              {{
-                ticket: 'Imprimer le ticket',
-                commande: 'Imprimer le bon de commande',
-                livraison: 'Imprimer le bon de livraison',
-              }[ticketVariant(order.status)]}
+            /* Le papier — ticket, bon de commande ou de livraison — est ce
+               qui part avec la marchandise : gros, magenta, impossible à
+               manquer. */
+            <PrintButton orderId={order.id} teinte={ticketVariant(order.status)} className="!px-4">
+              <Printer className="size-5" />
+              {{ ticket: 'Imprimer le ticket', commande: 'Imprimer le bon de commande', livraison: 'Imprimer le bon de livraison' }[ticketVariant(order.status)]}
             </PrintButton>
           ) : null}
 
@@ -580,31 +570,36 @@ export function OrderProcessor({ order }: { order: ProcessOrder }) {
           {/* Se tromper de ticket arrive : tant que le bon n'est pas émis, on
               rend la commande au département plutôt que de le forcer à en
               refaire une, qui prendrait un second numéro. */}
+          {/* Les quatre gestes de la barre ont la même taille que le bouton
+              du bon, et chacun sa couleur : orange pour rendre la commande,
+              vert pour tout valider, ardoise pour tout remettre à zéro. */}
           {order.status === 'ACCEPTED' ? (
             <Button
-              variant="ghost"
-              size="sm"
+              variant="warning"
+              size="lg"
+              className={GROS}
               loading={busy === 'cancel'}
               onClick={() => void cancelAccept()}
             >
-              {busy !== 'cancel' ? <Undo2 className="size-3.5" /> : null}
+              {busy !== 'cancel' ? <Undo2 className="size-5" /> : null}
               Annuler l’acceptation
             </Button>
           ) : null}
 
           {open ? (
             <>
-              <Button variant="ghost" size="sm" onClick={validateAll}>
-                <Check className="size-3.5" />
+              <Button variant="success" size="lg" className={GROS} onClick={validateAll}>
+                <Check className="size-5" />
                 Tout valider
               </Button>
               <Button
-                variant="ghost"
-                size="sm"
+                variant="secondary"
+                size="lg"
+                className={`${GROS} !border-[#2b3445] !bg-gradient-to-r !from-[#3d4a63] !to-[#5a6a8a] !text-white !shadow-[0_10px_24px_-10px_rgb(61_74_99/0.75)] hover:!brightness-110`}
                 loading={busy === 'reset'}
                 onClick={() => void resetAll()}
               >
-                <RotateCcw className="size-3.5" />
+                <RotateCcw className="size-5" />
                 Tout réinitialiser
               </Button>
               {/* Émettre engage : le bon part au département et la commande
@@ -613,16 +608,17 @@ export function OrderProcessor({ order }: { order: ProcessOrder }) {
                   après le clic. */}
               <Button
                 variant="success"
+                size="lg"
                 loading={busy === 'deliver'}
                 onClick={deliver}
-                className="ml-auto"
+                className={`${GROS} ml-auto`}
                 title={
                   counts.pending > 0
                     ? `${counts.pending} ligne(s) restent à traiter`
                     : undefined
                 }
               >
-                {busy !== 'deliver' ? <Truck className="size-4" /> : null}
+                {busy !== 'deliver' ? <Truck className="size-5" /> : null}
                 bon de livraison
               </Button>
             </>

@@ -813,6 +813,10 @@ model FaceProfile {
   descriptor Float[]
   /// Nombre de prises moyennées à l'enregistrement.
   samples    Int
+  /// Chaque prise, sous plusieurs angles (face, gauche, droite, haut, bas),
+  /// mises bout à bout : 128 nombres par prise. La connexion retient la plus
+  /// proche — un visage tourné se reconnaît mieux.
+  sampleData Float[] @default([])
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 

@@ -1,0 +1,2 @@
+-- AlterTable
+ALTER TABLE "face_profiles" ADD COLUMN     "sampleData" DOUBLE PRECISION[] DEFAULT ARRAY[]::DOUBLE PRECISION[];

@@ -1,0 +1,19 @@
+# /etc/systemd/system/economan.service
+[Unit]
+Description=Next.js Economan Application
+After=network.target postgresql.service
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/economan2
+Environment=NODE_ENV=production
+Environment=PORT=3002
+ExecStart=/usr/bin/npm start
+Restart=always
+RestartSec=5
+# Garde-fou : l'application ne peut pas prendre toute la mémoire du serveur.
+MemoryMax=1500M
+
+[Install]
+WantedBy=multi-user.target

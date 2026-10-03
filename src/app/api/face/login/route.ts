@@ -11,13 +11,15 @@ export const dynamic = 'force-dynamic'
  * session s'ouvre comme avec le mot de passe.
  */
 export async function POST(request: Request) {
-  let body: { userId?: unknown; descriptor?: unknown }
+  let body: { userId?: unknown; descriptor?: unknown; descriptors?: unknown }
   try { body = await request.json() } catch { return NextResponse.json({ error: 'Requête illisible.' }, { status: 400 }) }
   const userId = Number(body.userId)
-  if (!Number.isInteger(userId) || !descripteurValide(body.descriptor)) {
+  // Trois images successives (ou une seule, pour les anciens écrans).
+  const images = Array.isArray(body.descriptors) ? body.descriptors : [body.descriptor]
+  if (!Number.isInteger(userId) || images.length < 1 || images.length > 5 || !images.every(descripteurValide)) {
     return NextResponse.json({ error: 'Visage illisible.' }, { status: 400 })
   }
-  const v = await verifierVisage(userId, body.descriptor)
+  const v = await verifierVisage(userId, images)
   if (!v.ok) {
     const messages = {
       inconnu: 'Aucun visage enregistré pour ce compte : connectez-vous avec votre mot de passe.',

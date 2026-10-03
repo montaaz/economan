@@ -13,7 +13,9 @@ export default function manifest(): MetadataRoute.Manifest {
     start_url: '/',
     scope: '/',
     display: 'standalone',
-    orientation: 'portrait',
+    // Comme les autres applications : l'écran suit la rotation du téléphone
+    // (et le verrou de rotation du système, s'il est activé).
+    orientation: 'any',
     background_color: '#f7f4ea',
     theme_color: '#0e4a2d',
     lang: 'fr',

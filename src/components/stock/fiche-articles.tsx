@@ -247,12 +247,16 @@ export function FicheArticles() {
   const nomUnite = (symbole: string) =>
     (unites.find((u) => u.symbol.toLowerCase() === symbole.toLowerCase())?.name ?? (symbole === 'p' ? 'portion' : symbole)).toLowerCase()
 
+  // Le bouton de filtre et la recherche répondent tout de suite ; la liste
+  // de six cents articles se recalcule juste après, sans geler l'écran.
+  const filtreListe = React.useDeferredValue(filtre)
+  const rechercheListe = React.useDeferredValue(recherche)
   const dansLeFiltre = React.useCallback((l: Line) =>
-    filtre === 'tous' || (filtre === 'aucun' ? l.departmentIds.length === 0 : l.departmentIds.includes(filtre)), [filtre])
+    filtreListe === 'tous' || (filtreListe === 'aucun' ? l.departmentIds.length === 0 : l.departmentIds.includes(filtreListe)), [filtreListe])
 
   // Les familles du catalogue, chacune avec ses articles.
   const familles = React.useMemo(() => {
-    const mot = normaliser(recherche)
+    const mot = normaliser(rechercheListe)
     const parFamille = new Map<string, Line[]>()
     for (const l of lignes) if (l.kind !== 'MERE') parFamille.set(l.categoryId, [...(parFamille.get(l.categoryId) ?? []), l])
     return categories
@@ -267,8 +271,8 @@ export function FicheArticles() {
         return { famille, articles, total: toutes.length }
       })
       // Sous une recherche ou un filtre, une famille sans article s'efface.
-      .filter((f) => (mot === '' && filtre === 'tous') || f.articles.length > 0)
-  }, [categories, lignes, recherche, filtre, dansLeFiltre])
+      .filter((f) => (mot === '' && filtreListe === 'tous') || f.articles.length > 0)
+  }, [categories, lignes, rechercheListe, filtreListe, dansLeFiltre])
 
   // Supprimer un article : effacé s'il n'a jamais servi, sinon désactivé
   // (retiré des feuilles, historique gardé). Le serveur décide.
@@ -307,6 +311,119 @@ export function FicheArticles() {
   const nbArticles = familles.reduce((n, f) => n + f.articles.length, 0)
   const toutReplie = familles.length > 0 && familles.every((f) => repliees.has(f.famille.id))
   const basculerFamille = (id: string) => setRepliees((r) => { const n = new Set(r); if (n.has(id)) n.delete(id); else n.add(id); return n })
+  // Les gestes du tableau passent par une référence : le tableau mémorisé
+  // appelle toujours leur dernière version.
+  const gestes = React.useRef({ supprimerArticle, basculerFamille, setBoite, nomUnite })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  React.useLayoutEffect(() => { gestes.current = { supprimerArticle, basculerFamille, setBoite, nomUnite } })
+
+  const tableau = React.useMemo(() => (
+          <TableWrap minWidth="54rem">
+            <thead>
+              <tr>
+                <Th className="w-full">Article</Th>
+                <Th className="whitespace-nowrap">Composition</Th>
+                <Th>Départements</Th>
+                <Th className="whitespace-nowrap">Stock fixe</Th>
+                <Th className="w-24 text-right"><span className="sr-only">Actions</span></Th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-[rgb(var(--glass-edge)/0.12)]">
+              {familles.map(({ famille, articles, total }) => {
+                const repliee = repliees.has(famille.id)
+                return (
+                  <React.Fragment key={famille.id}>
+                    {/* La famille, en bandeau : on la replie, on la modifie. */}
+                    <tr className="bg-ok/12">
+                      <td colSpan={4} className="px-2 py-1.5 sm:px-3">
+                        <span className="flex flex-wrap items-center gap-2">
+                          <button type="button" onClick={() => gestes.current.basculerFamille(famille.id)} aria-expanded={!repliee}
+                            className="flex flex-wrap items-center gap-2 rounded-lg px-2 py-1 text-left hover:bg-white/40">
+                            {repliee ? <ChevronRight className="size-4 shrink-0 text-ok" /> : <ChevronDown className="size-4 shrink-0 text-ok" />}
+                            <span className="text-[0.72rem] font-bold uppercase tracking-[0.08em] text-ok">Famille</span>
+                            <span className="text-[0.98rem] font-bold text-fg">{famille.name}</span>
+                          </button>
+                          {/* L'article pur de la famille : il ne se commande pas ; un clic
+                              ouvre ce qu'on en prépare, et ce que chacun en contient. */}
+                          {lignes.filter((l) => l.categoryId === famille.id && l.kind === 'MERE').map((pur) => (
+                            <button key={pur.productId} type="button" onClick={() => gestes.current.setBoite({ mode: 'article', famille, article: pur })}
+                              title={`Préparés à partir de ${pur.productName}`}
+                              className="inline-flex items-center gap-1 rounded-full border border-ok/45 bg-white/85 px-2.5 py-1 text-[0.74rem] font-semibold text-ok transition-colors hover:bg-ok hover:text-white">
+                              <FlaskConical className="size-3.5" /> Article pur : {pur.productName}
+                              <span className="opacity-75">· {pur.portions.length} préparé{pur.portions.length > 1 ? 's' : ''}</span>
+                              <Pencil className="ml-0.5 size-3" />
+                            </button>
+                          ))}
+                          <span className="rounded-full bg-white/70 px-2 py-0.5 text-[0.72rem] font-semibold text-fg-muted">
+                            {total === 0 ? 'vide' : articles.length === total ? `${total} article${total > 1 ? 's' : ''}` : `${articles.length} sur ${total}`}
+                          </span>
+                        </span>
+                      </td>
+                      <td className="px-2 py-1.5 text-right">
+                        <button type="button" onClick={() => gestes.current.setBoite({ mode: 'famille', famille, total })}
+                          title={`Modifier la famille ${famille.name}`} aria-label={`Modifier la famille ${famille.name}`}
+                          className="grid size-9 place-items-center rounded-lg border border-ok/45 bg-white/70 text-ok transition-colors hover:bg-ok/15">
+                          <Pencil className="size-4" />
+                        </button>
+                      </td>
+                    </tr>
+                    {repliee ? null : articles.map((a) => (
+                      <tr key={a.productId} className="transition-colors hover:bg-white/40">
+                        <Td className="pl-9 sm:pl-11">
+                          <p className="text-[0.9rem] font-semibold text-fg">{a.productName}</p>
+                          <p className="text-[0.72rem] text-fg-subtle">{a.unitSymbol}</p>
+                        </Td>
+                        <Td className="whitespace-nowrap">
+                          {a.mother ? (
+                            <Composition article={a} tous={departements} nomUnite={(x: string) => gestes.current.nomUnite(x)} />
+                          ) : a.kind === 'MERE' || a.portions.length > 0 ? (
+                            <span className="inline-flex items-center gap-1.5 rounded-lg border border-ok/40 bg-ok/[0.08] px-2.5 py-1 text-[0.8rem] font-bold text-ok">
+                              <FlaskConical className="size-3.5" /> Article pur · base de {a.portions.length} préparé{a.portions.length > 1 ? 's' : ''}
+                            </span>
+                          ) : <span className="text-fg-subtle">—</span>}
+                        </Td>
+                        <Td className="min-w-[12rem]">
+                          {a.kind === 'MERE' ? <span className="text-[0.8rem] font-medium text-fg-subtle">Ne se commande pas</span>
+                            : <Departements ids={a.departmentIds} tous={departements} />}
+                        </Td>
+                        <Td className="whitespace-nowrap">
+                          {a.kind === 'MERE' ? <span className="text-fg-subtle">—</span> : <StockFixe article={a} tous={departements} />}
+                        </Td>
+                        <Td className="text-right">
+                          <span className="inline-flex items-center gap-1.5">
+                            <button type="button" onClick={() => gestes.current.setBoite({ mode: 'article', famille, article: a })}
+                              title={`Modifier ${a.productName}`} aria-label={`Modifier ${a.productName}`}
+                              className="grid size-9 place-items-center rounded-lg border border-accent/40 bg-accent/10 text-accent transition-colors hover:bg-accent/20">
+                              <Pencil className="size-4" />
+                            </button>
+                            <button type="button" onClick={() => void gestes.current.supprimerArticle(a)} disabled={suppression !== null}
+                              title={`Supprimer ${a.productName}`} aria-label={`Supprimer ${a.productName}`}
+                              className="grid size-9 place-items-center rounded-lg border border-danger/35 bg-danger/[0.06] text-danger transition-colors hover:bg-danger/15 disabled:opacity-50">
+                              {suppression === a.productId ? <Loader2 className="size-4 animate-spin" /> : <Trash2 className="size-4" />}
+                            </button>
+                          </span>
+                        </Td>
+                      </tr>
+                    ))}
+                    {/* Au pied de chaque famille : un article de plus. */}
+                    {repliee ? null : (
+                      <tr>
+                        <td colSpan={5} className="px-4 py-2 pl-9 sm:px-5 sm:pl-11">
+                          <button type="button" onClick={() => gestes.current.setBoite({ mode: 'article', famille, article: null })}
+                            className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-dashed border-ok/55 bg-ok/[0.06] px-3 text-[0.82rem] font-semibold text-ok transition-colors hover:bg-ok/15">
+                            <Plus className="size-4" />
+                            Ajouter un article à {famille.name}
+                          </button>
+                        </td>
+                      </tr>
+                    )}
+                  </React.Fragment>
+                )
+              })}
+            </tbody>
+          </TableWrap>
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  ), [familles, repliees, suppression, departements, filtreListe, lignes])
 
   return (
     <>
@@ -390,110 +507,7 @@ export function FicheArticles() {
               : filtre !== 'tous' ? 'Aucun article pour ce département.'
                 : 'Créez votre première famille avec « Nouvelle famille ».'} />
         ) : (
-          <TableWrap minWidth="54rem">
-            <thead>
-              <tr>
-                <Th className="w-full">Article</Th>
-                <Th className="whitespace-nowrap">Composition</Th>
-                <Th>Départements</Th>
-                <Th className="whitespace-nowrap">Stock fixe</Th>
-                <Th className="w-24 text-right"><span className="sr-only">Actions</span></Th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-[rgb(var(--glass-edge)/0.12)]">
-              {familles.map(({ famille, articles, total }) => {
-                const repliee = repliees.has(famille.id)
-                return (
-                  <React.Fragment key={famille.id}>
-                    {/* La famille, en bandeau : on la replie, on la modifie. */}
-                    <tr className="bg-ok/12">
-                      <td colSpan={4} className="px-2 py-1.5 sm:px-3">
-                        <span className="flex flex-wrap items-center gap-2">
-                          <button type="button" onClick={() => basculerFamille(famille.id)} aria-expanded={!repliee}
-                            className="flex flex-wrap items-center gap-2 rounded-lg px-2 py-1 text-left hover:bg-white/40">
-                            {repliee ? <ChevronRight className="size-4 shrink-0 text-ok" /> : <ChevronDown className="size-4 shrink-0 text-ok" />}
-                            <span className="text-[0.72rem] font-bold uppercase tracking-[0.08em] text-ok">Famille</span>
-                            <span className="text-[0.98rem] font-bold text-fg">{famille.name}</span>
-                          </button>
-                          {/* L'article pur de la famille : il ne se commande pas ; un clic
-                              ouvre ce qu'on en prépare, et ce que chacun en contient. */}
-                          {lignes.filter((l) => l.categoryId === famille.id && l.kind === 'MERE').map((pur) => (
-                            <button key={pur.productId} type="button" onClick={() => setBoite({ mode: 'article', famille, article: pur })}
-                              title={`Préparés à partir de ${pur.productName}`}
-                              className="inline-flex items-center gap-1 rounded-full border border-ok/45 bg-white/85 px-2.5 py-1 text-[0.74rem] font-semibold text-ok transition-colors hover:bg-ok hover:text-white">
-                              <FlaskConical className="size-3.5" /> Article pur : {pur.productName}
-                              <span className="opacity-75">· {pur.portions.length} préparé{pur.portions.length > 1 ? 's' : ''}</span>
-                              <Pencil className="ml-0.5 size-3" />
-                            </button>
-                          ))}
-                          <span className="rounded-full bg-white/70 px-2 py-0.5 text-[0.72rem] font-semibold text-fg-muted">
-                            {total === 0 ? 'vide' : articles.length === total ? `${total} article${total > 1 ? 's' : ''}` : `${articles.length} sur ${total}`}
-                          </span>
-                        </span>
-                      </td>
-                      <td className="px-2 py-1.5 text-right">
-                        <button type="button" onClick={() => setBoite({ mode: 'famille', famille, total })}
-                          title={`Modifier la famille ${famille.name}`} aria-label={`Modifier la famille ${famille.name}`}
-                          className="grid size-9 place-items-center rounded-lg border border-ok/45 bg-white/70 text-ok transition-colors hover:bg-ok/15">
-                          <Pencil className="size-4" />
-                        </button>
-                      </td>
-                    </tr>
-                    {repliee ? null : articles.map((a) => (
-                      <tr key={a.productId} className="transition-colors hover:bg-white/40">
-                        <Td className="pl-9 sm:pl-11">
-                          <p className="text-[0.9rem] font-semibold text-fg">{a.productName}</p>
-                          <p className="text-[0.72rem] text-fg-subtle">{a.unitSymbol}</p>
-                        </Td>
-                        <Td className="whitespace-nowrap">
-                          {a.mother ? (
-                            <Composition article={a} tous={departements} nomUnite={nomUnite} />
-                          ) : a.kind === 'MERE' || a.portions.length > 0 ? (
-                            <span className="inline-flex items-center gap-1.5 rounded-lg border border-ok/40 bg-ok/[0.08] px-2.5 py-1 text-[0.8rem] font-bold text-ok">
-                              <FlaskConical className="size-3.5" /> Article pur · base de {a.portions.length} préparé{a.portions.length > 1 ? 's' : ''}
-                            </span>
-                          ) : <span className="text-fg-subtle">—</span>}
-                        </Td>
-                        <Td className="min-w-[12rem]">
-                          {a.kind === 'MERE' ? <span className="text-[0.8rem] font-medium text-fg-subtle">Ne se commande pas</span>
-                            : <Departements ids={a.departmentIds} tous={departements} />}
-                        </Td>
-                        <Td className="whitespace-nowrap">
-                          {a.kind === 'MERE' ? <span className="text-fg-subtle">—</span> : <StockFixe article={a} tous={departements} />}
-                        </Td>
-                        <Td className="text-right">
-                          <span className="inline-flex items-center gap-1.5">
-                            <button type="button" onClick={() => setBoite({ mode: 'article', famille, article: a })}
-                              title={`Modifier ${a.productName}`} aria-label={`Modifier ${a.productName}`}
-                              className="grid size-9 place-items-center rounded-lg border border-accent/40 bg-accent/10 text-accent transition-colors hover:bg-accent/20">
-                              <Pencil className="size-4" />
-                            </button>
-                            <button type="button" onClick={() => void supprimerArticle(a)} disabled={suppression !== null}
-                              title={`Supprimer ${a.productName}`} aria-label={`Supprimer ${a.productName}`}
-                              className="grid size-9 place-items-center rounded-lg border border-danger/35 bg-danger/[0.06] text-danger transition-colors hover:bg-danger/15 disabled:opacity-50">
-                              {suppression === a.productId ? <Loader2 className="size-4 animate-spin" /> : <Trash2 className="size-4" />}
-                            </button>
-                          </span>
-                        </Td>
-                      </tr>
-                    ))}
-                    {/* Au pied de chaque famille : un article de plus. */}
-                    {repliee ? null : (
-                      <tr>
-                        <td colSpan={5} className="px-4 py-2 pl-9 sm:px-5 sm:pl-11">
-                          <button type="button" onClick={() => setBoite({ mode: 'article', famille, article: null })}
-                            className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-dashed border-ok/55 bg-ok/[0.06] px-3 text-[0.82rem] font-semibold text-ok transition-colors hover:bg-ok/15">
-                            <Plus className="size-4" />
-                            Ajouter un article à {famille.name}
-                          </button>
-                        </td>
-                      </tr>
-                    )}
-                  </React.Fragment>
-                )
-              })}
-            </tbody>
-          </TableWrap>
+          tableau
         )}
       </GlassCard>
 

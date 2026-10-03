@@ -62,6 +62,13 @@ html {
   -webkit-text-size-adjust: 100%;
 }
 
+/* Tablette et téléphone : un toucher est un clic, tout de suite. Sans cela le
+   navigateur attend un éventuel double toucher (zoom) avant de répondre. */
+a, button, input, select, textarea, label, summary, [role="button"], [role="option"], [role="radio"] {
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
 /* Champ lumineux ambiant — le « studio » dans lequel le verre repose. */
 body::before {
   content: "";

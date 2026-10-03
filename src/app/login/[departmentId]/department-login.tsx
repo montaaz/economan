@@ -27,7 +27,16 @@ export function DepartmentLogin({ users }: { users: U[] }) {
   const [selected, setSelected] = React.useState<U | null>(users.length === 1 ? users[0] : null)
   // Les modèles du visage se chargent pendant qu'on choisit son nom : la
   // caméra est prête plus vite au clic.
-  React.useEffect(() => { if (users.some((u) => u.hasFace)) void chargerVisage().catch(() => {}) }, [users])
+  // Quand le navigateur est libre seulement : sur une tablette lente, la
+  // préparation des modèles figeait la page au moment de toucher son nom.
+  React.useEffect(() => {
+    if (!users.some((u) => u.hasFace)) return
+    const lancer = () => void chargerVisage().catch(() => {})
+    const w = window as Window & { requestIdleCallback?: (f: () => void, o?: { timeout: number }) => number; cancelIdleCallback?: (id: number) => void }
+    if (w.requestIdleCallback) { const id = w.requestIdleCallback(lancer, { timeout: 4000 }); return () => w.cancelIdleCallback?.(id) }
+    const t = window.setTimeout(lancer, 1500)
+    return () => window.clearTimeout(t)
+  }, [users])
 
   if (!selected) {
     return (

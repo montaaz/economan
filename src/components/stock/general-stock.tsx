@@ -193,11 +193,20 @@ export function GeneralStock({ admin, base }: { admin: boolean; base: '/economat
     return () => { vivant = false }
   }, [version])
 
-  const mot = normaliser(recherche)
-  const lignes = (data?.generalStock.lines ?? []).filter((l) =>
-    (nature === 'tous' || l.kind === nature)
-    && (!negatifs || l.stock < -1e-9)
-    && correspond(mot, l.productName, l.productRef, l.categoryName, l.mother?.productName, ...l.portions.map((p) => p.productName)))
+  // Les filtres et la recherche répondent tout de suite ; le tableau de six
+  // cents articles se recalcule juste après, sans geler l'écran.
+  const natureListe = React.useDeferredValue(nature)
+  const negatifsListe = React.useDeferredValue(negatifs)
+  const rechercheListe = React.useDeferredValue(recherche)
+  const lignes = React.useMemo(() => {
+    const mot = normaliser(rechercheListe)
+    return (data?.generalStock.lines ?? []).filter((l) =>
+      (natureListe === 'tous' || l.kind === natureListe)
+      && (!negatifsListe || l.stock < -1e-9)
+      && correspond(mot, l.productName, l.productRef, l.categoryName, l.mother?.productName, ...l.portions.map((p) => p.productName)))
+  }, [data, natureListe, negatifsListe, rechercheListe])
+  const tousLesArticles = React.useMemo(() => data?.generalStock.lines ?? [], [data])
+  const visibles = React.useMemo(() => new Set(lignes.map((l) => l.productId)), [lignes])
   const aujourdhui = toDateKey(new Date())
   // On choisit la journée, ou une période : la carte en donne le total, et
   // la liste s'ouvre sur la même. Par défaut, la journée en cours.
@@ -453,109 +462,16 @@ export function GeneralStock({ admin, base }: { admin: boolean; base: '/economat
           <p role="alert" className="px-4 py-4 text-[0.85rem] font-medium text-danger">{erreur}</p>
         ) : data === null ? (
           <p className="flex items-center gap-2 px-4 py-6 text-[0.85rem] text-fg-muted"><Loader2 className="size-4 animate-spin" /> Chargement…</p>
-        ) : lignes.length === 0 ? (
-          <EmptyState icon={<Warehouse className="size-6" />} title="Aucun article" description="Aucun article ne correspond à ce filtre." />
         ) : (
-          <TableWrap minWidth="60rem">
-            <thead>
-              <tr>
-                <Th className="w-full">Article</Th>
-                <Th>Nature</Th>
-                <Th className="text-right">Entré</Th>
-                <Th className="text-right">Sorti</Th>
-                <Th className="text-right">Stock</Th>
-                {admin ? <Th className="text-right">Coût moyen</Th> : null}
-                {admin ? <Th className="text-right">Valeur</Th> : null}
-                <Th className="w-40" />
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-[rgb(var(--glass-edge)/0.12)]">
-              {lignes.map((l, i) => {
-                const negatif = l.stock < -1e-9
-                const ouvre = i === 0 || lignes[i - 1].categoryName !== l.categoryName
-                return (
-                  <React.Fragment key={l.productId}>
-                    {ouvre ? (
-                      <tr><td colSpan={admin ? 8 : 6} className="bg-ok/12 px-3 py-1.5 text-[0.74rem] font-bold uppercase tracking-[0.06em] text-ok">{l.categoryName}</td></tr>
-                    ) : null}
-                    {/* Une rupture se lit d'un coup : la ligne entière en rouge
-                        franc, un liseré épais à gauche, le stock en blanc sur rouge. */}
-                    <tr className={cn(negatif ? 'bg-[#c81e3a]/[0.16] shadow-[inset_6px_0_0_0_#c81e3a]' : l.kind === 'PREPARE' && 'bg-warn/[0.04]')}>
-                      <Td className="max-w-0">
-                        <p className="truncate text-[0.85rem] font-medium text-fg">{l.productName}</p>
-                        <p className="truncate font-mono text-[0.7rem] text-fg-subtle">{l.productRef}{l.lastEntryAt ? <span className="ml-2 font-sans">dernière entrée {formatDate(l.lastEntryAt)}</span> : null}</p>
-                        {l.mother ? (
-                          <p className="mt-0.5 text-[0.74rem] text-fg-muted">← {l.mother.productName} · {formatMere(l.mother.motherQuantity, l.mother.unitSymbol)} par portion</p>
-                        ) : null}
-                        {l.portions.length > 0 ? (
-                          <p className="mt-1 flex flex-wrap gap-1">
-                            {l.portions.map((p) => (
-                              <button key={p.productId} type="button" onClick={() => setPortion(l)}
-                                className="inline-flex items-center gap-1 rounded-full bg-accent/10 px-2 py-0.5 text-[0.72rem] font-medium text-accent disabled:cursor-default">
-                                <Scissors className="size-3" />{p.productName} · {formatMere(p.motherQuantity, l.unitSymbol)}
-                              </button>
-                            ))}
-                          </p>
-                        ) : null}
-                      </Td>
-                      <Td><Badge tone={NATURES[l.kind].tone}>{NATURES[l.kind].label}</Badge></Td>
-                      {(
-                        <>
-                          <Td className="whitespace-nowrap text-right tabular-nums text-fg-muted">
-                            {formatQty(l.entered)} {l.unitSymbol}
-                            {l.kind === 'PREPARE' ? <span className="block text-[0.68rem] text-fg-subtle">préparé</span> : null}
-                          </Td>
-                          <Td className="whitespace-nowrap text-right tabular-nums text-fg-muted">
-                            {formatQty(l.delivered)} {l.unitSymbol}
-                            {/* Pour un pur : ce que les préparations lui ont pris, en plus des livraisons. */}
-                            {l.prepared > 0 ? <span className="block text-[0.68rem] text-warn">+ {formatQty(l.prepared)} préparé{l.prepared > 1 ? 's' : ''}</span> : null}
-                          </Td>
-                          <Td className="whitespace-nowrap text-right font-bold tabular-nums text-fg">
-                            {negatif ? (
-                              <span className="inline-flex items-center gap-1 rounded-lg bg-[#c81e3a] px-2 py-0.5 text-white">
-                                <AlertTriangle className="size-3.5" />{formatQty(l.stock)} {l.unitSymbol}
-                              </span>
-                            ) : <>{formatQty(l.stock)} {l.unitSymbol}</>}
-                          </Td>
-                          {admin ? (
-                            <Td className="whitespace-nowrap text-right tabular-nums text-fg-muted">
-                              {l.unitCost === null ? '—' : (
-                                /* Le coût moyen se lit, mais aussi se vérifie : le
-                                   détail montre chaque arrivage et la division. */
-                                <button type="button" onClick={() => setDetailCout(l)} title="Voir le calcul du coût moyen"
-                                  className="rounded-md px-1.5 py-0.5 underline decoration-dotted underline-offset-4 transition-colors hover:bg-accent/[0.08] hover:text-accent">
-                                  {formatMoney(l.unitCost)}
-                                </button>
-                              )}
-                            </Td>
-                          ) : null}
-                          {admin ? <Td className="whitespace-nowrap text-right font-semibold tabular-nums text-fg">{l.unitCost === null ? '—' : formatMoney(l.stockValue)}</Td> : null}
-                        </>
-                      )}
-                      <Td>
-                        <span className="flex flex-wrap items-center justify-end gap-1">
-                          {/* Le dispatching est le geste de l'économat autant que de
-                              l'administration : relier au pur ce qu'on en prépare. */}
-                          {l.kind !== 'PREPARE' ? (
-                            <Button variant="ghost" size="sm" onClick={() => setPortion(l)} title="Dispatching : les articles préparés tirés de cet article">
-                              <Scissors className="size-3.5" />
-                              Dispatching
-                            </Button>
-                          ) : null}
-                          {admin ? (
-                            <Button variant="ghost" size="sm" onClick={() => setModif(l)} title="Inventaire, nature de l'article">
-                              <Pencil className="size-3.5" />
-                              Modifier
-                            </Button>
-                          ) : null}
-                        </span>
-                      </Td>
-                    </tr>
-                  </React.Fragment>
-                )
-              })}
-            </tbody>
-          </TableWrap>
+          <>
+            {lignes.length === 0 ? (
+              <EmptyState icon={<Warehouse className="size-6" />} title="Aucun article" description="Aucun article ne correspond à ce filtre." />
+            ) : null}
+            {/* Toujours monté : le filtre cache des lignes, il n'en détruit pas. */}
+            <div hidden={lignes.length === 0}>
+              <TableStock tout={tousLesArticles} visibles={visibles} admin={admin} onPortion={setPortion} onModif={setModif} onCout={setDetailCout} />
+            </div>
+          </>
         )}
       </GlassCard>
 
@@ -2398,3 +2314,137 @@ function ModifierArticle({ article, lignes, onClose, onDone }: { article: Line; 
     </Modal>
   )
 }
+
+
+/** Les boutons d'une ligne du stock : légers, il y en a des centaines. */
+const BOUTON_LIGNE = 'inline-flex h-8 items-center gap-1.5 rounded-lg px-3 text-[0.8rem] font-medium text-fg-muted transition-colors hover:bg-[rgb(var(--glass-edge)/0.16)] hover:text-fg'
+
+/**
+ * Le tableau du stock général, mémorisé.
+ *
+ * Les six cents lignes restent montées : un filtre ou une recherche ne fait
+ * que les cacher ou les montrer. Avant, chaque clic redessinait — ou
+ * détruisait puis recréait — toutes les lignes, et une tablette restait
+ * figée près de deux secondes : les boutons semblaient morts.
+ */
+const TableStock = React.memo(function TableStock({ tout, visibles, admin, onPortion, onModif, onCout }: {
+  tout: Line[]; visibles: Set<string>; admin: boolean
+  onPortion: (l: Line) => void; onModif: (l: Line) => void; onCout: (l: Line) => void
+}) {
+  const familles = React.useMemo(() => {
+    const m = new Set<string>()
+    for (const l of tout) if (visibles.has(l.productId)) m.add(l.categoryName)
+    return m
+  }, [tout, visibles])
+  return (
+    <TableWrap minWidth="60rem">
+      <thead>
+        <tr>
+          <Th className="w-full">Article</Th>
+          <Th>Nature</Th>
+          <Th className="text-right">Entré</Th>
+          <Th className="text-right">Sorti</Th>
+          <Th className="text-right">Stock</Th>
+          {admin ? <Th className="text-right">Coût moyen</Th> : null}
+          {admin ? <Th className="text-right">Valeur</Th> : null}
+          <Th className="w-40" />
+        </tr>
+      </thead>
+      <tbody className="divide-y divide-[rgb(var(--glass-edge)/0.12)]">
+        {tout.map((l, i) => (
+          <React.Fragment key={l.productId}>
+            {i === 0 || tout[i - 1].categoryName !== l.categoryName ? (
+              <EnTeteFamille nom={l.categoryName} colonnes={admin ? 8 : 6} visible={familles.has(l.categoryName)} />
+            ) : null}
+            <LigneStock l={l} admin={admin} visible={visibles.has(l.productId)} onPortion={onPortion} onModif={onModif} onCout={onCout} />
+          </React.Fragment>
+        ))}
+      </tbody>
+    </TableWrap>
+  )
+})
+
+const EnTeteFamille = React.memo(function EnTeteFamille({ nom, colonnes, visible }: { nom: string; colonnes: number; visible: boolean }) {
+  return <tr hidden={!visible}><td colSpan={colonnes} className="bg-ok/12 px-3 py-1.5 text-[0.74rem] font-bold uppercase tracking-[0.06em] text-ok">{nom}</td></tr>
+})
+
+/** Une ligne du stock : mémorisée, elle ne se redessine que si elle change. */
+const LigneStock = React.memo(function LigneStock({ l, admin, visible, onPortion, onModif, onCout }: {
+  l: Line; admin: boolean; visible: boolean
+  onPortion: (l: Line) => void; onModif: (l: Line) => void; onCout: (l: Line) => void
+}) {
+  const negatif = l.stock < -1e-9
+  return (
+    <tr hidden={!visible} className={cn(negatif ? 'bg-[#c81e3a]/[0.16] shadow-[inset_6px_0_0_0_#c81e3a]' : l.kind === 'PREPARE' && 'bg-warn/[0.04]')}>
+      <Td className="max-w-0">
+        <p className="truncate text-[0.85rem] font-medium text-fg">{l.productName}</p>
+        <p className="truncate font-mono text-[0.7rem] text-fg-subtle">{l.productRef}{l.lastEntryAt ? <span className="ml-2 font-sans">dernière entrée {formatDate(l.lastEntryAt)}</span> : null}</p>
+        {l.mother ? (
+          <p className="mt-0.5 text-[0.74rem] text-fg-muted">← {l.mother.productName} · {formatMere(l.mother.motherQuantity, l.mother.unitSymbol)} par portion</p>
+        ) : null}
+        {l.portions.length > 0 ? (
+          <p className="mt-1 flex flex-wrap gap-1">
+            {l.portions.map((p) => (
+              <button key={p.productId} type="button" onClick={() => onPortion(l)}
+                className="inline-flex items-center gap-1 rounded-full bg-accent/10 px-2 py-0.5 text-[0.72rem] font-medium text-accent disabled:cursor-default">
+                <Scissors className="size-3" />{p.productName} · {formatMere(p.motherQuantity, l.unitSymbol)}
+              </button>
+            ))}
+          </p>
+        ) : null}
+      </Td>
+      <Td><Badge tone={NATURES[l.kind].tone}>{NATURES[l.kind].label}</Badge></Td>
+      {(
+        <>
+          <Td className="whitespace-nowrap text-right tabular-nums text-fg-muted">
+            {formatQty(l.entered)} {l.unitSymbol}
+            {l.kind === 'PREPARE' ? <span className="block text-[0.68rem] text-fg-subtle">préparé</span> : null}
+          </Td>
+          <Td className="whitespace-nowrap text-right tabular-nums text-fg-muted">
+            {formatQty(l.delivered)} {l.unitSymbol}
+            {/* Pour un pur : ce que les préparations lui ont pris, en plus des livraisons. */}
+            {l.prepared > 0 ? <span className="block text-[0.68rem] text-warn">+ {formatQty(l.prepared)} préparé{l.prepared > 1 ? 's' : ''}</span> : null}
+          </Td>
+          <Td className="whitespace-nowrap text-right font-bold tabular-nums text-fg">
+            {negatif ? (
+              <span className="inline-flex items-center gap-1 rounded-lg bg-[#c81e3a] px-2 py-0.5 text-white">
+                <AlertTriangle className="size-3.5" />{formatQty(l.stock)} {l.unitSymbol}
+              </span>
+            ) : <>{formatQty(l.stock)} {l.unitSymbol}</>}
+          </Td>
+          {admin ? (
+            <Td className="whitespace-nowrap text-right tabular-nums text-fg-muted">
+              {l.unitCost === null ? '—' : (
+                /* Le coût moyen se lit, mais aussi se vérifie : le
+                   détail montre chaque arrivage et la division. */
+                <button type="button" onClick={() => onCout(l)} title="Voir le calcul du coût moyen"
+                  className="rounded-md px-1.5 py-0.5 underline decoration-dotted underline-offset-4 transition-colors hover:bg-accent/[0.08] hover:text-accent">
+                  {formatMoney(l.unitCost)}
+                </button>
+              )}
+            </Td>
+          ) : null}
+          {admin ? <Td className="whitespace-nowrap text-right font-semibold tabular-nums text-fg">{l.unitCost === null ? '—' : formatMoney(l.stockValue)}</Td> : null}
+        </>
+      )}
+      <Td>
+        <span className="flex flex-wrap items-center justify-end gap-1">
+          {/* Le dispatching est le geste de l'économat autant que de
+              l'administration : relier au pur ce qu'on en prépare. */}
+          {l.kind !== 'PREPARE' ? (
+            <button type="button" className={BOUTON_LIGNE} onClick={() => onPortion(l)} title="Dispatching : les articles préparés tirés de cet article">
+              <Scissors className="size-3.5" />
+              Dispatching
+            </button>
+          ) : null}
+          {admin ? (
+            <button type="button" className={BOUTON_LIGNE} onClick={() => onModif(l)} title="Inventaire, nature de l'article">
+              <Pencil className="size-3.5" />
+              Modifier
+            </button>
+          ) : null}
+        </span>
+      </Td>
+    </tr>
+  )
+})

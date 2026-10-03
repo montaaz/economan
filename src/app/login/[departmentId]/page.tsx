@@ -29,6 +29,7 @@ export default async function LoginPage({
     select: {
       id: true, fullName: true, username: true, avatarColor: true,
       _count: { select: { credentials: true } },
+      faceProfile: { select: { id: true } },
     },
   })
 
@@ -70,6 +71,7 @@ export default async function LoginPage({
             username: u.username,
             avatarColor: u.avatarColor,
             hasPasskey: u._count.credentials > 0,
+            hasFace: u.faceProfile !== null,
           }))}
         />
       )}

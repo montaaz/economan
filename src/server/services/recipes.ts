@@ -15,7 +15,8 @@ import { WorkflowError } from './orders'
 /** Une quantité de fiche, ramenée à l'unité d'un article du stock. */
 export function convertir(quantite: number, unite: string, uniteArticle: string): number | null {
   let u = unite.toLowerCase().replace(/\s/g, '')
-  const a = uniteArticle.toLowerCase()
+  // Le gramme s'écrit « gr » au catalogue ; on le lit comme « g ».
+  const a = uniteArticle.toLowerCase() === 'gr' ? 'g' : uniteArticle.toLowerCase()
   // Une fiche écrit souvent « mozzarella 100 » : sans unité, sur un article
   // pesé c'est des grammes, sur un article mesuré des millilitres.
   if (u === '') {
@@ -76,7 +77,7 @@ export function lireGrammage(brut: string): { quantity: number; unit: string } |
 /** Masse (g) ou volume (ml) d'une ligne, pour peser une préparation. */
 function masse(quantity: number, unit: string): number {
   const u = unit.toLowerCase()
-  if (u === 'g') return quantity
+  if (u === 'g' || u === 'gr') return quantity
   if (u === 'kg') return quantity * 1000
   if (u === 'ml') return quantity
   if (u === 'cl') return quantity * 10

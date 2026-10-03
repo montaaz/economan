@@ -16,3 +16,6 @@ tsconfig.tsbuildinfo
 
 # Client Prisma généré — recréé par `npx prisma generate`
 /src/generated/
+
+# Photos des factures — sur le disque du serveur, jamais dans git
+/storage/

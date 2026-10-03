@@ -353,6 +353,9 @@ export function RefillForm({
    * refuser obligerait à inventer un passage qui n'a pas eu lieu. Le papier
    * se réimprime, la marchandise reste rattachée au passage qui l'a sortie.
    */
+  /** Le dernier servi dont le bon est parti : celui qu'on réimprime. */
+  const dernierEmis = rangsEmis.length > 0 ? Math.max(...rangsEmis) : 0
+
   const rangEmis = React.useCallback(
     (rang: number) => service.passages.some((p) => p.rank === rang && p.deliveredAt),
     [service.passages],
@@ -1189,17 +1192,38 @@ export function RefillForm({
       {vue !== 'servies' && bons.length === 0 && rangsEmis.length > 0 ? (
         <div className="no-print flex flex-wrap items-center gap-2 rounded-xl border border-[rgb(var(--glass-edge)/0.28)] bg-white/50 px-4 py-3">
           <p className="text-[0.85rem] font-medium text-fg-muted">
-            {libelleRangs(rangsEmis)} — bon de livraison déjà émis :
+            {libelleRangs([dernierEmis])} — bon de livraison déjà émis :
           </p>
+          {/* Le dernier servi seul : c'est la dernière mise à jour qu'on
+              réimprime, avec ses articles à lui. Réunir tous les servis de
+              la journée ressortait quinze articles pour un seul servi. */}
           <button
             type="button"
-            onClick={() => void imprimer(rangsEmis)}
+            onClick={() => void imprimer([dernierEmis])}
             disabled={busy}
             className={boutonBon()}
           >
             <Printer className="size-5" />
-            Réimprimer le bon — {service.nom}
+            Réimprimer le bon du {libelleRangs([dernierEmis])} — {service.nom}
           </button>
+          {/* Les bons d'avant restent à portée de main, un par un. */}
+          {rangsEmis.length > 1 ? (
+            <span className="flex flex-wrap items-center gap-1.5 text-[0.8rem] text-fg-muted">
+              Bons précédents :
+              {rangsEmis.filter((r) => r !== dernierEmis).map((r) => (
+                <button
+                  key={r}
+                  type="button"
+                  onClick={() => void imprimer([r])}
+                  disabled={busy}
+                  className="inline-flex h-8 items-center gap-1 rounded-lg border border-[rgb(var(--glass-edge)/0.34)] bg-white/70 px-2.5 font-semibold text-fg transition-colors hover:bg-white disabled:opacity-60"
+                >
+                  <Printer className="size-3.5" />
+                  {r}ᵉ
+                </button>
+              ))}
+            </span>
+          ) : null}
         </div>
       ) : null}
 

@@ -11,6 +11,8 @@ const yoga = createYoga<Ctx>({
   graphiql: process.env.NODE_ENV === 'development',
 })
 
+// Le schéma se charge avec ce module : une erreur de schéma se corrige dans
+// `schema.ts`, et la route se recharge avec lui.
 // Yoga attend son propre contexte en 2e argument ; les handlers de route Next
 // reçoivent `{ params }`. On n'expose que la requête, le contexte est bâti
 // par la fabrique ci-dessus.

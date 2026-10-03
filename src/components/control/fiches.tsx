@@ -4,6 +4,7 @@ import * as React from 'react'
 import { createPortal } from 'react-dom'
 import { Loader2, ChevronDown, ChevronRight, Link2, Check, AlertTriangle, Scissors, Plus, Trash2, Search, RotateCcw, X } from 'lucide-react'
 import { Modal } from '@/components/ui/modal'
+import { ComboSelect } from '@/components/ui/combo-select'
 import { useConfirm } from '@/components/ui/confirm'
 import { GlassCard, Button, Badge, EmptyState, TableWrap, Th, Td } from '@/components/ui/glass'
 import { Icon } from '@/components/ui/icon'
@@ -68,9 +69,15 @@ export function Fiches() {
   // Arrivé depuis le contrôle des stocks avec un plat en tête (« ?q=… ») :
   // la recherche s'ouvre dessus, pour écrire sa fiche sans le chercher.
   const [recherche, setRecherche] = React.useState('')
+  // Un plat de la carte sans fiche (« &plat=…&dep=… ») : sa fiche s'ouvre à
+  // écrire, déjà nommée, au bon service et reliée au plat.
+  const [aEcrire, setAEcrire] = React.useState<{ nom: string; dep: string; item: string } | null>(null)
   React.useEffect(() => {
-    const q = new URLSearchParams(window.location.search).get('q')
+    const u = new URLSearchParams(window.location.search)
+    const q = u.get('q')
     if (q) setRecherche(q)
+    const plat = u.get('plat'), dep = u.get('dep')
+    if (q && plat && dep) setAEcrire({ nom: q, dep, item: plat })
   }, [])
   const [dep, setDep] = React.useState<string | null>(null)
   const [vue, setVue] = React.useState<'tous' | 'incompletes' | 'sans-carte'>('tous')
@@ -142,22 +149,30 @@ export function Fiches() {
             </ul>
           )}
       </GlassCard>
-      {nouvelle && data ? (
-        <NouvelleFiche departements={data.departments} carte={data.salesCard} onClose={() => setNouvelle(false)} onDone={(id) => { setNouvelle(false); setOuvertes((s) => new Set(s).add(id)); setVersion((v) => v + 1) }} />
+      {(nouvelle || aEcrire) && data ? (
+        <NouvelleFiche departements={data.departments} carte={data.salesCard} initial={nouvelle ? null : aEcrire}
+          onClose={() => { setNouvelle(false); setAEcrire(null) }}
+          onDone={(id) => { setNouvelle(false); setAEcrire(null); setRecherche(''); setOuvertes((s) => new Set(s).add(id)); setVersion((v) => v + 1) }} />
       ) : null}
     </div>
   )
 }
 
 /** Une fiche de plus : son nom, son service, plat ou préparation, et le plat de carte qui va avec. */
-function NouvelleFiche({ departements, carte, onClose, onDone }: { departements: Dept[]; carte: Data['salesCard']; onClose: () => void; onDone: (id: string) => void }) {
+function NouvelleFiche({ departements, carte, initial, onClose, onDone }: {
+  departements: Dept[]; carte: Data['salesCard']
+  /** Un plat de la carte dont on écrit la fiche : déjà nommé, servi et relié. */
+  initial?: { nom: string; dep: string; item: string } | null
+  onClose: () => void; onDone: (id: string) => void
+}) {
   const { push } = useToast()
-  const [nom, setNom] = React.useState('')
-  const [dep, setDep] = React.useState(departements[0]?.id ?? '')
+  const connu = !!initial && carte.some((f) => f.items.some((i) => i.id === initial.item))
+  const [nom, setNom] = React.useState(initial?.nom ?? '')
+  const [dep, setDep] = React.useState(initial && departements.some((d) => d.id === initial.dep) ? initial.dep : departements[0]?.id ?? '')
   const [kind, setKind] = React.useState<'PLAT' | 'PREPARATION'>('PLAT')
-  const [carteMode, setCarteMode] = React.useState<'creer' | 'relier' | 'aucun'>('creer')
+  const [carteMode, setCarteMode] = React.useState<'creer' | 'relier' | 'aucun'>(connu ? 'relier' : 'creer')
   const [famille, setFamille] = React.useState(carte[0]?.id ?? '')
-  const [item, setItem] = React.useState('')
+  const [item, setItem] = React.useState(connu ? initial!.item : '')
   const [busy, setBusy] = React.useState(false)
   const valide = nom.trim() !== '' && dep !== '' && (kind === 'PREPARATION' || carteMode === 'aucun' || (carteMode === 'creer' ? famille !== '' : item !== ''))
   const creer = async () => {
@@ -173,57 +188,138 @@ function NouvelleFiche({ departements, carte, onClose, onDone }: { departements:
       onDone(r.createRecipe.id)
     } catch (e) { push('error', errorMessage(e)) } finally { setBusy(false) }
   }
+  const service = departements.find((d) => d.id === dep) ?? null
+  const familleChoisie = carte.find((f) => f.id === famille) ?? null
+  const platChoisi = carte.flatMap((f) => f.items).find((i) => i.id === item) ?? null
+  // Ce que la fiche deviendra, dit en une ligne au pied de la boîte.
+  const resume = [
+    kind === 'PLAT' ? 'Plat' : 'Préparation',
+    service?.name,
+    kind === 'PLAT'
+      ? carteMode === 'creer' ? (familleChoisie ? `nouveau plat dans « ${familleChoisie.name} »` : null)
+        : carteMode === 'relier' ? (platChoisi ? `relié à « ${platChoisi.name} »` : 'plat à choisir')
+        : 'sans plat de carte pour l’instant'
+      : null,
+  ].filter(Boolean).join(' · ')
+
   return (
-    <Modal title="Nouvelle fiche technique" onClose={onClose}
-      footer={<div className="flex w-full justify-end gap-2"><Button variant="ghost" onClick={onClose} disabled={busy}>Annuler</Button><Button variant="primary" loading={busy} disabled={!valide} onClick={creer}>Créer la fiche</Button></div>}>
-      <div className="space-y-3">
-        <label className="block text-[0.8rem] font-medium text-fg-muted">Nom <span className="text-danger">*</span>
-          <input value={nom} onChange={(e) => setNom(e.target.value)} autoFocus maxLength={80} placeholder="Pizza margherita, sauce tomate…" className="field mt-1 h-10 w-full px-3" />
-        </label>
-        <div>
-          <p className="text-[0.8rem] font-medium text-fg-muted">Service</p>
-          <div className="mt-1 flex flex-wrap gap-1.5">
-            {departements.map((d) => (
-              <button key={d.id} type="button" onClick={() => setDep(d.id)} aria-pressed={dep === d.id} className={cn('inline-flex h-9 items-center gap-1.5 rounded-full border px-3 text-[0.8rem] font-semibold', dep === d.id ? 'text-white' : 'border-[rgb(var(--glass-edge)/0.34)] bg-white/65 text-fg-muted')} style={dep === d.id ? { background: d.color, borderColor: d.color } : undefined}>
-                <Icon name={d.icon ?? 'Building2'} className="size-3.5" />{d.name}
-              </button>
-            ))}
+    <Modal title="Nouvelle fiche technique" onClose={onClose} wide
+      footer={
+        <div className="flex w-full flex-wrap items-center justify-between gap-2">
+          <span className="min-w-0 truncate text-[0.82rem] text-fg-muted">{nom.trim() ? <><strong className="text-fg">{nom.trim()}</strong> · </> : null}{resume}</span>
+          <div className="flex gap-2">
+            <Button variant="ghost" onClick={onClose} disabled={busy}>Annuler</Button>
+            <Button variant="primary" loading={busy} disabled={!valide} onClick={creer}>
+              {!busy ? <Check className="size-4" /> : null}Créer la fiche
+            </Button>
           </div>
         </div>
-        <div className="grid gap-2 sm:grid-cols-2">
-          {(['PLAT', 'PREPARATION'] as const).map((k) => (
-            <button key={k} type="button" onClick={() => setKind(k)} aria-pressed={kind === k} className={cn('rounded-xl border p-3 text-left', kind === k ? 'border-accent/50 bg-accent/[0.08]' : 'border-[rgb(var(--glass-edge)/0.3)] bg-white/60')}>
-              <span className="block text-[0.9rem] font-bold text-fg">{k === 'PLAT' ? 'Plat' : 'Préparation'}</span>
-              <span className="block text-[0.74rem] text-fg-muted">{k === 'PLAT' ? 'Vendu : le Z le compte.' : 'Entre dans d’autres fiches (pâte, sauce…).'}</span>
-            </button>
-          ))}
-        </div>
+      }>
+      <div className="space-y-5">
+        {/* 1 — le nom, bien lisible. */}
+        <section>
+          <Etape n={1} titre="Nom de la fiche" requis />
+          <input value={nom} onChange={(e) => setNom(e.target.value)} autoFocus maxLength={80}
+            placeholder="Pizza margherita, sauce tomate…" aria-label="Nom de la fiche"
+            className="field h-12 w-full px-4 text-[1rem] font-semibold" />
+        </section>
+
+        {/* 2 — le service : des tuiles égales, à la couleur du département. */}
+        <section>
+          <Etape n={2} titre="Service" />
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4" role="radiogroup" aria-label="Service">
+            {departements.map((d) => {
+              const actif = dep === d.id
+              return (
+                <button key={d.id} type="button" role="radio" aria-checked={actif} onClick={() => setDep(d.id)}
+                  className={cn('relative flex h-12 items-center gap-2 rounded-xl border px-3 text-left text-[0.84rem] font-semibold transition-[background-color,box-shadow,transform] active:scale-[0.98]',
+                    actif ? 'text-white shadow-md' : 'border-[rgb(var(--glass-edge)/0.34)] bg-white/70 text-fg hover:bg-white')}
+                  style={actif ? { background: d.color, borderColor: d.color } : undefined}>
+                  <span className={cn('grid size-7 shrink-0 place-items-center rounded-lg', actif ? 'bg-white/25' : 'text-white')}
+                    style={actif ? undefined : { background: d.color }}>
+                    <Icon name={d.icon ?? 'Building2'} className="size-3.5" />
+                  </span>
+                  <span className="min-w-0 truncate">{d.name}</span>
+                  {actif ? <Check className="absolute right-2 top-1/2 size-4 -translate-y-1/2" /> : null}
+                </button>
+              )
+            })}
+          </div>
+        </section>
+
+        {/* 3 — plat ou préparation : deux cartes, la choisie ne laisse pas de doute. */}
+        <section>
+          <Etape n={3} titre="Type de fiche" />
+          <div className="grid gap-2 sm:grid-cols-2" role="radiogroup" aria-label="Type de fiche">
+            {(['PLAT', 'PREPARATION'] as const).map((k) => {
+              const actif = kind === k
+              return (
+                <button key={k} type="button" role="radio" aria-checked={actif} onClick={() => setKind(k)}
+                  className={cn('flex items-start gap-3 rounded-xl border-2 p-3.5 text-left transition-[background-color,border-color]',
+                    actif ? '!border-accent bg-accent/[0.07]' : '!border-[rgb(var(--glass-edge)/0.3)] bg-white/70 hover:bg-white')}>
+                  <span className={cn('grid size-10 shrink-0 place-items-center rounded-xl', actif ? 'bg-accent text-white' : 'bg-[rgb(var(--glass-edge)/0.18)] text-fg-muted')}>
+                    <Icon name={k === 'PLAT' ? 'UtensilsCrossed' : 'FlaskConical'} className="size-5" />
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-[0.95rem] font-bold text-fg">{k === 'PLAT' ? 'Plat' : 'Préparation'}</span>
+                    <span className="block text-[0.78rem] leading-snug text-fg-muted">{k === 'PLAT' ? 'Vendu à la carte : le Z le compte.' : 'Entre dans d’autres fiches (pâte, sauce…).'}</span>
+                  </span>
+                  <span className={cn('mt-0.5 grid size-5 shrink-0 place-items-center rounded-full border-2', actif ? '!border-accent bg-accent text-white' : '!border-[rgb(var(--glass-edge)/0.5)]')}>
+                    {actif ? <Check className="size-3" /> : null}
+                  </span>
+                </button>
+              )
+            })}
+          </div>
+        </section>
+
+        {/* 4 — le plat de la carte, seulement pour un plat. */}
         {kind === 'PLAT' ? (
-          <div className="space-y-2 rounded-xl border border-[rgb(var(--glass-edge)/0.3)] bg-white/60 p-3">
-            <p className="text-[0.8rem] font-semibold text-fg">Plat de la carte</p>
-            <div className="flex flex-wrap gap-1.5">
-              {([['creer', 'Créer sur la carte'], ['relier', 'Relier à un plat existant'], ['aucun', 'Plus tard']] as const).map(([v, l]) => (
-                <button key={v} type="button" onClick={() => setCarteMode(v)} aria-pressed={carteMode === v} className={cn('h-9 rounded-full border px-3 text-[0.8rem] font-semibold', carteMode === v ? 'border-accent/40 bg-accent/12 text-accent' : 'border-[rgb(var(--glass-edge)/0.34)] bg-white/65 text-fg-muted')}>{l}</button>
-              ))}
+          <section>
+            <Etape n={4} titre="Plat de la carte" />
+            <div className="rounded-xl border border-[rgb(var(--glass-edge)/0.3)] bg-white/60 p-3">
+              <div className="grid grid-cols-3 gap-1 rounded-lg bg-[rgb(var(--glass-edge)/0.14)] p-1" role="radiogroup" aria-label="Plat de la carte">
+                {([['creer', 'Créer sur la carte'], ['relier', 'Relier à un plat'], ['aucun', 'Plus tard']] as const).map(([v, l]) => (
+                  <button key={v} type="button" role="radio" aria-checked={carteMode === v} onClick={() => setCarteMode(v)}
+                    className={cn('h-10 rounded-md px-2 text-[0.8rem] font-semibold transition-colors',
+                      carteMode === v ? 'bg-white text-accent shadow-sm' : 'text-fg-muted hover:text-fg')}>
+                    {l}
+                  </button>
+                ))}
+              </div>
+              {carteMode === 'creer' ? (
+                <div className="mt-3">
+                  <p className="mb-1.5 text-[0.8rem] font-medium text-fg-muted">Famille de la carte où créer le plat</p>
+                  <ComboSelect value={famille} onChange={setFamille} label="Famille de la carte"
+                    searchPlaceholder="Rechercher une famille…"
+                    options={carte.map((f) => ({ value: f.id, label: f.name }))} />
+                </div>
+              ) : carteMode === 'relier' ? (
+                <div className="mt-3">
+                  <p className="mb-1.5 text-[0.8rem] font-medium text-fg-muted">Plat existant de la carte</p>
+                  <ComboSelect value={item} onChange={setItem} label="Plat de la carte" placeholder="Choisir un plat…"
+                    searchPlaceholder="Rechercher un plat ou une famille…"
+                    options={carte.flatMap((f) => f.items.map((i) => ({ value: i.id, label: i.name, group: f.name })))} />
+                </div>
+              ) : (
+                <p className="mt-3 text-[0.8rem] text-fg-muted">La fiche se crée sans plat de carte : vous la relierez plus tard, depuis la fiche. Tant qu’elle n’est pas reliée, le Z ne la consomme pas.</p>
+              )}
             </div>
-            {carteMode === 'creer' ? (
-              <label className="block text-[0.78rem] font-medium text-fg-muted">Famille
-                <select value={famille} onChange={(e) => setFamille(e.target.value)} className="field mt-1 h-9 w-full px-2">
-                  {carte.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
-                </select>
-              </label>
-            ) : carteMode === 'relier' ? (
-              <label className="block text-[0.78rem] font-medium text-fg-muted">Plat
-                <select value={item} onChange={(e) => setItem(e.target.value)} className="field mt-1 h-9 w-full px-2">
-                  <option value="">— choisir —</option>
-                  {carte.map((f) => <optgroup key={f.id} label={f.name}>{f.items.map((i) => <option key={i.id} value={i.id}>{i.name}</option>)}</optgroup>)}
-                </select>
-              </label>
-            ) : null}
-          </div>
+          </section>
         ) : null}
       </div>
     </Modal>
+  )
+}
+
+/** Le titre numéroté d'une étape du formulaire. */
+function Etape({ n, titre, requis }: { n: number; titre: string; requis?: boolean }) {
+  return (
+    <p className="mb-2 flex items-center gap-2 text-[0.8rem] font-bold uppercase tracking-[0.06em] text-fg-muted">
+      <span className="grid size-5 place-items-center rounded-full bg-accent text-[0.7rem] font-bold text-white">{n}</span>
+      {titre}
+      {requis ? <span className="text-danger">*</span> : null}
+    </p>
   )
 }
 
@@ -330,13 +426,7 @@ function RechercheArticle({ produits, preparations, cible, nomCible, onChoix, au
   produits: Produit[]; preparations: Fiche[]; cible: string; nomCible: string | null
   onChoix: (cible: string, nom: string, unit: string | null) => void; autoFocus?: boolean
 }) {
-  // Arrivé depuis le contrôle des stocks avec un plat en tête (« ?q=… ») :
-  // la recherche s'ouvre dessus, pour écrire sa fiche sans le chercher.
   const [recherche, setRecherche] = React.useState('')
-  React.useEffect(() => {
-    const q = new URLSearchParams(window.location.search).get('q')
-    if (q) setRecherche(q)
-  }, [])
   const [ouvert, setOuvert] = React.useState(false)
   const [actif, setActif] = React.useState(0)
   // « changer » ouvre la barre sans lâcher l'article : tant qu'on n'a rien

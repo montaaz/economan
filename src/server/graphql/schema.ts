@@ -5,10 +5,12 @@ import { Prisma } from '@/generated/prisma/client'
 import { prisma } from '@/server/db'
 import { businessDay, salesDay, addDays } from '@/lib/utils'
 import { resteAServir } from '@/lib/reste'
-import { generalStock, departmentSpend, addStockEntry, addStockEntries, suppliers, setProductPortion, setProductKind, stockMovements, setStockLevel, livraisonsDuService, addPreparation, deletePreparation, preparations } from '@/server/services/stock'
+import { generalStock, departmentSpend, addStockEntry, addStockEntries, suppliers, setProductPortion, setProductKind, stockMovements, setStockLevel, livraisonsDuService, addPreparation, deletePreparation, preparations, renamePrepared, setPreparedDepartments, createPrepared, preparedStockFixe, setPreparedStockFixe, updateStockEntry, complementsDesEntrees, saveStockInvoice, verrouillerFacture, FACTURE_VERROUILLEE, createPure, createCategory, renameCategory, deleteCategory, setProductCategory, deleteArticle, setPreparedCompositions, setFamilyPure } from '@/server/services/stock'
 import { rentabilite } from '@/server/services/rentabilite'
 import { consommationVentes, consommationParPortion, updateRecipeLine, linkRecipeItem, createRecipe, deleteRecipe, addRecipeLine, deleteRecipeLine, type Fiche } from '@/server/services/recipes'
 import type { SessionUser } from '@/server/auth/session'
+import { photosDePeriode, supprimerPhoto } from '@/server/services/invoice-photos'
+import { horaires, fenetreDe, heureValide, reglerHoraireGeneral, reglerHoraireUtilisateurs } from '@/server/services/schedule'
 import {
   createOrder, updateOrder, acceptOrder, cancelAcceptance, setServedLines, deliverOrder,
   reopenOrder, closeOrder, setRefillLines, deleteOrder, deleteOrders, deleteOrderRefills,
@@ -82,6 +84,8 @@ const typeDefs = /* GraphQL */ `
     productId: ID!
     productName: String!
     productRef: String!
+    "La famille du catalogue de l'article."
+    categoryId: ID!
     categoryName: String!
     unitSymbol: String!
     kind: ProductKind!
@@ -103,6 +107,14 @@ const typeDefs = /* GraphQL */ `
     stockValue: Float!
     "Dernière entrée, s'il y en a une."
     lastEntryAt: DateTime
+    "Pour un article préparé : quand il a rejoint sa famille."
+    linkedAt: DateTime
+    "Pour un article préparé : les départements qui peuvent le commander."
+    departmentIds: [ID!]!
+    "Pour un article préparé : son stock fixe, département par département."
+    stockFixes: [PreparedStockFixe!]!
+    "Ce que contient une unité, par département (dans l'unité de l'article pur). Vide : la contenance de l'article vaut partout."
+    compositions: [PreparedStockFixe!]!
   }
   enum StockEntryType { ARRIVAGE INVENTAIRE }
   type StockMother { productId: ID!, productName: String!, unitSymbol: String!, motherQuantity: Float! }
@@ -147,6 +159,24 @@ const typeDefs = /* GraphQL */ `
     createdBy: User!
     "Le fournisseur qui a livré, quand l'entrée en a un."
     supplier: Supplier
+    "Numéro du bon de livraison cité par la facture."
+    deliveryNote: String
+    "Prix unitaire hors taxes avant remise ; nul pour une entrée d'avant les factures détaillées."
+    listPrice: Float
+    "Remise de la ligne, en pour cent."
+    discountPct: Float!
+    "TVA de la ligne, en pour cent."
+    vatPct: Float!
+    "L'adresse du fournisseur."
+    supplierAddress: String
+    "Dernière correction de l'entrée ; nul si elle est telle qu'on l'a saisie."
+    modifiedAt: DateTime
+    "Qui a fait cette correction."
+    modifiedBy: String
+    "La facture verrouillée : seule l'administration la rouvre. Nul si elle est ouverte."
+    lockedAt: DateTime
+    "Qui l'a verrouillée."
+    lockedBy: String
   }
   "Ce qu'un département a reçu du stock général sur une période, en dinars."
   type DepartmentSpend {
@@ -185,10 +215,13 @@ const typeDefs = /* GraphQL */ `
     id: ID!
     name: String!
     phone: String
+    address: String
     "Matricule fiscal."
     taxId: String
   }
-  input SupplierInput { name: String!, phone: String, taxId: String }
+  input SupplierInput { name: String!, phone: String, taxId: String, address: String }
+  "Une ligne de facture : « id » corrige une écriture existante, son absence en ajoute une."
+  input StockInvoiceLineInput { id: ID, productId: ID!, quantity: Float!, listPrice: Float!, discountPct: Float, vatPct: Float }
   input StockEntryLineInput { productId: ID!, quantity: Float!, unitPrice: Float! }
   "Un plat de la carte vendu sur la période : ce qu'il rapporte contre ce qu'il coûte."
   type ProfitDish {
@@ -373,7 +406,20 @@ const typeDefs = /* GraphQL */ `
     preparation: Boolean!
     "Le plat de la carte correspondant, pour créer sa fiche s'il n'en a pas."
     salesItemId: ID
+    "Les ingrédients de la fiche absents de la feuille du service : il n'en a pas en stock."
+    missing: [ControlMissing!]!
+    "Les lignes de la fiche qui ne visent encore aucun article."
+    unmatched: [String!]!
   }
+  "Un ingrédient qu'un plat consomme mais que le service n'a pas sur sa feuille."
+  type ControlMissing {
+    name: String!
+    perPortion: Float!
+    unitSymbol: String!
+    "Ses préparés sur la feuille du service (un article pur ne s'y trouve jamais lui-même), et ce que chacun en contient, dans l'unité du pur."
+    via: [ControlVia!]!
+  }
+  type ControlVia { productId: ID!, name: String!, contains: Float! }
 
   "Le contrôle des stocks d'un département sur une journée."
   type ControlDepartment {
@@ -501,6 +547,8 @@ const typeDefs = /* GraphQL */ `
     status: LineStatus!
     "Rang du dernier servi qui a sorti quelque chose : 1 pour le premier, 2, 3… pour un complément."
     servedRank: Int!
+    "Part de la commande venue d'une commande urgente de l'administration."
+    urgentAsked: Float!
   }
 
   "Ce qu'un passage a servi sur une ligne."
@@ -605,6 +653,52 @@ const typeDefs = /* GraphQL */ `
     pendingCount: Int!
   }
 
+  "La fenêtre de commande d'un utilisateur, à l'instant."
+  type OrderingWindow {
+    open: Boolean!
+    "Une plage s'applique ; sinon on commande à toute heure."
+    restricted: Boolean!
+    "La plage est propre à l'utilisateur."
+    personal: Boolean!
+    opensAt: String
+    closesAt: String
+    "L'heure de l'établissement, HH:MM."
+    now: String!
+    label: String
+  }
+  type UserOrderSchedule {
+    userId: ID!
+    fullName: String!
+    username: String!
+    departmentId: ID
+    departmentName: String
+    departmentColor: String
+    "Nul : l'utilisateur suit l'horaire général."
+    opensAt: String
+    closesAt: String
+  }
+  type OrderSchedule {
+    enabled: Boolean!
+    opensAt: String!
+    closesAt: String!
+    label: String
+    now: String!
+    users: [UserOrderSchedule!]!
+  }
+  "La photo d'une facture ou d'un BL papier."
+  type InvoicePhoto {
+    id: ID!
+    supplierId: ID
+    reference: String
+    businessDay: Date!
+    width: Int!
+    height: Int!
+    size: Int!
+    createdAt: DateTime!
+    createdBy: String!
+  }
+  input PreparedStockFixeInput { departmentId: ID!, quantity: Float! }
+  type PreparedStockFixe { departmentId: ID!, quantity: Float! }
   "L'employé déclare le stock qu'il a en rayon ; le serveur en déduit la quantité."
   input OrderLineInput { productId: ID!, quantityOnHand: Float!, quantityAsked: Float }
   input StockFixeInput { productId: ID!, quantity: Float! }
@@ -629,6 +723,16 @@ const typeDefs = /* GraphQL */ `
     myCatalog: [Product!]!
     "Le stock général : chaque article mère (ou à la pièce), ses entrées, ses sorties, sa valeur."
     generalStock: StockSummary!
+    "Les photos des factures d'une période. Économat et administration."
+    invoicePhotos(from: Date!, to: Date!): [InvoicePhoto!]!
+    "L'horaire des commandes, général et par utilisateur. Administration."
+    orderSchedule: OrderSchedule!
+    "Ma fenêtre de commande, à l'instant."
+    myOrderingWindow: OrderingWindow!
+    "Les comptes qui saisissent au stock : économat et administration, actifs."
+    stockStaff: [User!]!
+    "Le stock fixe d'un article préparé, département par département."
+    preparedStockFixe(productId: ID!): [PreparedStockFixe!]!
     "Les dernières entrées au stock général, les plus récentes d'abord."
     stockEntries(limit: Int, productId: ID, from: Date, to: Date): [StockEntry!]!
     "Les articles qu'on peut entrer ou désigner comme mère : tous les actifs, portions comprises."
@@ -637,6 +741,8 @@ const typeDefs = /* GraphQL */ `
     departmentSpend(from: Date, to: Date): [DepartmentSpend!]!
     "Toutes les unités connues, pour la saisie des arrivages."
     units: [Unit!]!
+    "Les familles du catalogue, pour classer un article qu'on crée. Économat et administration."
+    stockCategories: [Category!]!
     "Les fournisseurs connus, pour retrouver un nom à la frappe."
     suppliers: [Supplier!]!
     "Les préparations d'une période (toutes sans bornes)."
@@ -701,6 +807,47 @@ const typeDefs = /* GraphQL */ `
     détache (parentId nul). Administration seulement.
     """
     setProductPortion(productId: ID!, parentId: ID, motherQuantity: Float): Product!
+    """
+    Enregistre une facture entière, neuve ou corrigée : l'en-tête, les lignes
+    corrigées (avec « id »), les lignes ajoutées (sans), et les écritures à
+    retirer (administration seulement). Rend le nombre de lignes de la facture.
+    """
+    saveStockInvoice(supplier: SupplierInput!, reference: String, deliveryNote: String, note: String, day: Date, createdById: ID, lines: [StockInvoiceLineInput!]!, removeIds: [ID!]): Int!
+    "Verrouille une facture (économat, administration) ou la déverrouille (administration seule). Rend le nombre de lignes touchées."
+    lockStockInvoice(supplierName: String, reference: String, day: Date!, locked: Boolean!): Int!
+    "Corrige un arrivage déjà saisi. Le total se déduit de la quantité et du prix. Économat et administration."
+    updateStockEntry(id: ID!, productId: ID!, supplierName: String, quantity: Float!, unitPrice: Float!, reference: String, createdById: ID): ID!
+    "Retire une photo de facture. Économat et administration."
+    deleteInvoicePhoto(id: ID!): Boolean!
+    "Règle l'horaire général des commandes. Administration."
+    setOrderSchedule(enabled: Boolean!, opensAt: String!, closesAt: String!, label: String): Boolean!
+    "Pose la plage propre à des utilisateurs ; deux nuls la retirent. Administration."
+    setUsersOrderSchedule(userIds: [ID!]!, opensAt: String, closesAt: String): Int!
+    "Crée un article préparé absent du catalogue, dans la famille d'un article pur. Économat et administration."
+    createPreparedProduct(parentId: ID!, name: String!, unit: String!, motherQuantity: Float!, categoryId: ID): ID!
+    "Crée un article dans une famille du catalogue (unité : kg par défaut). Économat et administration."
+    createPureProduct(name: String!, unit: String, categoryId: ID): ID!
+    "Crée une famille du catalogue. Économat et administration."
+    createCategory(name: String!): ID!
+    "Renomme une famille du catalogue. Économat et administration."
+    renameCategory(id: ID!, name: String!): ID!
+    "Supprime une famille vide du catalogue. Économat et administration."
+    deleteCategory(id: ID!): Boolean!
+    "Range un article dans une autre famille du catalogue. Économat et administration."
+    setProductCategory(productId: ID!, categoryId: ID!): ID!
+    "Supprime un article : « supprime », ou « desactive » s'il a un historique (gardé). Économat et administration."
+    deleteArticle(productId: ID!, detachPrepared: Boolean): String!
+    "Règle le stock fixe d'un article préparé, département par département. Économat et administration."
+    setPreparedStockFixe(productId: ID!, lines: [PreparedStockFixeInput!]!): Int!
+    "Règle ce que contient une unité d'un préparé, par département. Économat et administration."
+    setPreparedCompositions(productId: ID!, lines: [PreparedStockFixeInput!]!): Int!
+    "Donne à une famille son article pur (rangé dans la famille, il ne se commande plus). Économat et administration."
+    setFamilyPure(categoryId: ID!, productId: ID!): ID!
+    "Règle les départements qui peuvent commander un article préparé. Économat et administration."
+    setPreparedDepartments(productId: ID!, departmentIds: [ID!]!): [ID!]!
+    "Renomme un article préparé, et change au besoin l'unité dans laquelle on le compte. Économat et administration."
+    renamePreparedProduct(productId: ID!, name: String!, unit: String): Product!
+
     "Fini ou mère : la nature d'un article. Un préparé se règle par setProductPortion. Administration seulement."
     setProductKind(productId: ID!, kind: ProductKind!): Product!
     "Inventaire : pose le stock réel et son coût moyen ; ce point devient le départ de l'article. Administration seulement."
@@ -853,14 +1000,14 @@ async function run<T>(fn: () => Promise<T>): Promise<T> {
  */
 async function departmentCatalog(departmentId: number) {
   const explicit = await prisma.departmentProduct.findMany({
-    where: { departmentId, product: { isActive: true } },
+    where: { departmentId, product: { isActive: true, kind: { not: 'MERE' } } },
     orderBy: { sortOrder: 'asc' },
     include: { product: { include: { category: true, baseUnit: true } } },
   })
   if (explicit.length > 0) return explicit.map((e) => e.product)
 
   return prisma.product.findMany({
-    where: { isActive: true, category: { departments: { some: { departmentId } } } },
+    where: { isActive: true, kind: { not: 'MERE' }, category: { departments: { some: { departmentId } } } },
     include: { category: true, baseUnit: true },
     orderBy: [{ category: { sortOrder: 'asc' } }, { name: 'asc' }],
   })
@@ -1031,6 +1178,7 @@ async function cumulerArticles(
         sortOrder: true,
         unit: { select: { symbol: true } },
         refills: { select: { quantity: true, refill: { select: { rank: true } } } },
+        order: { select: { isUrgent: true } },
       },
     })
 
@@ -1051,6 +1199,7 @@ async function cumulerArticles(
         servedRank: number
         sortOrder: number
         orders: Set<number>
+        urgentAsked: number
       }
     >()
 
@@ -1076,6 +1225,7 @@ async function cumulerArticles(
         row.enAttente ||= l.status === 'PENDING'
         row.servedRank = Math.max(row.servedRank, dernierRang(l))
         row.orders.add(l.orderId)
+        if (l.order.isUrgent) row.urgentAsked += Number(l.quantityAsked)
         continue
       }
       byProduct.set(l.productId, {
@@ -1091,6 +1241,7 @@ async function cumulerArticles(
         servedRank: dernierRang(l),
         sortOrder: l.sortOrder,
         orders: new Set([l.orderId]),
+        urgentAsked: l.order.isUrgent ? Number(l.quantityAsked) : 0,
       })
     }
 
@@ -1155,11 +1306,11 @@ const resolvers = {
      */
     productCount: async (d: { id: number }) => {
       const explicite = await prisma.departmentProduct.count({
-        where: { departmentId: d.id, product: { isActive: true } },
+        where: { departmentId: d.id, product: { isActive: true, kind: { not: 'MERE' } } },
       })
       if (explicite > 0) return explicite
       return prisma.product.count({
-        where: { isActive: true, category: { departments: { some: { departmentId: d.id } } } },
+        where: { isActive: true, kind: { not: 'MERE' }, category: { departments: { some: { departmentId: d.id } } } },
       })
     },
   },
@@ -1209,6 +1360,10 @@ const resolvers = {
     quantity: (e: { quantity: unknown }) => Number(e.quantity),
     unitPrice: (e: { unitPrice: unknown }) => Number(e.unitPrice),
     total: (e: { quantity: unknown; unitPrice: unknown }) => Number(e.quantity) * Number(e.unitPrice),
+    // Absents d'une écriture d'avant les factures détaillées : ni remise ni TVA.
+    listPrice: (e: { listPrice?: unknown }) => (e.listPrice === null || e.listPrice === undefined ? null : Number(e.listPrice)),
+    discountPct: (e: { discountPct?: unknown }) => Number(e.discountPct ?? 0),
+    vatPct: (e: { vatPct?: unknown }) => Number(e.vatPct ?? 0),
   },
 
   SalesFamily: {
@@ -1405,19 +1560,66 @@ const resolvers = {
         include: { department: true },
       })),
 
+    invoicePhotos: async (_p: unknown, a: { from: string; to: string }, ctx: Ctx) => {
+      requireStaff(ctx)
+      const rows = await photosDePeriode(toDate(a.from), toDate(a.to))
+      return rows.map((r) => ({
+        id: String(r.id), supplierId: r.supplierId === null ? null : String(r.supplierId), reference: r.reference,
+        businessDay: r.businessDay, width: r.width, height: r.height, size: r.size, createdAt: r.createdAt, createdBy: r.createdBy.fullName,
+      }))
+    },
+
+    orderSchedule: async (_p: unknown, _a: unknown, ctx: Ctx) => {
+      requireAdmin(ctx)
+      return horaires()
+    },
+
+    myOrderingWindow: async (_p: unknown, _a: unknown, ctx: Ctx) => {
+      const u = requireUser(ctx)
+      return fenetreDe(u.id)
+    },
+
+    stockStaff: async (_p: unknown, _a: unknown, ctx: Ctx) => {
+      requireStaff(ctx)
+      return prisma.user.findMany({
+        where: { isActive: true, role: { in: ['ECONOMAN', 'ADMIN'] } },
+        orderBy: { fullName: 'asc' },
+        include: { department: true },
+      })
+    },
+
+    preparedStockFixe: async (_p: unknown, a: { productId: string }, ctx: Ctx) => {
+      requireStaff(ctx)
+      return preparedStockFixe(Number(a.productId))
+    },
+
     generalStock: async (_p: unknown, _a: unknown, ctx: Ctx) => {
       requireStaff(ctx)
       return generalStock()
     },
 
-    stockEntries: (_p: unknown, a: { limit?: number; productId?: string; from?: string; to?: string }, ctx: Ctx) => {
+    stockEntries: async (_p: unknown, a: { limit?: number; productId?: string; from?: string; to?: string }, ctx: Ctx) => {
       requireStaff(ctx)
       const jour = a.from || a.to ? { ...(a.from && { gte: toDate(a.from) }), ...(a.to && { lte: toDate(a.to) }) } : undefined
-      return prisma.stockEntry.findMany({
+      const entrees = await prisma.stockEntry.findMany({
         where: { ...(a.productId && { productId: Number(a.productId) }), ...(jour && { businessDay: jour }) },
         orderBy: [{ businessDay: 'desc' }, { createdAt: 'desc' }],
-        take: borner(a.limit, 50),
+        // Une période d'un mois dépasse vite 500 écritures : tronquée, son
+        // total serait faux.
+        take: borner(a.limit, 50, 5000),
         include: { product: { include: { category: true, baseUnit: true } }, createdBy: { include: { department: true } }, supplier: true },
+      })
+      // Les corrections se lisent en une requête pour toute la liste.
+      const complements = await complementsDesEntrees(entrees.map((e) => e.id))
+      return entrees.map((e) => {
+        const c = complements.get(e.id)
+        return {
+          ...e,
+          modifiedAt: c?.modifiedAt ?? null, modifiedBy: c?.modifiedBy ?? null,
+          listPrice: c?.listPrice ?? null, discountPct: c?.discountPct ?? 0, vatPct: c?.vatPct ?? 0,
+          deliveryNote: c?.deliveryNote ?? null, supplierAddress: c?.supplierAddress ?? null,
+          lockedAt: c?.lockedAt ?? null, lockedBy: c?.lockedBy ?? null,
+        }
       })
     },
 
@@ -1453,6 +1655,11 @@ const resolvers = {
     units: async (_p: unknown, _a: unknown, ctx: Ctx) => {
       requireUser(ctx)
       return prisma.unit.findMany({ orderBy: { name: 'asc' } })
+    },
+
+    stockCategories: async (_p: unknown, _a: unknown, ctx: Ctx) => {
+      requireStaff(ctx)
+      return prisma.category.findMany({ orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }], select: { id: true, name: true, icon: true, sortOrder: true } })
     },
 
     profitability: async (_p: unknown, a: { from?: string; to?: string }, ctx: Ctx) => {
@@ -1677,11 +1884,21 @@ const resolvers = {
       const [fichesDep, produitsUnites] = await Promise.all([
         prisma.recipe.findMany({
           where: { isActive: true },
-          select: { id: true, name: true, departmentId: true, kind: true, salesItemId: true, lines: { select: { quantity: true, unit: true, productId: true, subRecipeId: true } } },
+          select: { id: true, name: true, departmentId: true, kind: true, salesItemId: true, lines: { select: { label: true, quantity: true, unit: true, productId: true, subRecipeId: true } } },
         }),
-        prisma.product.findMany({ select: { id: true, baseUnit: { select: { symbol: true } } } }),
+        prisma.product.findMany({ select: { id: true, name: true, parentId: true, motherQuantity: true, isActive: true, baseUnit: { select: { symbol: true } } } }),
       ])
+      // Un article pur ne se commande pas : un service l'a sous la forme de
+      // ses préparés. Leurs compositions, par département, le ramènent au pur.
+      const compositions = await prisma.preparedComposition.findMany({ select: { productId: true, departmentId: true, quantity: true } })
+      const composition = (productId: number, departmentId: number) => {
+        const c = compositions.find((x) => x.productId === productId && x.departmentId === departmentId)
+        if (c) return Number(c.quantity)
+        const p = produitsUnites.find((x) => x.id === productId)
+        return p?.motherQuantity === null || p?.motherQuantity === undefined ? 0 : Number(p.motherQuantity)
+      }
       const unitesParId = new Map(produitsUnites.map((p) => [p.id, p.baseUnit.symbol]))
+      const nomsParId = new Map(produitsUnites.map((p) => [p.id, p.name]))
       const fichesParId = new Map<number, Fiche>(fichesDep.map((f) => [f.id, { id: f.id, departmentId: f.departmentId, kind: f.kind, lines: f.lines.map((l) => ({ quantity: Number(l.quantity), unit: l.unit, productId: l.productId, subRecipeId: l.subRecipeId })) }]))
       const ventesParFenetre = new Map<string, Promise<Map<number, Map<number, number>>>>()
       const ventesDepuis = (veille: Date) => {
@@ -1731,7 +1948,12 @@ const resolvers = {
         // Les plats du service et ce qu'une portion de chacun consomme,
         // article par article : c'est l'index « menu » de la feuille.
         const platsParArticle = new Map<number, { recipeId: string; name: string; perPortion: number }[]>()
-        const platsDuService: { recipeId: string | null; name: string; articleCount: number; preparation: boolean; salesItemId: string | null }[] = []
+        type PlatDuService = {
+          recipeId: string | null; name: string; articleCount: number; preparation: boolean; salesItemId: string | null
+          missing: { name: string; perPortion: number; unitSymbol: string; via: { productId: string; name: string; contains: number }[] }[]; unmatched: string[]
+          _conso?: Map<number, number>
+        }
+        const platsDuService: PlatDuService[] = []
         for (const f of fichesDep) {
           if (f.departmentId !== department.id) continue
           const conso = consommationParPortion(fichesParId.get(f.id)!, fichesParId, unitesParId)
@@ -1743,7 +1965,13 @@ const resolvers = {
             l.push({ recipeId: String(f.id), name: f.name, perPortion: q })
             platsParArticle.set(pid, l)
           }
-          platsDuService.push({ recipeId: String(f.id), name: f.name, articleCount: n, preparation: f.kind === 'PREPARATION', salesItemId: f.salesItemId === null ? null : String(f.salesItemId) })
+          platsDuService.push({
+            recipeId: String(f.id), name: f.name, articleCount: n, preparation: f.kind === 'PREPARATION', salesItemId: f.salesItemId === null ? null : String(f.salesItemId),
+            missing: [],
+            // Les lignes de la fiche qui ne visent encore aucun article : on ne sait pas ce qu'elles consomment.
+            unmatched: f.lines.filter((l) => l.productId === null && l.subRecipeId === null).map((l) => l.label),
+            _conso: conso,
+          })
         }
         // Les plats de la carte sans fiche : on les montre aussi, grisés, pour
         // que le contrôle voie ce qui manque et aille l'écrire.
@@ -1752,7 +1980,7 @@ const resolvers = {
           select: { id: true, name: true },
           orderBy: { name: 'asc' },
         })
-        for (const it of sansFiche) platsDuService.push({ recipeId: null, name: it.name, articleCount: 0, preparation: false, salesItemId: String(it.id) })
+        for (const it of sansFiche) platsDuService.push({ recipeId: null, name: it.name, articleCount: 0, preparation: false, salesItemId: String(it.id), missing: [], unmatched: [] })
         platsDuService.sort((a, b) => (a.recipeId ? 0 : 1) - (b.recipeId ? 0 : 1) || a.name.localeCompare(b.name))
 
         const [products, pars, lines] = await Promise.all([
@@ -1787,6 +2015,17 @@ const resolvers = {
           let n = 0
           for (const [pid, l] of platsParArticle) if (surLaFeuille.has(pid) && l.some((d) => d.recipeId === r.recipeId)) n += 1
           r.articleCount = n
+          // Les ingrédients que le service n'a pas sur sa feuille : il ne peut pas en avoir en stock.
+          for (const [pid, q] of r._conso ?? []) {
+            if (q <= 0 || surLaFeuille.has(pid)) continue
+            // Ses préparés sur la feuille du service, et ce que chacun en contient.
+            const via = produitsUnites
+              .filter((x) => x.parentId === pid && x.isActive && surLaFeuille.has(x.id))
+              .map((x) => ({ productId: String(x.id), name: x.name, contains: composition(x.id, department.id) }))
+              .filter((x) => x.contains > 0)
+            r.missing.push({ name: nomsParId.get(pid) ?? '?', perPortion: q, unitSymbol: unitesParId.get(pid) ?? '', via })
+          }
+          delete r._conso
         }
 
         const out = products.map((prod) => {
@@ -1835,7 +2074,7 @@ const resolvers = {
           soldOn: veille,
           zMissing: veille !== null && nbZ === 0,
           // Seuls les plats qui touchent au moins un article de la feuille servent de filtre.
-          recipes: platsDuService.filter((r) => r.articleCount > 0 || r.recipeId === null),
+          recipes: platsDuService.filter((r) => r.articleCount > 0 || r.recipeId === null || r.missing.length > 0 || r.unmatched.length > 0),
           lines: out,
         }
       }))
@@ -2269,9 +2508,146 @@ const resolvers = {
       requireAdmin(ctx)
       const id = Number(a.id)
       if (!Number.isInteger(id)) throw new GraphQLError('Écriture introuvable.', { extensions: { code: 'NOT_FOUND' } })
+      // Une facture verrouillée ne se retire pas : on la déverrouille d'abord.
+      const [v] = await prisma.$queryRaw<{ lockedAt: Date | null }[]>`SELECT "lockedAt" FROM "stock_entries" WHERE "id" = ${id}`
+      if (v?.lockedAt) throw new GraphQLError(FACTURE_VERROUILLEE, { extensions: { code: 'BUSINESS_RULE' } })
       const { count } = await prisma.stockEntry.deleteMany({ where: { id } })
       if (count === 0) throw new GraphQLError('Écriture introuvable.', { extensions: { code: 'NOT_FOUND' } })
       return true
+    },
+
+    deleteInvoicePhoto: async (_p: unknown, a: { id: string }, ctx: Ctx) => {
+      requireStaff(ctx)
+      return run(() => supprimerPhoto(Number(a.id)))
+    },
+
+    setOrderSchedule: async (_p: unknown, a: { enabled: boolean; opensAt: string; closesAt: string; label?: string | null }, ctx: Ctx) => {
+      requireAdmin(ctx)
+      if (!heureValide(a.opensAt) || !heureValide(a.closesAt)) {
+        throw new GraphQLError('Heure invalide : attendue au format HH:MM.', { extensions: { code: 'BAD_USER_INPUT' } })
+      }
+      await reglerHoraireGeneral(a)
+      return true
+    },
+
+    setUsersOrderSchedule: async (_p: unknown, a: { userIds: string[]; opensAt?: string | null; closesAt?: string | null }, ctx: Ctx) => {
+      requireAdmin(ctx)
+      const o = a.opensAt ?? null, c = a.closesAt ?? null
+      if ((o === null) !== (c === null) || (o !== null && (!heureValide(o) || !heureValide(c)))) {
+        throw new GraphQLError('Donnez les deux heures, au format HH:MM, ou aucune pour revenir à l’horaire général.', { extensions: { code: 'BAD_USER_INPUT' } })
+      }
+      return reglerHoraireUtilisateurs(identifiants(a.userIds, 2000), o, c)
+    },
+
+    saveStockInvoice: async (
+      _p: unknown,
+      a: {
+        supplier: { name: string; phone?: string | null; taxId?: string | null; address?: string | null }
+        reference?: string | null; deliveryNote?: string | null; note?: string | null; day?: string | null; createdById?: string | null
+        lines: { id?: string | null; productId: string; quantity: number; listPrice: number; discountPct?: number | null; vatPct?: number | null }[]
+        removeIds?: string[] | null
+      },
+      ctx: Ctx,
+    ) => {
+      const u = requireStaff(ctx)
+      const r = await run(() => saveStockInvoice({
+        supplier: a.supplier, reference: a.reference, deliveryNote: a.deliveryNote, note: a.note,
+        day: a.day ? toDate(a.day) : null,
+        createdById: a.createdById ? Number(a.createdById) : null,
+        lines: a.lines.map((l) => ({
+          id: l.id ? Number(l.id) : null, productId: Number(l.productId), quantity: l.quantity,
+          listPrice: l.listPrice, discountPct: l.discountPct ?? 0, vatPct: l.vatPct ?? 0,
+        })),
+        removeIds: identifiants(a.removeIds ?? []),
+        actor: { id: u.id, role: u.role },
+      }))
+      return r.added + r.updated
+    },
+
+    updateStockEntry: async (
+      _p: unknown,
+      a: { id: string; productId: string; supplierName?: string | null; quantity: number; unitPrice: number; reference?: string | null; createdById?: string | null },
+      ctx: Ctx,
+    ) => {
+      const u = requireStaff(ctx)
+      const fait = await run(() => updateStockEntry({
+        id: Number(a.id), productId: Number(a.productId), supplierName: a.supplierName,
+        quantity: a.quantity, unitPrice: a.unitPrice, reference: a.reference,
+        createdById: a.createdById ? Number(a.createdById) : null, actorId: u.id, actorRole: u.role,
+      }))
+      return String(fait.id)
+    },
+
+    lockStockInvoice: async (_p: unknown, a: { supplierName?: string | null; reference?: string | null; day: string; locked: boolean }, ctx: Ctx) => {
+      const u = requireStaff(ctx)
+      return run(() => verrouillerFacture({
+        supplierName: a.supplierName ?? null, reference: a.reference ?? null, day: toDate(a.day), locked: a.locked,
+        actor: { id: u.id, role: u.role },
+      }))
+    },
+
+    createCategory: async (_p: unknown, a: { name: string }, ctx: Ctx) => {
+      requireStaff(ctx)
+      return String((await run(() => createCategory(a.name))).id)
+    },
+
+    renameCategory: async (_p: unknown, a: { id: string; name: string }, ctx: Ctx) => {
+      requireStaff(ctx)
+      return String(await run(() => renameCategory(Number(a.id), a.name)))
+    },
+
+    deleteCategory: async (_p: unknown, a: { id: string }, ctx: Ctx) => {
+      requireStaff(ctx)
+      return run(() => deleteCategory(Number(a.id)))
+    },
+
+    setFamilyPure: async (_p: unknown, a: { categoryId: string; productId: string }, ctx: Ctx) => {
+      requireStaff(ctx)
+      return String(await run(() => setFamilyPure(Number(a.categoryId), Number(a.productId))))
+    },
+
+    setPreparedCompositions: async (_p: unknown, a: { productId: string; lines: { departmentId: string; quantity: number }[] }, ctx: Ctx) => {
+      requireStaff(ctx)
+      return run(() => setPreparedCompositions(Number(a.productId), a.lines.slice(0, 100).map((l) => ({ departmentId: Number(l.departmentId), quantity: l.quantity }))))
+    },
+
+    deleteArticle: async (_p: unknown, a: { productId: string; detachPrepared?: boolean | null }, ctx: Ctx) => {
+      requireStaff(ctx)
+      return run(() => deleteArticle(Number(a.productId), a.detachPrepared === true))
+    },
+
+    setProductCategory: async (_p: unknown, a: { productId: string; categoryId: string }, ctx: Ctx) => {
+      requireStaff(ctx)
+      return String(await run(() => setProductCategory(Number(a.productId), Number(a.categoryId))))
+    },
+
+    createPureProduct: async (_p: unknown, a: { name: string; unit?: string | null; categoryId?: string | null }, ctx: Ctx) => {
+      requireStaff(ctx)
+      const cree = await run(() => createPure({ name: a.name, unit: a.unit ?? null, categoryId: a.categoryId ? Number(a.categoryId) : null }))
+      return String(cree.id)
+    },
+
+    createPreparedProduct: async (_p: unknown, a: { parentId: string; name: string; unit: string; motherQuantity: number; categoryId?: string | null }, ctx: Ctx) => {
+      requireStaff(ctx)
+      const cree = await run(() => createPrepared({ parentId: Number(a.parentId), name: a.name, unit: a.unit, motherQuantity: a.motherQuantity, categoryId: a.categoryId ? Number(a.categoryId) : null }))
+      return String(cree.id)
+    },
+
+    setPreparedStockFixe: async (_p: unknown, a: { productId: string; lines: { departmentId: string; quantity: number }[] }, ctx: Ctx) => {
+      requireStaff(ctx)
+      return run(() => setPreparedStockFixe(Number(a.productId), a.lines.map((l) => ({ departmentId: Number(l.departmentId), quantity: l.quantity }))))
+    },
+
+    setPreparedDepartments: async (_p: unknown, a: { productId: string; departmentIds: string[] }, ctx: Ctx) => {
+      requireStaff(ctx)
+      const ids = await run(() => setPreparedDepartments(Number(a.productId), identifiants(a.departmentIds)))
+      return ids.map(String)
+    },
+
+    renamePreparedProduct: async (_p: unknown, a: { productId: string; name: string; unit?: string | null }, ctx: Ctx) => {
+      requireStaff(ctx)
+      await run(() => renamePrepared(Number(a.productId), a.name, a.unit))
+      return prisma.product.findUniqueOrThrow({ where: { id: Number(a.productId) }, include: { category: true, baseUnit: true } })
     },
 
     setProductPortion: async (_p: unknown, a: { productId: string; parentId?: string | null; motherQuantity?: number | null }, ctx: Ctx) => {

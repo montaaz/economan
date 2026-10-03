@@ -17,7 +17,7 @@ const QUERY = /* GraphQL */ `
       uncountedCount
       soldOn
       zMissing
-      recipes { recipeId name articleCount preparation salesItemId }
+      recipes { recipeId name articleCount preparation salesItemId missing { name perPortion unitSymbol via { productId name contains } } unmatched }
       lines {
         productId
         productName
@@ -123,7 +123,7 @@ export async function ControlPage({
       ) : (
         <div className="space-y-5">
           {stockControl.map((g) => (
-            <ControlTable key={g.department.id} group={g} day={day} zPath={base === '/controle' ? '/controle/z' : null} fichesPath={`${base}/fiches`} />
+            <ControlTable key={g.department.id} group={g} day={day} zPath={base === '/controle' ? '/controle/z' : null} fichesPath={base === '/controle' ? '/controle/fiches' : '/admin/fiches'} />
           ))}
         </div>
       )}

@@ -6,7 +6,8 @@ import { PrismaClient } from '@/generated/prisma/client'
 // recharge les modules à chaque édition, et sur une plateforme serverless une
 // lambda tiède réévalue ce module — sans ce cache on ouvrirait un pool de plus
 // à chaque fois, jusqu'à épuiser les connexions Postgres.
-const globalForPrisma = globalThis as unknown as { prisma?: PrismaClient; prismaCtor?: unknown }
+type Entree = { client: PrismaClient; vu: number }
+const globalForPrisma = globalThis as unknown as { prismaClients?: Map<unknown, Entree> }
 
 /**
  * Taille du pool, par instance.
@@ -45,30 +46,55 @@ function create(): PrismaClient {
   })
 }
 
+/** Combien de clients on garde ouverts à la fois, en développement. */
+const MAX_CLIENTS = 3
+/** Le délai laissé aux requêtes en cours avant de fermer un client écarté. */
+const SURSIS_MS = 60_000
+
 /**
- * Le client est construit à la première utilisation, pas à l'import.
+ * Le client de la classe importée ici, construit à la première utilisation.
  *
  * `next build` charge ce module pour analyser les pages, sans que
- * DATABASE_URL soit nécessairement définie : instancier ici ferait échouer le
- * build au lieu de la requête. Le Proxy diffère la création jusqu'au premier
- * accès réel, en conservant le cache global.
+ * DATABASE_URL soit nécessairement définie : instancier à l'import ferait
+ * échouer le build au lieu de la requête. Le Proxy diffère la création
+ * jusqu'au premier accès réel.
+ *
+ * Un client par classe, jamais fermé sous une requête. En développement,
+ * Next charge le client généré en plusieurs exemplaires — les pages d'un
+ * côté, la route GraphQL de l'autre — et le recharge après `prisma
+ * generate`. L'ancienne garde comparait la classe à celle du dernier
+ * client construit et fermait celui-ci dès qu'elle différait : les deux
+ * exemplaires se fermaient donc l'un l'autre à chaque appel, et les requêtes
+ * en cours tombaient sur « Cannot use a pool after calling end on the
+ * pool ». Chaque classe garde désormais son client ; un client périmé n'est
+ * fermé que lorsqu'il y en a trop, le plus ancien d'abord, et après un
+ * sursis qui laisse finir ce qui tourne. En production il n'y a qu'une
+ * classe, donc un seul client, jamais fermé.
  */
+function clientCourant(): PrismaClient {
+  const clients = (globalForPrisma.prismaClients ??= new Map<unknown, Entree>())
+  const connu = clients.get(PrismaClient)
+  if (connu) {
+    connu.vu = Date.now()
+    return connu.client
+  }
+  const entree: Entree = { client: create(), vu: Date.now() }
+  clients.set(PrismaClient, entree)
+  if (clients.size > MAX_CLIENTS) {
+    const [cle, ancien] = [...clients.entries()]
+      .filter(([k]) => k !== PrismaClient)
+      .sort((x, y) => x[1].vu - y[1].vu)[0]
+    clients.delete(cle)
+    // Plus personne ne peut l'obtenir ; on laisse finir ses requêtes.
+    const t = setTimeout(() => { void ancien.client.$disconnect().catch(() => undefined) }, SURSIS_MS)
+    t.unref?.()
+  }
+  return entree.client
+}
+
 export const prisma: PrismaClient = new Proxy({} as PrismaClient, {
   get(_target, prop, receiver) {
-    // Après `prisma generate`, Next recharge le module du client généré — mais
-    // l'instance gardée dans le cache global, elle, a été construite par
-    // l'ancienne classe et ignore les nouvelles colonnes (« Unknown argument
-    // isUrgent »). Une instance qui ne vient pas de la classe importée ici est
-    // donc périmée : on la ferme et on en construit une neuve, sans redémarrer.
-    if (globalForPrisma.prisma && globalForPrisma.prismaCtor !== PrismaClient) {
-      void globalForPrisma.prisma.$disconnect().catch(() => undefined)
-      globalForPrisma.prisma = undefined
-    }
-    if (!globalForPrisma.prisma) {
-      globalForPrisma.prisma = create()
-      globalForPrisma.prismaCtor = PrismaClient
-    }
-    const client = globalForPrisma.prisma
+    const client = clientCourant()
     const value = Reflect.get(client, prop, receiver)
     return typeof value === 'function' ? value.bind(client) : value
   },

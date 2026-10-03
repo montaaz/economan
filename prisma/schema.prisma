@@ -32,6 +32,7 @@ model Department {
   orders     Order[]
   stockFixe  StockFixe[]
   salesItems SalesItem[]
+  compositions PreparedComposition[]
 
   @@index([isActive, sortOrder])
   recipes      Recipe[]
@@ -104,6 +105,9 @@ model Product {
   kind           ProductKind @default(FINI)
   parentId       Int?
   motherQuantity Decimal? @db.Decimal(14, 4)
+  // Quand l'article a rejoint sa famille : les fiches d'articles se rangent
+  // dans l'ordre où on les a ajoutées, le premier en tête.
+  linkedAt       DateTime?
   parent       Product?  @relation("Portions", fields: [parentId], references: [id], onDelete: SetNull, onUpdate: Cascade)
   portions     Product[] @relation("Portions")
   stockEntries StockEntry[]
@@ -112,6 +116,7 @@ model Product {
   baseUnit  Unit        @relation(fields: [baseUnitId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   lines       OrderLine[]
   stockFixe   StockFixe[]
+  compositions PreparedComposition[]
   departments DepartmentProduct[]
 
   // Chemin chaud : « tous les articles actifs d'une catégorie, triés ».
@@ -151,11 +156,17 @@ model User {
   avatarColor  String   @default("#38bdf8")
   isActive     Boolean  @default(true)
   lastLoginAt  DateTime?
+  /// L'horaire de commande propre à cet utilisateur, « HH:MM ». Nul : il suit
+  /// l'horaire général.
+  orderOpensAt  String?
+  orderClosesAt String?
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
   department  Department?  @relation(fields: [departmentId], references: [id], onDelete: SetNull, onUpdate: Cascade)
   credentials Credential[]
+  faceProfile FaceProfile?
+  faceAttempts FaceLoginAttempt[]
 
   ordersCreated   Order[] @relation("OrderCreatedBy")
   ordersProcessed Order[] @relation("OrderProcessedBy")
@@ -164,6 +175,9 @@ model User {
   refillsReceived OrderRefill[] @relation("RefillReceivedBy")
   salesReports    SalesReport[] @relation("SalesReportCreatedBy")
   stockEntries StockEntry[] @relation("StockEntryCreatedBy")
+  stockEntriesModified StockEntry[] @relation("StockEntryModifiedBy")
+  stockEntriesLocked   StockEntry[] @relation("StockEntryLockedBy")
+  invoicePhotos InvoicePhoto[]
 
   @@index([departmentId, isActive])
   @@index([role, isActive])
@@ -431,6 +445,15 @@ model StockEntry {
   unitPrice   Decimal  @db.Decimal(14, 3)
   /// Numéro de facture ou de bon de livraison fournisseur.
   reference   String?
+  /// Numéro du bon de livraison, quand la facture en cite un.
+  deliveryNote String?
+  /// Le prix unitaire hors taxes avant remise, tel qu'imprimé sur la
+  /// facture. `unitPrice` reste le prix net, celui que le stock valorise.
+  listPrice   Decimal? @db.Decimal(14, 3)
+  /// Remise de la ligne, en pour cent.
+  discountPct Decimal  @default(0) @db.Decimal(6, 3)
+  /// Taux de TVA de la ligne, en pour cent. Le stock se valorise hors taxes.
+  vatPct      Decimal  @default(0) @db.Decimal(6, 3)
   note        String?
   /// Journée de service de l'arrivage.
   businessDay DateTime @db.Date
@@ -438,10 +461,21 @@ model StockEntry {
   supplierId  Int?
   createdById Int
   createdAt   DateTime @default(now())
+  /// Dernière correction de l'écriture, et qui l'a faite. Nul tant qu'elle
+  /// est telle qu'on l'a saisie.
+  modifiedAt   DateTime?
+  modifiedById Int?
+  /// La facture verrouillée par l'économat : seule l'administration peut
+  /// alors la rouvrir, la corriger et la déverrouiller. Portée par chaque
+  /// ligne de la facture.
+  lockedAt     DateTime?
+  lockedById   Int?
 
   product   Product   @relation(fields: [productId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   supplier  Supplier? @relation(fields: [supplierId], references: [id], onDelete: SetNull, onUpdate: Cascade)
   createdBy User      @relation("StockEntryCreatedBy", fields: [createdById], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  modifiedBy User?    @relation("StockEntryModifiedBy", fields: [modifiedById], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  lockedBy   User?    @relation("StockEntryLockedBy", fields: [lockedById], references: [id], onDelete: SetNull, onUpdate: Cascade)
 
   @@index([supplierId])
   @@index([productId, businessDay])
@@ -462,10 +496,23 @@ model Supplier {
   phone     String?
   /// Matricule fiscal.
   taxId     String?
+  address   String?
+  /// La personne à joindre chez le fournisseur.
+  contactName      String?
+  email            String?
+  /// Registre de commerce.
+  commerceRegister String?
+  /// RIB, pour le règlement des factures.
+  bankAccount      String?
+  notes            String?
+  /// Un fournisseur masqué ne se propose plus sur les factures ; ses
+  /// factures passées le gardent.
+  isActive         Boolean  @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   entries StockEntry[]
+  photos  InvoicePhoto[]
 
   @@map("suppliers")
 }
@@ -690,4 +737,101 @@ model DeclaredSale {
   @@index([productId])
   @@index([createdById])
   @@map("declared_sales")
+}
+
+/// L'horaire général des commandes : de quelle heure à quelle heure les
+/// départements peuvent commander. Une seule ligne (id = 1). Il change avec
+/// la saison — ramadan, été — et c'est l'administration qui le règle.
+model OrderSchedule {
+  id        Int      @id @default(1)
+  enabled   Boolean  @default(false)
+  opensAt   String   @default("08:00")
+  closesAt  String   @default("12:00")
+  /// Le nom de l'horaire en cours : « Ramadan », « Été »…
+  label     String?
+  updatedAt DateTime @updatedAt
+
+  @@map("order_schedule")
+}
+
+/// La photo d'une facture ou d'un BL papier, prise au magasin.
+///
+/// Le fichier vit sur le disque du serveur, pas en base : la base ne garde
+/// que ce qui le retrouve — la facture (fournisseur, numéro, journée), son
+/// chemin, sa taille. Des milliers de photos ne pèsent ainsi presque rien
+/// dans la base, et se sauvegardent à part.
+model InvoicePhoto {
+  id          Int      @id @default(autoincrement())
+  supplierId  Int?
+  reference   String?
+  businessDay DateTime @db.Date
+  /// Chemins relatifs au dossier de stockage : l'image, et sa vignette.
+  path        String
+  thumbPath   String
+  mime        String
+  size        Int
+  width       Int
+  height      Int
+  createdById Int
+  createdAt   DateTime @default(now())
+
+  supplier  Supplier? @relation(fields: [supplierId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  createdBy User      @relation(fields: [createdById], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@index([businessDay, supplierId, reference])
+  @@index([supplierId])
+  @@index([createdById])
+  @@map("invoice_photos")
+}
+
+/// Ce que contient une unité d'un article préparé, département par
+/// département : la même portion d'escalope peut peser 250 gr en cuisine et
+/// 120 gr au fast food. Sans ligne pour un département, c'est la contenance
+/// de l'article (`products.motherQuantity`) qui vaut.
+model PreparedComposition {
+  id           Int     @id @default(autoincrement())
+  productId    Int
+  departmentId Int
+  /// Dans l'unité de l'article pur (0,25 pour 250 gr d'un article au kilo).
+  quantity     Decimal @db.Decimal(12, 4)
+
+  product    Product    @relation(fields: [productId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  department Department @relation(fields: [departmentId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@unique([productId, departmentId])
+  @@index([departmentId])
+  @@map("prepared_compositions")
+}
+
+/// La signature du visage d'un agent, pour se connecter sans mot de passe.
+/// Ce n'est pas une photo : 128 nombres que le modèle de reconnaissance tire
+/// du visage (moyenne de plusieurs prises). La comparaison se fait sur le
+/// serveur ; la signature ne repart jamais vers le navigateur.
+model FaceProfile {
+  id         Int      @id @default(autoincrement())
+  userId     Int      @unique
+  descriptor Float[]
+  /// Nombre de prises moyennées à l'enregistrement.
+  samples    Int
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@map("face_profiles")
+}
+
+/// Chaque tentative de connexion par le visage : on bloque après trop
+/// d'échecs rapprochés, et l'agent repasse par son mot de passe.
+model FaceLoginAttempt {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  success   Boolean
+  distance  Float?
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@index([userId, createdAt])
+  @@map("face_login_attempts")
 }

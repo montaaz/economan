@@ -14,7 +14,7 @@ export function Modal({
   /** Panneau large : pour les vues à plusieurs colonnes. */
   wide?: boolean
   /** « xl » : presque toute la largeur, pour une facture avec son tableau. */
-  size?: 'xl'
+  size?: 'xl' | 'full'
 }) {
   React.useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -36,7 +36,7 @@ export function Modal({
         aria-modal="true"
         aria-label={title}
         className={`glass-deep glass-specular animate-rise relative flex max-h-[92dvh] w-full flex-col rounded-[calc(var(--radius)+4px)] ${
-          size === 'xl' ? 'max-w-6xl' : wide ? 'max-w-3xl' : 'max-w-md'
+          size === 'full' ? 'max-w-[min(98vw,110rem)]' : size === 'xl' ? 'max-w-6xl' : wide ? 'max-w-3xl' : 'max-w-md'
         }`}
       >
         <div className="flex items-start justify-between gap-3 border-b border-[rgb(var(--glass-edge)/0.16)] p-4 sm:p-5">

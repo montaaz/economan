@@ -6,10 +6,12 @@ import { useActionState } from 'react'
 import { useFormStatus } from 'react-dom'
 import { useRouter } from 'next/navigation'
 import { startAuthentication } from '@simplewebauthn/browser'
-import { AlertCircle, ArrowLeft, Eye, EyeOff, Fingerprint, LogIn } from 'lucide-react'
+import { AlertCircle, ArrowLeft, Eye, EyeOff, Fingerprint, LogIn, ScanFace } from 'lucide-react'
 import { GlassCard, Button, Field } from '@/components/ui/glass'
 import { loginEmployee, type LoginState } from '@/server/auth/actions'
 import { cn, initials } from '@/lib/utils'
+import { FaceLogin } from '@/components/auth/face-login'
+import { chargerVisage } from '@/lib/face'
 
 type U = {
   id: number
@@ -17,10 +19,15 @@ type U = {
   username: string
   avatarColor: string
   hasPasskey: boolean
+  /** Un visage enregistré : la connexion commence par la caméra. */
+  hasFace: boolean
 }
 
 export function DepartmentLogin({ users }: { users: U[] }) {
   const [selected, setSelected] = React.useState<U | null>(users.length === 1 ? users[0] : null)
+  // Les modèles du visage se chargent pendant qu'on choisit son nom : la
+  // caméra est prête plus vite au clic.
+  React.useEffect(() => { if (users.some((u) => u.hasFace)) void chargerVisage().catch(() => {}) }, [users])
 
   if (!selected) {
     return (
@@ -40,7 +47,12 @@ export function DepartmentLogin({ users }: { users: U[] }) {
             <span className="w-full truncate text-[0.85rem] font-semibold leading-tight text-fg">
               {u.fullName}
             </span>
-            {u.hasPasskey ? (
+            {u.hasFace ? (
+              <span className="inline-flex items-center gap-1 text-[0.7rem] font-medium text-ok">
+                <ScanFace className="size-3.5" />
+                Visage
+              </span>
+            ) : u.hasPasskey ? (
               <span className="inline-flex items-center gap-1 text-[0.7rem] font-medium text-accent">
                 <Fingerprint className="size-3.5" />
                 Empreinte
@@ -66,6 +78,8 @@ function LoginForm({ user, onBack }: { user: U; onBack?: () => void }) {
   const [showPassword, setShowPassword] = React.useState(false)
   const [bioError, setBioError] = React.useState<string | null>(null)
   const [bioBusy, setBioBusy] = React.useState(false)
+  // Avec un visage enregistré, la connexion commence par la caméra.
+  const [visage, setVisage] = React.useState(user.hasFace)
 
   const signInWithFingerprint = async () => {
     setBioError(null)
@@ -125,7 +139,17 @@ function LoginForm({ user, onBack }: { user: U; onBack?: () => void }) {
           </div>
         </div>
 
-        {user.hasPasskey ? (
+        {visage ? (
+          <FaceLogin userId={user.id} onPassword={() => setVisage(false)} />
+        ) : null}
+
+        {!visage && user.hasFace ? (
+          <Button variant="primary" size="lg" className="w-full" onClick={() => setVisage(true)}>
+            <ScanFace className="size-5" /> Se connecter avec mon visage
+          </Button>
+        ) : null}
+
+        {!visage && user.hasPasskey ? (
           <>
             <Button
               variant="primary"
@@ -148,6 +172,7 @@ function LoginForm({ user, onBack }: { user: U; onBack?: () => void }) {
           </>
         ) : null}
 
+        {visage ? null : (
         <form action={formAction} className="space-y-4">
           <input type="hidden" name="userId" value={user.id} />
 
@@ -169,7 +194,7 @@ function LoginForm({ user, onBack }: { user: U; onBack?: () => void }) {
                 type={showPassword ? 'text' : 'password'}
                 autoComplete="current-password"
                 required
-                autoFocus={!user.hasPasskey}
+                autoFocus={!user.hasPasskey && !user.hasFace}
                 placeholder="••••••••"
                 defaultValue={DEV_PASSWORD}
                 className="field pr-11"
@@ -185,8 +210,9 @@ function LoginForm({ user, onBack }: { user: U; onBack?: () => void }) {
             </div>
           </Field>
 
-          <SubmitButton hasPasskey={user.hasPasskey} />
+          <SubmitButton hasPasskey={user.hasPasskey || user.hasFace} />
         </form>
+        )}
       </div>
     </GlassCard>
   )

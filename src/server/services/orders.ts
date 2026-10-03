@@ -1,6 +1,7 @@
 import 'server-only'
 import { prisma } from '@/server/db'
 import { Prisma } from '@/generated/prisma/client'
+import { fenetreDe, refusHoraire } from './schedule'
 import { businessDay } from '@/lib/utils'
 import type { SessionUser } from '@/server/auth/session'
 import { resteAServir } from '@/lib/reste'
@@ -128,6 +129,14 @@ export async function createOrder(params: {
   }
   if (seen.size === 0) throw new WorkflowError('Aucune ligne saisie.')
 
+  // L'horaire des commandes : un département ne commande que dans sa plage.
+  // La commande urgente de l'administration passe à toute heure — c'est son
+  // objet. La garde vit ici : l'écran peut être resté ouvert après l'heure.
+  if (!urgent && params.actor.role === 'EMPLOYEE') {
+    const f = await fenetreDe(params.actor.id)
+    if (!f.open) throw new WorkflowError(refusHoraire(f))
+  }
+
   const day = businessDay()
 
   return prisma.$transaction(async (tx) => {
@@ -142,6 +151,8 @@ export async function createOrder(params: {
       where: {
         id: { in: [...seen] },
         isActive: true,
+        // Un article pur ne se commande pas : seuls ses préparés.
+        kind: { not: 'MERE' },
         ...(hasSheet
           ? { departments: { some: { departmentId } } }
           : { category: { departments: { some: { departmentId } } } }),
@@ -280,6 +291,12 @@ export async function updateOrder(params: {
   }
   if (seen.size === 0) throw new WorkflowError('Aucune ligne saisie.')
 
+  // Refaire sa feuille, c'est commander : la même plage s'applique.
+  if (actor.role === 'EMPLOYEE') {
+    const f = await fenetreDe(actor.id)
+    if (!f.open) throw new WorkflowError(refusHoraire(f))
+  }
+
   return prisma.$transaction(async (tx) => {
     const order = await tx.order.findUnique({
       where: { id: orderId },
@@ -305,6 +322,8 @@ export async function updateOrder(params: {
       where: {
         id: { in: [...seen] },
         isActive: true,
+        // Un article pur ne se commande pas : seuls ses préparés.
+        kind: { not: 'MERE' },
         ...(hasSheet
           ? { departments: { some: { departmentId } } }
           : { category: { departments: { some: { departmentId } } } }),

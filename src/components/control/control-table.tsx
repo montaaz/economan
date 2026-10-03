@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import Link from 'next/link'
-import { Search, AlertTriangle, UtensilsCrossed, X, ChevronDown } from 'lucide-react'
+import { Search, AlertTriangle, UtensilsCrossed, X, ChevronDown, CheckCircle2, XCircle, HelpCircle, PenLine } from 'lucide-react'
 import { TableWrap, Th, Td } from '@/components/ui/glass'
 import { Icon } from '@/components/ui/icon'
 import { FamilyBand } from '@/components/ui/family-band'
@@ -44,7 +44,13 @@ export type ControlGroup = {
   soldOn: string | null
   zMissing: boolean
   /** Les plats du service : le filtre « ingrédients de… ». */
-  recipes: { recipeId: string | null; name: string; articleCount: number; preparation: boolean; salesItemId: string | null }[]
+  recipes: {
+    recipeId: string | null; name: string; articleCount: number; preparation: boolean; salesItemId: string | null
+    /** Ses ingrédients absents de la feuille du service. */
+    missing: { name: string; perPortion: number; unitSymbol: string; via: { productId: string; name: string; contains: number }[] }[]
+    /** Les lignes de sa fiche qui ne visent encore aucun article. */
+    unmatched: string[]
+  }[]
   lines: ControlLine[]
 }
 
@@ -78,7 +84,7 @@ export function ControlTable({ group, day, zPath, fichesPath }: {
   const [rechPlat, setRechPlat] = React.useState('')
   // Le menu des plats reste replié : un bouton l'ouvre, la sélection le referme.
   const [menuOuvert, setMenuOuvert] = React.useState(false)
-  const platChoisi = plat ? group.recipes.find((r) => r.recipeId === plat) ?? null : null
+  const platChoisi = plat ? group.recipes.find((r) => r.recipeId === plat || `s${r.salesItemId}` === plat) ?? null : null
   // Vendu se saisit dans la colonne : le contrôle lit son Z et écrit, article
   // par article, ce que le rayon a vendu la journée du comptage précédent.
   const declarer = async (l: ControlLine, brut: string) => {
@@ -113,13 +119,13 @@ export function ControlTable({ group, day, zPath, fichesPath }: {
   const affichees = React.useMemo(() => {
     const q = search.trim().toLowerCase()
     return numerotees.filter((l) => {
-      if (plat && !l.dishes.some((d) => d.recipeId === plat)) return false
+      if (plat && platChoisi?.recipeId && !l.dishes.some((d) => d.recipeId === plat)) return false
       if (etat === 'ECART' && !enEcart(l)) return false
       if (etat === 'NON_COMPTE' && l.countedStock !== null) return false
       if (!q) return true
       return l.productName.toLowerCase().includes(q) || l.productRef.toLowerCase().includes(q)
     })
-  }, [numerotees, search, etat, plat])
+  }, [numerotees, search, etat, plat, platChoisi?.recipeId])
 
   const parFamille = React.useMemo(() => {
     const m = new Map<string, number>()
@@ -232,7 +238,7 @@ export function ControlTable({ group, day, zPath, fichesPath }: {
             </button>
             {platChoisi ? (
               <button type="button" onClick={() => setPlat(null)} className="inline-flex items-center gap-1 rounded-full border border-accent/40 bg-accent/12 px-2.5 py-0.5 text-[0.78rem] font-semibold text-accent">
-                <X className="size-3.5" />{platChoisi.name} · {platChoisi.articleCount} ingrédient{platChoisi.articleCount > 1 ? 's' : ''}
+                <X className="size-3.5" />{platChoisi.name}{platChoisi.recipeId ? ` · ${platChoisi.articleCount} ingrédient${platChoisi.articleCount > 1 ? 's' : ''}` : ' · sans fiche'}
               </button>
             ) : null}
             {menuOuvert ? (
@@ -251,16 +257,23 @@ export function ControlTable({ group, day, zPath, fichesPath }: {
               </button>
             ) : (
               /* Sans fiche : le plat existe à la carte mais on ne sait pas
-                 ce qu'il consomme. Le lien mène là où on l'écrit. */
-              <Link key={`s${r.salesItemId}`} href={`${fichesPath}?q=${encodeURIComponent(r.name)}`} title="Pas encore de fiche technique : cliquer pour l’écrire"
-                className="inline-flex h-7 items-center gap-1 rounded-full border border-dashed border-[rgb(var(--glass-edge)/0.45)] bg-white/40 px-2.5 text-[0.76rem] font-medium text-fg-subtle hover:border-accent/50 hover:text-accent">
+                 encore ce qu'il consomme. Le choisir le dit, et mène à sa fiche. */
+              <button key={`s${r.salesItemId}`} type="button" onClick={() => { setPlat(plat === `s${r.salesItemId}` ? null : `s${r.salesItemId}`); setMenuOuvert(false) }}
+                aria-pressed={plat === `s${r.salesItemId}`} title="Pas encore de fiche technique"
+                className={cn('inline-flex h-7 items-center gap-1 rounded-full border border-dashed px-2.5 text-[0.76rem] font-medium transition-colors',
+                  plat === `s${r.salesItemId}` ? 'border-accent bg-accent text-white' : 'border-[rgb(var(--glass-edge)/0.45)] bg-white/40 text-fg-subtle hover:border-accent/50 hover:text-accent')}>
                 {r.name}<span className="text-[0.66rem]">sans fiche</span>
-              </Link>
+              </button>
             ))}
           </div>
           ) : null}
           {menuOuvert && group.recipes.some((r) => !r.recipeId) ? (
             <p className="mt-1.5 text-[0.72rem] text-fg-subtle">{group.recipes.filter((r) => !r.recipeId).length} plat(s) de la carte sans fiche technique : ils n’entrent pas encore dans la colonne Vente.</p>
+          ) : null}
+          {platChoisi ? (
+            <Faisabilite plat={platChoisi} lignes={group.lines}
+              ecrire={platChoisi.recipeId ? null : `${fichesPath}?q=${encodeURIComponent(platChoisi.name)}&plat=${platChoisi.salesItemId}&dep=${group.department.id}`}
+              fiches={fichesPath} />
           ) : null}
         </div>
       ) : null}
@@ -386,5 +399,125 @@ export function ControlTable({ group, day, zPath, fichesPath }: {
         </p>
       ) : null}
     </section>
+  )
+}
+
+/**
+ * Peut-on faire ce plat avec le stock du service, aujourd'hui ?
+ *
+ * Pour chaque ingrédient : ce qu'une portion consomme, ce que le service a
+ * — son comptage du jour, à défaut le stock théorique — et combien de
+ * portions cela permet. Le plat se fait autant de fois que son ingrédient
+ * le plus court le permet ; un ingrédient absent de la feuille, ou une ligne
+ * de fiche encore sans article, se dit en clair.
+ */
+function Faisabilite({ plat, lignes, ecrire, fiches }: {
+  plat: ControlGroup['recipes'][number]; lignes: ControlLine[]; ecrire: string | null; fiches: string
+}) {
+  if (!plat.recipeId) {
+    return (
+      <div className="mt-3 flex flex-wrap items-center gap-3 rounded-xl border border-warn/40 bg-warn/[0.08] px-3 py-2.5">
+        <HelpCircle className="size-5 shrink-0 text-warn" />
+        <p className="min-w-0 flex-1 text-[0.86rem] text-fg">
+          <strong>{plat.name}</strong> n’a pas encore de fiche technique : impossible de savoir ses ingrédients ni s’il peut se faire avec le stock.
+        </p>
+        {ecrire ? (
+          <Link href={ecrire} className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-accent px-3 text-[0.82rem] font-semibold text-white hover:brightness-110">
+            <PenLine className="size-4" /> Écrire sa fiche
+          </Link>
+        ) : null}
+      </div>
+    )
+  }
+  const ingredients = lignes
+    .flatMap((l) => l.dishes.filter((d) => d.recipeId === plat.recipeId).map((d) => {
+      const dispo = l.countedStock ?? l.expected
+      const source = l.countedStock !== null ? 'compté' : l.expected !== null ? 'théorique' : null
+      const portions = dispo === null || d.perPortion <= 0 ? null : Math.floor(Math.max(dispo, 0) / d.perPortion + 1e-9)
+      return { id: l.productId, nom: l.productName, unite: l.unitSymbol, par: d.perPortion, dispo, source, portions }
+    }))
+    .sort((a, b) => (a.portions ?? Infinity) - (b.portions ?? Infinity))
+  for (const m of plat.missing) {
+    if (m.via.length === 0) continue
+    // Ce que le service a de ses préparés, ramené au pur ; un préparé sans
+    // comptage ni théorique ne compte pour rien.
+    const connus = m.via
+      .map((v) => ({ v, q: (() => { const l = lignes.find((x) => x.productId === v.productId); return l ? (l.countedStock ?? l.expected) : null })() }))
+      .filter((x) => x.q !== null)
+    const dispo = connus.length === 0 ? null : connus.reduce((n, x) => n + Math.max(x.q!, 0) * x.v.contains, 0)
+    ingredients.push({
+      id: `via-${m.name}`, nom: `${m.name} · en ${m.via.length} préparé${m.via.length > 1 ? 's' : ''}`, unite: m.unitSymbol, par: m.perPortion,
+      dispo, source: dispo === null ? null : 'via préparés',
+      portions: dispo === null ? null : Math.floor(dispo / m.perPortion + 1e-9),
+    })
+  }
+  const absents = plat.missing.filter((m) => m.via.length === 0)
+  const inconnus = ingredients.filter((i) => i.portions === null)
+  const connus = ingredients.filter((i) => i.portions !== null)
+  const portions = absents.length > 0 ? 0 : connus.length > 0 ? Math.min(...connus.map((i) => i.portions!)) : null
+  const bloquant = connus.filter((i) => i.portions === portions)
+  const verdict: 'ok' | 'non' | 'doute' = absents.length > 0 || portions === 0 ? 'non'
+    : inconnus.length > 0 || plat.unmatched.length > 0 || portions === null ? 'doute' : 'ok'
+  const fmt = (q: number) => formatQty(Math.round(q * 1000) / 1000)
+
+  return (
+    <div className={cn('mt-3 overflow-hidden rounded-xl border',
+      verdict === 'ok' ? 'border-ok/40' : verdict === 'non' ? 'border-danger/40' : 'border-warn/40')}>
+      <div className={cn('flex flex-wrap items-center gap-2.5 px-3 py-2.5',
+        verdict === 'ok' ? 'bg-ok/[0.10]' : verdict === 'non' ? 'bg-danger/[0.08]' : 'bg-warn/[0.10]')}>
+        {verdict === 'ok' ? <CheckCircle2 className="size-5 shrink-0 text-ok" /> : verdict === 'non' ? <XCircle className="size-5 shrink-0 text-danger" /> : <HelpCircle className="size-5 shrink-0 text-warn" />}
+        <p className="min-w-0 flex-1 text-[0.9rem] text-fg">
+          <strong>{plat.name}</strong>{' — '}
+          {verdict === 'ok' ? <span className="font-bold text-ok">peut se faire : {portions} portion{(portions ?? 0) > 1 ? 's' : ''} avec le stock du service</span>
+            : verdict === 'non' ? <span className="font-bold text-danger">ne peut pas se faire avec le stock du service</span>
+              : <span className="font-bold text-warn">à vérifier{portions !== null ? ` : au moins ${portions} portion${portions > 1 ? 's' : ''}` : ''}</span>}
+          {bloquant.length > 0 && verdict !== 'non' && portions !== null ? (
+            <span className="text-[0.8rem] text-fg-muted"> · limité par {bloquant.map((i) => i.nom).join(', ')}</span>
+          ) : null}
+        </p>
+      </div>
+      <table className="w-full text-[0.84rem]">
+        <thead>
+          <tr className="border-b border-[rgb(var(--glass-edge)/0.18)] bg-white/50 text-[0.7rem] uppercase tracking-wide text-fg-muted">
+            <th className="px-3 py-1.5 text-left font-semibold">Ingrédient</th>
+            <th className="px-3 py-1.5 text-right font-semibold">Par portion</th>
+            <th className="px-3 py-1.5 text-right font-semibold">Stock du service</th>
+            <th className="px-3 py-1.5 text-right font-semibold">Portions possibles</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-[rgb(var(--glass-edge)/0.12)] bg-white/40">
+          {ingredients.map((i) => (
+            <tr key={i.id}>
+              <td className="px-3 py-1.5 font-medium text-fg">{i.nom}</td>
+              <td className="px-3 py-1.5 text-right tabular-nums text-fg-muted">{fmt(i.par)} {i.unite}</td>
+              <td className="px-3 py-1.5 text-right tabular-nums">
+                {i.dispo === null ? <span className="text-warn">non compté</span>
+                  : <><span className={cn('font-semibold', i.dispo <= 0 ? 'text-danger' : 'text-fg')}>{fmt(i.dispo)} {i.unite}</span> <span className="text-[0.7rem] text-fg-subtle">{i.source}</span></>}
+              </td>
+              <td className={cn('px-3 py-1.5 text-right font-bold tabular-nums',
+                i.portions === null ? 'text-warn' : i.portions === 0 ? 'text-danger' : i.portions === portions ? 'text-warn' : 'text-ok')}>
+                {i.portions === null ? '?' : i.portions}
+              </td>
+            </tr>
+          ))}
+          {absents.map((m) => (
+            <tr key={`m${m.name}`} className="bg-danger/[0.05]">
+              <td className="px-3 py-1.5 font-medium text-danger">{m.name}</td>
+              <td className="px-3 py-1.5 text-right tabular-nums text-fg-muted">{fmt(m.perPortion)} {m.unitSymbol}</td>
+              <td className="px-3 py-1.5 text-right text-[0.78rem] font-semibold text-danger">pas sur la feuille du service</td>
+              <td className="px-3 py-1.5 text-right font-bold text-danger">0</td>
+            </tr>
+          ))}
+          {plat.unmatched.map((u, k) => (
+            <tr key={`u${k}`} className="bg-warn/[0.06]">
+              <td className="px-3 py-1.5 font-medium text-warn">« {u} »</td>
+              <td colSpan={3} className="px-3 py-1.5 text-right text-[0.78rem] text-warn">
+                ligne de fiche sans article · <Link href={`${fiches}?q=${encodeURIComponent(plat.name)}`} className="font-semibold underline">la rapprocher</Link>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   )
 }

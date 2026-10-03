@@ -49,7 +49,7 @@ export function DepartmentTotal({
           Total {group.department.name}
         </p>
         <p className="mt-1 flex items-center gap-1 text-[0.9rem] font-semibold text-accent sm:text-[0.82rem]">
-          Voir les articles cumulés
+          Voir toute la journée
           <ChevronRight className="size-3.5" />
         </p>
       </div>

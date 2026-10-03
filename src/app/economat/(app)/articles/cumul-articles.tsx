@@ -1,13 +1,23 @@
 'use client'
 
 import * as React from 'react'
-import { Layers, PackageSearch, Printer, X } from 'lucide-react'
-import { GlassCard, Button, Badge, EmptyState, TableWrap, Th, Td } from '@/components/ui/glass'
+import { useRouter } from 'next/navigation'
+import { Layers, PackageSearch, Printer, X, CheckCheck, Loader2 } from 'lucide-react'
+import { GlassCard, Badge, EmptyState, TableWrap, Th, Td } from '@/components/ui/glass'
 import { FamilyBand, countByFamily } from '@/components/ui/family-band'
 import { Icon } from '@/components/ui/icon'
 import { cn, formatLongDate, formatPeriod, formatQty } from '@/lib/utils'
 import { correspond, normaliser } from '@/lib/search'
 import { SearchField } from '@/components/ui/search-field'
+import { boutonBon } from '@/components/ui/bon-style'
+import { useConfirm } from '@/components/ui/confirm'
+import { useToast } from '@/components/ui/toast'
+import { gql, errorMessage } from '@/lib/graphql-client'
+
+const ACCEPT = /* GraphQL */ `mutation Accept($id: ID!) { acceptOrder(id: $id) { id status } }`
+
+/** Un ticket du département encore en attente de l'économat. */
+export type TicketEnAttente = { id: string; reference: string; auteur: string }
 
 export type CumulLine = {
   productId: string
@@ -22,6 +32,8 @@ export type CumulLine = {
   status: 'PENDING' | 'VALIDATED' | 'ADJUSTED' | 'REJECTED'
   /** Rang du servi qui a soldé la ligne : 1, 2, 3… */
   servedRank: number
+  /** Part de la commande venue d'une commande urgente. */
+  urgentAsked: number
 }
 
 type Etat = CumulLine['status']
@@ -41,14 +53,64 @@ const BADGES: Record<Etat, { tone: 'neutral' | 'ok' | 'warn' | 'danger'; label: 
  * comme sur le ticket ; l'impression sort la liste telle qu'elle est lue.
  */
 export function CumulArticles({
-  department, day, dayTo, tickets, lines,
+  department, day, dayTo, tickets, enAttente = [], lines,
 }: {
   department: { id: number; name: string; color: string; icon: string | null }
   day: string
   dayTo: string | null
   tickets: number
+  /** Les tickets en attente : ils s'acceptent tous d'ici, d'un geste. */
+  enAttente?: TicketEnAttente[]
   lines: CumulLine[]
 }) {
+  const router = useRouter()
+  const confirmer = useConfirm()
+  const { push } = useToast()
+  const [acceptation, setAcceptation] = React.useState(false)
+
+  /**
+   * Accepte d'un coup les tickets en attente du département : chacun passe
+   * « en préparation », comme depuis sa fiche. Un ticket déjà pris en charge
+   * entre-temps (un autre poste) est simplement laissé tel quel.
+   */
+  const accepterTout = async () => {
+    if (acceptation || enAttente.length === 0) return
+    const n = enAttente.length
+    const ok = await confirmer({
+      title: n > 1 ? `Accepter les ${n} commandes ?` : 'Accepter la commande ?',
+      message: (
+        <div className="space-y-2">
+          <p>{n > 1 ? 'Ces tickets passent' : 'Ce ticket passe'} « en préparation » : le département ne pourra plus les modifier.</p>
+          <ul className="space-y-0.5 text-[0.84rem]">
+            {enAttente.map((t) => (
+              <li key={t.id}><span className="font-mono font-semibold text-fg">{t.reference}</span> — {t.auteur}</li>
+            ))}
+          </ul>
+        </div>
+      ),
+      confirmLabel: n > 1 ? `Accepter les ${n}` : 'Accepter',
+      tone: 'info',
+    })
+    if (!ok) return
+    setAcceptation(true)
+    let acceptes = 0
+    const refus: string[] = []
+    for (const t of enAttente) {
+      try {
+        await gql(ACCEPT, { id: t.id })
+        acceptes++
+      } catch (e) {
+        const m = errorMessage(e)
+        // Déjà prise en charge ailleurs : rien à faire, ce n'est pas un échec.
+        if (!/déjà été prise en charge/.test(m)) refus.push(`${t.reference} : ${m}`)
+      }
+    }
+    setAcceptation(false)
+    if (refus.length > 0) push('error', `${acceptes} commande(s) acceptée(s). Refusé : ${refus.join(' ; ')}`)
+    else push('success', acceptes > 1 ? `${acceptes} commandes acceptées : en préparation.` : acceptes === 1 ? 'Commande acceptée : en préparation.' : 'Ces commandes étaient déjà prises en charge.')
+    router.refresh()
+  }
+
   const [filtre, setFiltre] = React.useState<Etat | null>(null)
   // Le passage qui a soldé la ligne : « Servi 1 », « Servi 2 »… Sans rang
   // choisi, tous les passages se lisent ensemble.
@@ -83,6 +145,7 @@ export function CumulArticles({
   )
   const parFamille = countByFamily(affichees)
   const filtree = filtre !== null || rang !== null || mot !== ''
+  const urgents = lines.filter((l) => l.urgentAsked > 0).length
 
   const bascule = (etat: Etat) => setFiltre((f) => (f === etat ? null : etat))
 
@@ -102,7 +165,7 @@ export function CumulArticles({
                 {department.name}
               </p>
               <p className="truncate text-[0.8rem] text-fg-muted">
-                Articles cumulés
+                Articles de toute la journée
                 <span className="mx-1.5">·</span>
                 {tickets} ticket{tickets > 1 ? 's' : ''}
                 <span className="mx-1.5">·</span>
@@ -176,10 +239,33 @@ export function CumulArticles({
         </div>
 
         <div className="no-print flex flex-wrap items-center gap-2 border-t border-[rgb(var(--glass-edge)/0.16)] px-4 py-3 sm:px-5">
-          <Button type="button" variant="secondary" onClick={() => window.print()}>
-            <Printer className="size-4" />
-            Imprimer les articles cumulés
-          </Button>
+          {/* Un PDF rendu par le serveur, comme les bons : toutes les colonnes
+              tiennent sur la feuille, sans l'en-tête du navigateur. Il suit le
+              filtre de l'écran. */}
+          <button type="button" className={boutonBon('commande')}
+            onClick={() => {
+              const p = new URLSearchParams({ dep: String(department.id), jour: day })
+              if (dayTo) p.set('jusquau', dayTo)
+              if (filtre) p.set('etat', filtre)
+              if (rang !== null) p.set('rang', String(rang))
+              if (recherche.trim()) p.set('q', recherche.trim())
+              window.open(`/api/articles-jour?${p}`, '_blank', 'noopener')
+            }}>
+            <Printer className="size-5" />
+            {filtree ? 'Imprimer la sélection' : dayTo ? 'Imprimer toute la période' : 'Imprimer toute la journée'}
+          </button>
+          {enAttente.length > 0 ? (
+            <button type="button" onClick={() => void accepterTout()} disabled={acceptation}
+              className="inline-flex h-12 items-center gap-2 rounded-xl bg-ok px-5 text-[1rem] font-bold text-white shadow-[0_8px_20px_-8px_var(--ok)] transition-[filter,transform] hover:brightness-110 active:scale-[0.98] disabled:opacity-60">
+              {acceptation ? <Loader2 className="size-5 animate-spin" /> : <CheckCheck className="size-5" />}
+              {enAttente.length > 1 ? `Accepter les ${enAttente.length} commandes en attente` : 'Accepter la commande en attente'}
+            </button>
+          ) : null}
+          {urgents > 0 ? (
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-ok/12 px-3 py-1 text-[0.8rem] font-semibold text-ok">
+              <span className="font-bold">▲</span> {urgents} article{urgents > 1 ? 's' : ''} en commande urgente
+            </span>
+          ) : null}
         </div>
       </GlassCard>
 
@@ -240,7 +326,12 @@ export function CumulArticles({
                         {formatQty(l.stockFixe)} {l.unitSymbol}
                       </Td>
                       <Td className="whitespace-nowrap text-right font-medium tabular-nums text-fg">
+                        {/* La part urgente se marque comme sur les bons : ▲ vert. */}
+                        {l.urgentAsked > 0 ? <span className="mr-1 font-bold text-ok" title="Commande urgente">▲</span> : null}
                         {formatQty(l.quantityAsked)} {l.unitSymbol}
+                        {l.urgentAsked > 0 && l.urgentAsked < l.quantityAsked ? (
+                          <span className="block text-[0.7rem] font-normal text-ok">dont {formatQty(l.urgentAsked)} urgent</span>
+                        ) : null}
                       </Td>
                       <Td className="text-right">
                         <span

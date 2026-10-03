@@ -39,6 +39,11 @@ const nextConfig: NextConfig = {
   reactStrictMode: true,
   experimental: { optimizePackageImports: ['lucide-react'] },
   allowedDevOrigins: localOrigins(),
+  // Les modèles de reconnaissance du visage (≈ 6,7 Mo) ne changent pas : le
+  // navigateur les garde, la caméra s'ouvre vite dès la deuxième connexion.
+  async headers() {
+    return [{ source: '/models/:file*', headers: [{ key: 'Cache-Control', value: 'public, max-age=31536000, immutable' }] }]
+  },
 }
 
 export default nextConfig

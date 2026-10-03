@@ -200,10 +200,11 @@ export async function deleteUser(id: number): Promise<ActionResult> {
     prisma.preparation.count({ where: { createdById: id } }),
     prisma.declaredSale.count({ where: { createdById: id } }),
   ])
-  if (entrees + preparations + declarees > 0) {
+  const photos = await prisma.invoicePhoto.count({ where: { createdById: id } })
+  if (entrees + preparations + declarees + photos > 0) {
     return {
       ok: false,
-      error: `Ce compte a signé ${entrees + preparations + declarees} écriture(s) de stock ou de contrôle. Désactivez-le plutôt que de le supprimer.`,
+      error: `Ce compte a signé ${entrees + preparations + declarees + photos} écriture(s) de stock ou de contrôle. Désactivez-le plutôt que de le supprimer.`,
     }
   }
 

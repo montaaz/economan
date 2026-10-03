@@ -6,18 +6,18 @@ import { requireRole } from '@/server/auth/guards'
 import { BackLink } from '@/components/ui/back-link'
 import { CumulArticles, type CumulLine } from './cumul-articles'
 
-export const metadata: Metadata = { title: 'Articles cumulés' }
+export const metadata: Metadata = { title: 'Articles de toute la journée' }
 export const dynamic = 'force-dynamic'
 
 const QUERY = /* GraphQL */ `
   query ArticlesCumules($departmentId: ID!, $day: Date, $dayTo: Date) {
     dayArticles(departmentId: $departmentId, day: $day, dayTo: $dayTo) {
       productId productName productRef categoryName unitSymbol
-      stockFixe quantityAsked quantityServed ticketCount status servedRank
+      stockFixe quantityAsked quantityServed ticketCount status servedRank urgentAsked
     }
     dayBoard(day: $day, dayTo: $dayTo) {
       day dayTo isRange
-      departments { department { id } orderCount }
+      departments { department { id } orderCount orders { id reference status createdBy { fullName } } }
     }
   }
 `
@@ -26,7 +26,11 @@ type Board = {
   day: string
   dayTo: string
   isRange: boolean
-  departments: { department: { id: string }; orderCount: number }[]
+  departments: {
+    department: { id: string }
+    orderCount: number
+    orders: { id: string; reference: string; status: string; createdBy: { fullName: string } }[]
+  }[]
 }
 
 /**
@@ -59,7 +63,12 @@ export default async function ArticlesCumulesPage({
   if (!department) notFound()
 
   const board = data.dayBoard
-  const tickets = board.departments.find((d) => d.department.id === String(departmentId))?.orderCount ?? 0
+  const rayon = board.departments.find((d) => d.department.id === String(departmentId))
+  const tickets = rayon?.orderCount ?? 0
+  // Les tickets encore en attente : on peut les accepter tous d'ici.
+  const enAttente = (rayon?.orders ?? [])
+    .filter((o) => o.status === 'PENDING')
+    .map((o) => ({ id: o.id, reference: o.reference, auteur: o.createdBy.fullName }))
   const retour = `/economat?jour=${board.day}${board.isRange ? `&jusquau=${board.dayTo}` : ''}`
 
   return (
@@ -70,6 +79,7 @@ export default async function ArticlesCumulesPage({
         day={board.day}
         dayTo={board.isRange ? board.dayTo : null}
         tickets={tickets}
+        enAttente={enAttente}
         lines={data.dayArticles}
       />
     </>

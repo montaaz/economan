@@ -4,7 +4,8 @@ import * as React from 'react'
 import { useActionState } from 'react'
 import { useFormStatus } from 'react-dom'
 import { useRouter } from 'next/navigation'
-import { Plus, Pencil, Trash2, Eye, EyeOff, AlertCircle, Users, Fingerprint, Shield } from 'lucide-react'
+import { Plus, Pencil, Trash2, Eye, EyeOff, AlertCircle, Users, Fingerprint, Shield, ScanFace } from 'lucide-react'
+import { FaceEnrollModal } from '@/components/auth/face-enroll'
 import { Icon } from '@/components/ui/icon'
 import { GlassCard, Button, Badge, Field, EmptyState, TableWrap, Th, Td } from '@/components/ui/glass'
 import { Modal } from '@/components/ui/modal'
@@ -26,6 +27,8 @@ export type ManagedUser = {
   departmentId: number | null
   department: { name: string; color: string } | null
   _count: { credentials: number; ordersCreated: number }
+  /** Le visage enregistré, pour la connexion par la caméra. */
+  faceProfile: { updatedAt: Date | string } | null
 }
 
 const ROLE_TONE = { EMPLOYEE: 'neutral', ECONOMAN: 'ok', CONTROLEUR: 'info', ADMIN: 'accent' } as const
@@ -40,6 +43,7 @@ export function UserManager({
   const { push } = useToast()
   const confirmer = useConfirm()
   const [editing, setEditing] = React.useState<ManagedUser | null | undefined>(undefined)
+  const [visage, setVisage] = React.useState<ManagedUser | null>(null)
 
   // Département filtré. 'sans' regroupe les comptes qui n'en ont pas —
   // économat et administration — qu'aucun onglet de service ne montrerait.
@@ -182,6 +186,9 @@ export function UserManager({
                           {u._count.credentials > 0 ? (
                             <Fingerprint className="size-3.5 shrink-0 text-ok" aria-label="Empreinte enregistrée" />
                           ) : null}
+                          {u.faceProfile ? (
+                            <ScanFace className="size-3.5 shrink-0 text-ok" aria-label="Visage enregistré" />
+                          ) : null}
                         </span>
                         <span className="block truncate font-mono text-[0.72rem] text-fg-subtle">
                           {u.username}
@@ -220,6 +227,14 @@ export function UserManager({
                       >
                         {u.isActive ? <Eye className="size-4" /> : <EyeOff className="size-4" />}
                       </Button>
+                      {u.role === 'EMPLOYEE' ? (
+                        <Button variant="ghost" size="icon" aria-label={`Visage de ${u.fullName}`}
+                          title={u.faceProfile ? 'Visage enregistré : le refaire ou le retirer' : 'Enregistrer son visage'}
+                          className={u.faceProfile ? 'text-ok' : undefined}
+                          onClick={() => setVisage(u)}>
+                          <ScanFace className="size-4" />
+                        </Button>
+                      ) : null}
                       <Button variant="ghost" size="icon" aria-label="Modifier" onClick={() => setEditing(u)}>
                         <Pencil className="size-4" />
                       </Button>
@@ -253,6 +268,11 @@ export function UserManager({
         )}
       </GlassCard>
 
+      {visage ? (
+        <FaceEnrollModal user={{ id: visage.id, fullName: visage.fullName }}
+          enregistreLe={visage.faceProfile ? new Date(visage.faceProfile.updatedAt).toISOString() : null}
+          onClose={() => setVisage(null)} />
+      ) : null}
       {editing !== undefined ? (
         <UserForm
           user={editing}

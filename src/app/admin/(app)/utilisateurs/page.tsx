@@ -15,6 +15,7 @@ export default async function UsersPage() {
         avatarColor: true, lastLoginAt: true, departmentId: true,
         department: { select: { name: true, color: true } },
         _count: { select: { credentials: true, ordersCreated: true } },
+        faceProfile: { select: { updatedAt: true } },
       },
     }),
     prisma.department.findMany({

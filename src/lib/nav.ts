@@ -33,6 +33,7 @@ const ECONOMAN: NavGroup[] = [
     items: [
       { href: '/economat', label: 'Commandes du jour', shortLabel: 'Jour', icon: 'Inbox', primary: true },
       { href: '/economat/stock', label: 'Stock général', shortLabel: 'Stock', icon: 'Warehouse', primary: true },
+      { href: '/economat/fiche-articles', label: 'Fiche articles', shortLabel: 'Fiches', icon: 'FlaskConical' },
       { href: '/economat/historique', label: 'Historique', icon: 'History', primary: true },
     ],
   },
@@ -64,6 +65,7 @@ const ADMIN: NavGroup[] = [
     items: [
       { href: '/admin', label: 'Tableau de bord', shortLabel: 'Accueil', icon: 'LayoutDashboard', primary: true },
       { href: '/admin/stock-general', label: 'Stock général', shortLabel: 'Stock', icon: 'Warehouse', primary: true },
+      { href: '/admin/fiche-articles', label: 'Fiche articles', shortLabel: 'Fiche art.', icon: 'FlaskConical' },
       { href: '/admin/argent', label: 'Argent', icon: 'Coins' },
       { href: '/admin/controle', label: 'Contrôle des stocks', shortLabel: 'Contrôle', icon: 'ClipboardCheck' },
       { href: '/admin/fiches', label: 'Fiches techniques', shortLabel: 'Fiches', icon: 'Scissors' },
@@ -75,8 +77,10 @@ const ADMIN: NavGroup[] = [
     items: [
       { href: '/admin/departements', label: 'Départements', shortLabel: 'Départ.', icon: 'Building2', primary: true },
       { href: '/admin/stock-fixe', label: 'Stock fixe', shortLabel: 'Stock', icon: 'Target', primary: true },
+      { href: '/admin/fournisseurs', label: 'Fournisseurs', shortLabel: 'Fourn.', icon: 'Truck' },
       { href: '/admin/carte', label: 'Carte de vente', shortLabel: 'Carte', icon: 'Receipt' },
       { href: '/admin/utilisateurs', label: 'Utilisateurs', shortLabel: 'Agents', icon: 'Users', primary: true },
+      { href: '/admin/horaires', label: 'Horaires des commandes', shortLabel: 'Horaires', icon: 'Clock' },
     ],
   },
 ]

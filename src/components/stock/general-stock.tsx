@@ -4,7 +4,7 @@ import * as React from 'react'
 import { useRouter } from 'next/navigation'
 import { createPortal } from 'react-dom'
 import Link from 'next/link'
-import { Loader2, PackagePlus, Scissors, Trash2, Warehouse, AlertTriangle, Pencil, History, ArrowDownToLine, Plus, Search, Building2, Check, CalendarDays, ChevronDown, LayoutGrid, Leaf, Box, FlaskConical } from 'lucide-react'
+import { Loader2, PackagePlus, Scissors, Trash2, Warehouse, AlertTriangle, Pencil, History, ArrowDownToLine, Plus, Search, Building2, Check, CalendarDays, ChevronDown, LayoutGrid, Leaf, Box, FlaskConical, FileText, Camera, ChevronLeft, ChevronRight, ImagePlus, Lock, LockOpen } from 'lucide-react'
 
 /**
  * Les filtres de nature, chacun de sa couleur : bleu pour tout, vert pour
@@ -30,10 +30,12 @@ import { Modal } from '@/components/ui/modal'
 import { SearchField } from '@/components/ui/search-field'
 import { DateField } from '@/components/ui/date-field'
 import { useConfirm } from '@/components/ui/confirm'
+import { ZoomImage } from '@/components/ui/zoom-image'
 import { useToast } from '@/components/ui/toast'
 import { gql, errorMessage } from '@/lib/graphql-client'
 import { correspond, normaliser } from '@/lib/search'
-import { unitesCompatibles, versBase } from '@/lib/units'
+import { unitesCompatibles, versBase, convertible } from '@/lib/units'
+import { preparerPhoto } from '@/lib/compress-image'
 import { cn, formatDate, formatMoney, formatQty, formatTime, formatPeriod, toNumber, toDateKey } from '@/lib/utils'
 
 const QUERY = /* GraphQL */ `
@@ -49,9 +51,10 @@ const QUERY = /* GraphQL */ `
       }
     }
     stockEntries(limit: 200) {
-      id quantity unitPrice total reference note businessDay createdAt
+      id type quantity unitPrice total reference note businessDay createdAt modifiedAt modifiedBy lockedAt lockedBy
+      deliveryNote listPrice discountPct vatPct supplierAddress
       product { id name reference baseUnit { symbol } }
-      createdBy { fullName }
+      createdBy { id fullName }
       supplier { id name phone taxId }
     }
     stockProducts { id name reference category { name } baseUnit { symbol } }
@@ -65,7 +68,7 @@ const ENTRIES_OF = /* GraphQL */ `
     }
   }
 `
-const SUPPLIERS = /* GraphQL */ `query Suppliers { suppliers { id name phone taxId } units { id name symbol } }`
+const SUPPLIERS = /* GraphQL */ `query Suppliers { suppliers { id name phone taxId address } units { id name symbol } }`
 const ADD_PREPARATION = /* GraphQL */ `
   mutation AddPreparation($sourceId: ID!, $productId: ID!, $quantityUsed: Float!, $quantityMade: Float!, $madeUnit: String, $day: Date, $note: String) {
     addPreparation(sourceId: $sourceId, productId: $productId, quantityUsed: $quantityUsed, quantityMade: $quantityMade, madeUnit: $madeUnit, day: $day, note: $note)
@@ -75,18 +78,30 @@ const CREATE_UNIT = /* GraphQL */ `mutation CreateUnit($name: String!, $symbol: 
 const ENTRIES_PERIOD = /* GraphQL */ `
   query EntriesPeriod($from: Date, $to: Date) {
     stockEntries(from: $from, to: $to, limit: 5000) {
-      id quantity unitPrice total reference note businessDay createdAt
+      id type quantity unitPrice total reference note businessDay createdAt modifiedAt modifiedBy lockedAt lockedBy
+      deliveryNote listPrice discountPct vatPct supplierAddress
       product { id name reference baseUnit { symbol } }
-      createdBy { fullName }
+      createdBy { id fullName }
       supplier { id name phone taxId }
     }
   }
 `
-const ADD_ENTRIES = /* GraphQL */ `
-  mutation AddEntries($supplier: SupplierInput, $reference: String, $note: String, $day: Date, $lines: [StockEntryLineInput!]!) {
-    addStockEntries(supplier: $supplier, reference: $reference, note: $note, day: $day, lines: $lines)
+const SAVE_INVOICE = /* GraphQL */ `
+  mutation SaveStockInvoice($supplier: SupplierInput!, $reference: String, $deliveryNote: String, $note: String, $day: Date, $createdById: ID, $lines: [StockInvoiceLineInput!]!, $removeIds: [ID!]) {
+    saveStockInvoice(supplier: $supplier, reference: $reference, deliveryNote: $deliveryNote, note: $note, day: $day, createdById: $createdById, lines: $lines, removeIds: $removeIds)
   }
 `
+const LOCK_INVOICE = /* GraphQL */ `
+  mutation LockStockInvoice($supplierName: String, $reference: String, $day: Date!, $locked: Boolean!) {
+    lockStockInvoice(supplierName: $supplierName, reference: $reference, day: $day, locked: $locked)
+  }
+`
+const INVOICE_PHOTOS = /* GraphQL */ `query InvoicePhotos($from: Date!, $to: Date!) { invoicePhotos(from: $from, to: $to) { id supplierId reference businessDay width height createdAt createdBy } }`
+const DELETE_PHOTO = /* GraphQL */ `mutation DeleteInvoicePhoto($id: ID!) { deleteInvoicePhoto(id: $id) }`
+type PhotoFacture = { id: string; supplierId: string | null; reference: string | null; businessDay: string; width: number; height: number; createdAt: string; createdBy: string }
+/** La clé d'une facture : fournisseur, numéro, journée — la même pour ses lignes et ses photos. */
+const cleFacture = (supplierId: string | null, reference: string | null, jour: string) => [supplierId ?? '', reference ?? '', jour.slice(0, 10)].join('|')
+const STAFF = /* GraphQL */ `query StockStaff { stockStaff { id fullName } }`
 const DELETE_ENTRY = /* GraphQL */ `
   mutation DeleteStockEntry($id: ID!) { deleteStockEntry(id: $id) }
 `
@@ -98,6 +113,11 @@ const SET_LEVEL = /* GraphQL */ `
     setStockLevel(productId: $productId, quantity: $quantity, unitCost: $unitCost, note: $note)
   }
 `
+const RENAME_PREPARED = /* GraphQL */ `
+  mutation RenamePrepared($productId: ID!, $name: String!, $unit: String) {
+    renamePreparedProduct(productId: $productId, name: $name, unit: $unit) { id name }
+  }
+`
 const SET_PORTION = /* GraphQL */ `
   mutation SetPortion($productId: ID!, $parentId: ID, $motherQuantity: Float) {
     setProductPortion(productId: $productId, parentId: $parentId, motherQuantity: $motherQuantity) { id }
@@ -106,7 +126,7 @@ const SET_PORTION = /* GraphQL */ `
 
 /** 0,3 kg se lit « 300 g », 0,25 L « 250 ml » : l'unité de la portion, pas du sac. */
 function formatMere(q: number, unit: string): string {
-  if (unit === 'kg' && q < 1) return `${formatQty(q * 1000)} g`
+  if (unit === 'kg' && q < 1) return `${formatQty(q * 1000)} gr`
   if (unit === 'L' && q < 1) return `${formatQty(q * 1000)} ml`
   return `${formatQty(q)} ${unit}`
 }
@@ -126,10 +146,16 @@ const NATURES: Record<Kind, { label: string; tone: 'accent' | 'ok' | 'warn' }> =
   PREPARE: { label: 'Préparé', tone: 'warn' },
 }
 type Entry = {
-  id: string; quantity: number; unitPrice: number; total: number; reference: string | null; note: string | null
+  id: string; type: 'ARRIVAGE' | 'INVENTAIRE'; quantity: number; unitPrice: number; total: number; reference: string | null; note: string | null
   businessDay: string; createdAt: string
+  /** Dernière correction, et qui l'a faite ; nul si l'entrée est d'origine. */
+  modifiedAt: string | null; modifiedBy: string | null
+  /** La facture verrouillée : seule l'administration la rouvre. */
+  lockedAt: string | null; lockedBy: string | null
+  /** Ce que la facture porte en plus : bon de livraison, prix avant remise, remise, TVA. */
+  deliveryNote: string | null; listPrice: number | null; discountPct: number; vatPct: number; supplierAddress: string | null
   product: { id: string; name: string; reference: string; baseUnit: { symbol: string } }
-  createdBy: { fullName: string }
+  createdBy: { id: string; fullName: string }
   supplier: { id: string; name: string; phone: string | null; taxId: string | null } | null
 }
 type Produit = { id: string; name: string; reference: string; category: { name: string }; baseUnit: { symbol: string } }
@@ -173,62 +199,52 @@ export function GeneralStock({ admin, base }: { admin: boolean; base: '/economat
     && (!negatifs || l.stock < -1e-9)
     && correspond(mot, l.productName, l.productRef, l.categoryName, l.mother?.productName, ...l.portions.map((p) => p.productName)))
   const aujourdhui = toDateKey(new Date())
-  // L'administration choisit la journée, ou une période : la carte en donne
-  // le total, et la liste s'ouvre sur la même. Par défaut, la journée en
-  // cours. L'économat, lui, lit toujours le jour.
+  // On choisit la journée, ou une période : la carte en donne le total, et
+  // la liste s'ouvre sur la même. Par défaut, la journée en cours.
+  // L'économat le fait comme l'administration : c'est lui qui retrouve la
+  // facture de la semaine passée.
   const [periode, setPeriode] = React.useState<{ du: string; au: string | null }>({ du: aujourdhui, au: null })
-  const [choixDates, setChoixDates] = React.useState(false)
-  const boutonDates = React.useRef<HTMLButtonElement>(null)
-  const panneauDates = React.useRef<HTMLDivElement>(null)
-  const [posDates, setPosDates] = React.useState<{ right: number; width: number; top?: number; bottom?: number } | null>(null)
-  React.useLayoutEffect(() => {
-    if (!choixDates) { setPosDates(null); return }
-    const maj = () => {
-      const r = boutonDates.current?.getBoundingClientRect(); if (!r) return
-      const width = Math.min(24 * 16, window.innerWidth - 16)
-      // Aligné sur le bord droit de l'icône, sans sortir de l'écran.
-      const right = Math.max(8, Math.min(window.innerWidth - r.right, window.innerWidth - width - 8))
-      const enBas = window.innerHeight - r.bottom
-      if (enBas < 300 && r.top > enBas) setPosDates({ right, width, bottom: window.innerHeight - r.top + 10 })
-      else setPosDates({ right, width, top: r.bottom + 10 })
-    }
-    maj()
-    window.addEventListener('scroll', maj, true); window.addEventListener('resize', maj)
-    return () => { window.removeEventListener('scroll', maj, true); window.removeEventListener('resize', maj) }
-  }, [choixDates])
-  // Cliquer ailleurs referme le panneau — sauf dans un calendrier ouvert
-  // depuis lui, qui flotte lui aussi hors du panneau.
-  React.useEffect(() => {
-    if (!choixDates) return
-    const auClic = (e: MouseEvent) => {
-      const t = e.target as HTMLElement
-      if (panneauDates.current?.contains(t) || boutonDates.current?.contains(t) || t.closest?.('[aria-label="Calendrier"]')) return
-      setChoixDates(false)
-    }
-    const auClavier = (e: KeyboardEvent) => { if (e.key === 'Escape') setChoixDates(false) }
-    document.addEventListener('mousedown', auClic); document.addEventListener('keydown', auClavier)
-    return () => { document.removeEventListener('mousedown', auClic); document.removeEventListener('keydown', auClavier) }
-  }, [choixDates])
   const surAujourdhui = periode.du === aujourdhui && (periode.au === null || periode.au === aujourdhui)
   const libellePeriode = surAujourdhui ? 'aujourd’hui' : formatPeriod(periode.du, periode.au ?? periode.du)
   const [entreesPeriode, setEntreesPeriode] = React.useState<Entry[] | null>(null)
+  // Les photos des factures de la période, relues à chaque changement.
+  const [photos, setPhotos] = React.useState<PhotoFacture[]>([])
+  const [versionPhotos, setVersionPhotos] = React.useState(0)
   React.useEffect(() => {
-    if (!admin) return
+    let vivant = true
+    const fin = periode.au ?? periode.du
+    const [from, to] = periode.du <= fin ? [periode.du, fin] : [fin, periode.du]
+    gql<{ invoicePhotos: PhotoFacture[] }>(INVOICE_PHOTOS, { from, to }).then((d) => { if (vivant) setPhotos(d.invoicePhotos) }).catch(() => {})
+    return () => { vivant = false }
+  }, [periode, versionPhotos])
+  const photosPar = React.useMemo(() => {
+    const m = new Map<string, PhotoFacture[]>()
+    for (const p of photos) { const c = cleFacture(p.supplierId, p.reference, p.businessDay); m.set(c, [...(m.get(c) ?? []), p]) }
+    return m
+  }, [photos])
+  React.useEffect(() => {
     let vivant = true
     const fin = periode.au ?? periode.du
     const [from, to] = periode.du <= fin ? [periode.du, fin] : [fin, periode.du]
     gql<{ stockEntries: Entry[] }>(ENTRIES_PERIOD, { from, to }).then((d) => { if (vivant) setEntreesPeriode(d.stockEntries) }).catch(() => {})
     return () => { vivant = false }
-  }, [admin, periode, version])
+  }, [periode, version])
+  // Tant que la période n'est pas revenue du serveur, la journée se lit dans
+  // ce que la page a déjà chargé : la carte ne reste pas vide.
   const entreesJour = React.useMemo(
-    () => (admin
-      ? (entreesPeriode ?? [])
-      : (data?.stockEntries ?? []).filter((e) => e.businessDay.slice(0, 10) === aujourdhui)),
-    [admin, entreesPeriode, data, aujourdhui],
+    () => entreesPeriode ?? (data?.stockEntries ?? []).filter((e) => e.businessDay.slice(0, 10) === aujourdhui),
+    [entreesPeriode, data, aujourdhui],
   )
   // Le journal du jour se lit fournisseur par fournisseur : une pastille
   // chacun, « Tout » pour l'ensemble, « Sans fournisseur » pour le reste.
-  const [fournisseurVu, setFournisseurVu] = React.useState<string | null>(null)
+  const [fournisseurDemande, setFournisseurVu] = React.useState<string | null>(null)
+  // L'entrée qu'on corrige : sa fiche prend la place de la liste, qui
+  // revient telle quelle une fois la correction faite.
+  const [correction, setCorrection] = React.useState<Entry[] | null>(null)
+  const [envoi, setEnvoi] = React.useState<string | null>(null)
+  const [visionneuse, setVisionneuse] = React.useState<{ photos: PhotoFacture[]; index: number; titre: string; cle: { supplierId: string | null; reference: string | null; jour: string }; lecture?: boolean } | null>(null)
+  const entreePhoto = React.useRef<HTMLInputElement>(null)
+  const cibleEnvoi = React.useRef<{ supplierId: string | null; reference: string | null; jour: string } | null>(null)
   // La recherche parmi les fournisseurs du jour : nom, téléphone, matricule, facture.
   const [rechercheFournisseur, setRechercheFournisseur] = React.useState('')
   const fournisseursJour = React.useMemo(() => {
@@ -242,24 +258,106 @@ export function GeneralStock({ admin, base }: { admin: boolean; base: '/economat
     }
     return [...m.entries()].sort((a, b) => (a[0] === '' ? 1 : b[0] === '' ? -1 : a[1].nom.localeCompare(b[1].nom)))
   }, [entreesJour])
+  // Un fournisseur qui n'a plus d'entrée sur la période — on vient de
+  // corriger la sienne, ou de changer les dates — rend la main aux cartes,
+  // plutôt que d'ouvrir une liste vide.
+  const fournisseurVu = fournisseurDemande !== null && fournisseurDemande !== 'tout' && !fournisseursJour.some(([cle]) => cle === fournisseurDemande)
+    ? null : fournisseurDemande
   // « tout » : la journée entière ; un identifiant : ce fournisseur seul.
   const entreesVues = fournisseurVu === null || fournisseurVu === 'tout' ? entreesJour : entreesJour.filter((e) => (e.supplier?.id ?? '') === fournisseurVu)
   const fournisseurChoisi = fournisseurVu !== null && fournisseurVu !== 'tout' ? fournisseursJour.find(([cle]) => cle === fournisseurVu)?.[1] ?? null : null
   const totalJour = entreesJour.reduce((s, e) => s + e.total, 0)
+  // Le nombre de factures de la période : une facture porte plusieurs
+  // articles, et c'est elle qu'on compte, pas ses lignes.
+  const nbFactures = new Set(entreesJour.map((e) => [e.type, e.supplier?.id ?? '', e.reference ?? '', e.businessDay.slice(0, 10)].join('|'))).size
   const compte = (k: Kind) => (data?.generalStock.lines ?? []).filter((l) => l.kind === k).length
 
-  const supprimerEntree = async (e: Entry) => {
+  // Les factures de la vue : les entrées d'un même fournisseur, d'un même
+  // numéro et d'une même journée font une carte. Les plus récentes en tête.
+  const facturesVues = React.useMemo(() => {
+    const m = new Map<string, Entry[]>()
+    for (const e of entreesVues) {
+      const cle = [e.type, e.supplier?.id ?? '', e.reference ?? '', e.businessDay.slice(0, 10)].join('|')
+      m.set(cle, [...(m.get(cle) ?? []), e])
+    }
+    return [...m.entries()].map(([cle, es]) => {
+      const entrees = es.slice().sort((x, y) => Number(x.id) - Number(y.id))
+      const corrigee = entrees.filter((e) => e.modifiedAt).sort((x, y) => (x.modifiedAt! < y.modifiedAt! ? 1 : -1))[0] ?? null
+      const verrou = entrees.find((e) => e.lockedAt) ?? null
+      return {
+        cle, entrees, type: entrees[0].type,
+        reference: entrees[0].reference, bl: entrees[0].deliveryNote,
+        fournisseur: entrees[0].supplier?.name ?? null,
+        jour: entrees[0].businessDay, heure: entrees[0].createdAt, par: entrees[0].createdBy.fullName,
+        total: entrees.reduce((n, e) => n + e.total, 0),
+        tva: entrees.reduce((n, e) => n + e.total * e.vatPct / 100, 0),
+        modifieLe: corrigee?.modifiedAt ?? null, modifiePar: corrigee?.modifiedBy ?? null,
+        verrouLe: verrou?.lockedAt ?? null, verrouPar: verrou?.lockedBy ?? null,
+      }
+    }).sort((x, y) => (x.heure < y.heure ? 1 : -1))
+  }, [entreesVues])
+
+  /** Ouvre l'appareil photo (ou la galerie) pour une facture. */
+  const prendrePhoto = (cle: { supplierId: string | null; reference: string | null; jour: string }) => {
+    cibleEnvoi.current = cle
+    entreePhoto.current?.click()
+  }
+  const envoyerPhotos = async (fichiers: FileList | null) => {
+    const cle = cibleEnvoi.current
+    if (!fichiers || fichiers.length === 0 || !cle) return
+    const liste = [...fichiers].slice(0, 20)
+    setEnvoi(`Préparation de ${liste.length} photo${liste.length > 1 ? 's' : ''}…`)
+    try {
+      const form = new FormData()
+      form.set('day', cle.jour.slice(0, 10))
+      if (cle.supplierId) form.set('supplierId', cle.supplierId)
+      if (cle.reference) form.set('reference', cle.reference)
+      for (const [i, f] of liste.entries()) {
+        setEnvoi(`Compression ${i + 1} / ${liste.length}…`)
+        const p = await preparerPhoto(f)
+        form.append('image', p.image, 'facture.jpg'); form.append('vignette', p.vignette, 'mini.jpg')
+        form.append('largeur', String(p.largeur)); form.append('hauteur', String(p.hauteur))
+      }
+      setEnvoi('Envoi…')
+      const r = await fetch('/api/factures/photos', { method: 'POST', body: form })
+      const d = await r.json().catch(() => ({}))
+      if (!r.ok) throw new Error(d.error ?? 'Envoi impossible.')
+      push('success', `${d.count} photo${d.count > 1 ? 's' : ''} de facture enregistrée${d.count > 1 ? 's' : ''}.`)
+      setVersionPhotos((v) => v + 1)
+      setVisionneuse(null)
+    } catch (e) { push('error', errorMessage(e)) } finally {
+      setEnvoi(null)
+      if (entreePhoto.current) entreePhoto.current.value = ''
+    }
+  }
+  const supprimerPhoto = async (p: PhotoFacture) => {
+    const ok = await confirmer({ title: 'Retirer cette photo ?', message: 'La photo de la facture sera supprimée. La facture et son stock ne changent pas.', confirmLabel: 'Retirer', tone: 'danger' })
+    if (!ok) return
+    try {
+      await gql(DELETE_PHOTO, { id: p.id })
+      push('success', 'Photo retirée.')
+      setVersionPhotos((v) => v + 1)
+      setVisionneuse((v) => {
+        if (!v) return v
+        const reste = v.photos.filter((x) => x.id !== p.id)
+        return reste.length === 0 ? null : { ...v, photos: reste, index: Math.min(v.index, reste.length - 1) }
+      })
+    } catch (e) { push('error', errorMessage(e)) }
+  }
+
+  const supprimerFacture = async (entrees: Entry[], reference: string | null) => {
+    const total = entrees.reduce((n, e) => n + e.total, 0)
     const ok = await confirmer({
-      title: 'Retirer cette entrée ?',
-      message: `${formatQty(e.quantity)} ${e.product.baseUnit.symbol} de ${e.product.name} à ${formatMoney(e.unitPrice)} l’unité. Le stock et sa valeur seront recalculés.`,
+      title: 'Retirer cette facture ?',
+      message: `${reference ? `Facture n° ${reference}` : 'Facture sans numéro'} : ${entrees.length} article${entrees.length > 1 ? 's' : ''}, ${formatMoney(total)}. Tout sort du stock, qui sera recalculé avec sa valeur.`,
       confirmLabel: 'Retirer', tone: 'danger',
     })
     if (!ok) return
     try {
-      await gql(DELETE_ENTRY, { id: e.id })
-      push('success', 'Entrée retirée.')
+      for (const e of entrees) await gql(DELETE_ENTRY, { id: e.id })
+      push('success', 'Facture retirée du stock.')
       recharger()
-    } catch (err) { push('error', errorMessage(err)) }
+    } catch (err) { push('error', errorMessage(err)); recharger() }
   }
 
   return (
@@ -277,56 +375,21 @@ export function GeneralStock({ admin, base }: { admin: boolean; base: '/economat
         {/* Les entrées du jour, en carte : un clic ouvre leur liste. Le
             passé, lui, se lit dans l'historique. */}
         <GlassCard className="relative h-full border-danger/30 transition-colors hover:bg-danger/[0.04]">
-          <button type="button" onClick={() => setJournal(true)} className="block h-full w-full p-4 text-left">
-            <p className="flex items-center gap-1.5 pr-10 text-[0.74rem] font-semibold uppercase tracking-wide text-danger"><ArrowDownToLine className="size-3.5" /> Entrées {libellePeriode}</p>
-            <p className="mt-1 text-[1.5rem] font-bold tabular-nums text-fg">{data ? (admin ? formatMoney(totalJour) : `${entreesJour.length} arrivage${entreesJour.length > 1 ? 's' : ''}`) : '…'}</p>
-            <p className="text-[0.78rem] text-fg-muted">{data ? (admin ? `${entreesJour.length} arrivage${entreesJour.length > 1 ? 's' : ''} · voir la liste` : 'voir la liste') : '…'}</p>
+          <button type="button" onClick={() => setJournal(true)} className="block w-full p-4 pb-2 text-left">
+            <p className="flex items-center gap-1.5 text-[0.74rem] font-semibold uppercase tracking-wide text-danger"><ArrowDownToLine className="size-3.5" /> Entrées {libellePeriode}</p>
+            <p className="mt-1 text-[1.5rem] font-bold tabular-nums text-fg">{data ? (admin ? formatMoney(totalJour) : `${nbFactures} facture${nbFactures > 1 ? 's' : ''} ou BL`) : '…'}</p>
+            <p className="text-[0.78rem] text-fg-muted">{data ? (admin ? `${nbFactures} facture${nbFactures > 1 ? 's' : ''} ou BL · voir la liste` : 'voir la liste') : '…'}</p>
           </button>
-          {/* L'administration choisit la journée ou la période, depuis la
-              carte : le total suit, la liste aussi. */}
-          {admin ? (
-            <div className="absolute right-3 top-3">
-              <button ref={boutonDates} type="button" onClick={() => setChoixDates((v) => !v)} aria-expanded={choixDates} aria-label="Choisir la journée ou la période"
-                title="Choisir la journée ou la période"
-                className={cn('grid size-8 place-items-center rounded-lg border transition-colors', surAujourdhui ? 'border-[rgb(var(--glass-edge)/0.34)] bg-white/70 text-fg-muted hover:text-fg' : 'border-accent/40 bg-accent/12 text-accent')}>
-                <CalendarDays className="size-4" />
-              </button>
-            </div>
-          ) : null}
+          {/* Saisir une facture ou un BL : le geste vit dans la carte des
+              entrées, là où on vient les lire — voisin du bouton qui ouvre
+              la liste, pas dedans. */}
+          <div className="px-4 pb-3">
+            <Button variant="primary" size="sm" disabled={!data} onClick={() => setEntree(true)}>
+              <PackagePlus className="size-3.5" />
+              Nouvelle entrée
+            </Button>
+          </div>
         </GlassCard>
-        {/* Le choix des dates s'ouvre depuis la carte, accroché à son icône :
-            un panneau enfant de la carte, pas une boîte au milieu de l'écran.
-            Il flotte hors du flux (portal) pour que rien ne le coupe, et se
-            recale au bord de l'écran sur un téléphone. */}
-        {admin && choixDates && posDates ? createPortal(
-          <div
-            ref={panneauDates}
-            role="dialog"
-            aria-label="Journée ou période des entrées"
-            style={{ position: 'fixed', top: posDates.top, bottom: posDates.bottom, right: posDates.right, width: posDates.width }}
-            className="animate-rise z-[60] rounded-2xl border border-danger/30 bg-white p-4 shadow-[0_18px_40px_-16px_rgb(var(--shadow-ambient)/0.55)]"
-          >
-            {/* La pointe : le panneau sort de l'icône de la carte. */}
-            <span aria-hidden className={cn('absolute right-4 size-3 rotate-45 border-danger/30 bg-white', posDates.top !== undefined ? '-top-1.5 border-l border-t' : '-bottom-1.5 border-b border-r')} />
-            <p className="flex items-center gap-1.5 text-[0.74rem] font-semibold uppercase tracking-wide text-danger"><CalendarDays className="size-3.5" /> Journée ou période</p>
-            <div className="mt-3 grid gap-3 sm:grid-cols-2">
-              <label className="block text-[0.8rem] font-medium text-fg-muted">Du
-                <div className="mt-1"><DateField value={periode.du} max={aujourdhui} onChange={(v) => { if (v) setPeriode((p) => ({ ...p, du: v, au: p.au && p.au < v ? null : p.au })) }} label="Du" className="w-full" /></div>
-              </label>
-              <label className="block text-[0.8rem] font-medium text-fg-muted">Au <span className="font-normal text-fg-subtle">(facultatif)</span>
-                <div className="mt-1"><DateField value={periode.au} min={periode.du} max={aujourdhui} clearable onChange={(v) => setPeriode((p) => ({ ...p, au: v }))} label="Au" className="w-full" /></div>
-              </label>
-            </div>
-            <p className="mt-3 rounded-xl bg-danger/[0.06] px-3 py-2 text-[0.85rem] text-fg">
-              Entrées <span className="font-semibold">{libellePeriode}</span> : <span className="font-bold tabular-nums">{formatMoney(totalJour)}</span> · {entreesJour.length} arrivage{entreesJour.length > 1 ? 's' : ''}
-            </p>
-            <div className="mt-3 flex items-center justify-between gap-2">
-              <Button variant="ghost" size="sm" onClick={() => { setPeriode({ du: aujourdhui, au: null }); setChoixDates(false) }}>Aujourd’hui</Button>
-              <Button variant="primary" size="sm" onClick={() => setChoixDates(false)}><Check className="size-3.5" />Appliquer</Button>
-            </div>
-          </div>,
-          document.body,
-        ) : null}
         {/* Les préparations : ce que l'économat tire chaque jour des articles
             purs. La carte ouvre leur journal, d'où l'on en saisit une nouvelle. */}
         <button type="button" onClick={() => setNature((n) => (n === 'PREPARE' ? 'tous' : 'PREPARE'))} aria-pressed={nature === 'PREPARE'} className="text-left">
@@ -384,10 +447,6 @@ export function GeneralStock({ admin, base }: { admin: boolean; base: '/economat
             <Scissors className="size-4" />
             Nouvelle préparation
           </button>
-          <Button variant="primary" size="sm" className="ml-auto" onClick={() => setEntree(true)}>
-            <PackagePlus className="size-3.5" />
-            Nouvelle entrée
-          </Button>
         </div>
 
         {erreur ? (
@@ -500,19 +559,108 @@ export function GeneralStock({ admin, base }: { admin: boolean; base: '/economat
         )}
       </GlassCard>
 
-      {journal && data ? (
-        <Modal title={admin ? `Entrées ${libellePeriode} — ${formatMoney(totalJour)}` : 'Entrées d’aujourd’hui'} onClose={() => { setJournal(false); setFournisseurVu(null); setRechercheFournisseur('') }} size="xl"
+      {/* L'appareil photo : sur téléphone, « capture » ouvre directement
+          la caméra arrière ; sur ordinateur, le choix de fichiers. */}
+      <input ref={entreePhoto} type="file" accept="image/*" capture="environment" multiple className="hidden"
+        onChange={(e) => void envoyerPhotos(e.target.files)} aria-label="Photos de la facture" />
+      {envoi ? (
+        <div className="fixed inset-x-0 bottom-6 z-[90] flex justify-center px-4">
+          <span className="inline-flex items-center gap-2 rounded-full bg-[#103528] px-4 py-2 text-[0.88rem] font-semibold text-white shadow-lg">
+            <Loader2 className="size-4 animate-spin" /> {envoi}
+          </span>
+        </div>
+      ) : null}
+      {visionneuse ? (
+        <Modal title={visionneuse.titre} onClose={() => setVisionneuse(null)} size="xl"
+          footer={
+            <div className="flex w-full flex-wrap items-center justify-between gap-2">
+              <span className="text-[0.84rem] text-fg-muted">
+                Photo {visionneuse.index + 1} / {visionneuse.photos.length}
+                {' · '}prise le {formatDate(visionneuse.photos[visionneuse.index].createdAt)} à {formatTime(visionneuse.photos[visionneuse.index].createdAt)} par {visionneuse.photos[visionneuse.index].createdBy}
+              </span>
+              <span className="flex gap-2">
+                {visionneuse.lecture ? (
+                  <span className="inline-flex items-center gap-1.5 text-[0.82rem] font-semibold text-fg-muted"><Lock className="size-4" /> Facture verrouillée</span>
+                ) : (
+                  <>
+                    <Button variant="ghost" onClick={() => void supprimerPhoto(visionneuse.photos[visionneuse.index])}><Trash2 className="size-4" />Retirer</Button>
+                    <Button variant="secondary" onClick={() => prendrePhoto(visionneuse.cle)} disabled={envoi !== null}><ImagePlus className="size-4" />Ajouter des photos</Button>
+                  </>
+                )}
+                <a href={`/api/factures/photos/${visionneuse.photos[visionneuse.index].id}`} target="_blank" rel="noreferrer"
+                  className="inline-flex h-10 items-center rounded-xl border border-[rgb(var(--glass-edge)/0.34)] bg-white/70 px-4 text-[0.875rem] font-semibold text-fg hover:bg-white">Ouvrir en grand</a>
+              </span>
+            </div>
+          }>
+          <ZoomImage src={`/api/factures/photos/${visionneuse.photos[visionneuse.index].id}`} alt={visionneuse.titre}
+            className="h-[65vh] rounded-xl bg-[#0f1e33]">
+            {visionneuse.photos.length > 1 ? (
+              <>
+                <button type="button" aria-label="Photo précédente" onClick={() => setVisionneuse((v) => v && { ...v, index: (v.index - 1 + v.photos.length) % v.photos.length })}
+                  className="absolute left-2 top-1/2 grid size-11 -translate-y-1/2 place-items-center rounded-full bg-white/85 text-fg shadow hover:bg-white"><ChevronLeft className="size-6" /></button>
+                <button type="button" aria-label="Photo suivante" onClick={() => setVisionneuse((v) => v && { ...v, index: (v.index + 1) % v.photos.length })}
+                  className="absolute right-2 top-1/2 grid size-11 -translate-y-1/2 place-items-center rounded-full bg-white/85 text-fg shadow hover:bg-white"><ChevronRight className="size-6" /></button>
+              </>
+            ) : null}
+          </ZoomImage>
+          {visionneuse.photos.length > 1 ? (
+            <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
+              {visionneuse.photos.map((ph, i) => (
+                <button key={ph.id} type="button" onClick={() => setVisionneuse((v) => v && { ...v, index: i })} aria-label={`Photo ${i + 1}`}
+                  className={cn('shrink-0 overflow-hidden rounded-lg border-2', i === visionneuse.index ? 'border-accent' : 'border-transparent opacity-70 hover:opacity-100')}>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={`/api/factures/photos/${ph.id}?mini=1`} alt="" loading="lazy" className="size-16 object-cover" />
+                </button>
+              ))}
+            </div>
+          ) : null}
+        </Modal>
+      ) : null}
+      {correction && data ? (
+        <FactureEntree facture={correction} admin={admin} onClose={() => setCorrection(null)}
+          photos={photosPar.get(cleFacture(correction[0]?.supplier?.id ?? null, correction[0]?.reference ?? null, correction[0]?.businessDay ?? '')) ?? []}
+          produits={data.stockProducts.filter((p) => data.generalStock.lines.find((l) => l.productId === p.id)?.kind !== 'PREPARE')}
+          onChange={() => { recharger(); setVersionPhotos((v) => v + 1) }}
+          onDone={() => { setCorrection(null); recharger(); setVersionPhotos((v) => v + 1); router.refresh() }} />
+      ) : null}
+      {journal && data && !correction && !visionneuse ? (
+        <Modal title={`Entrées ${libellePeriode} — ${formatMoney(totalJour)}`} onClose={() => { setJournal(false); setFournisseurVu(null); setRechercheFournisseur('') }} size="xl"
           footer={
             <div className="flex w-full flex-wrap items-center justify-between gap-2">
               <Link href={`${base}/historique?vue=stock`} className="inline-flex items-center gap-1.5 text-[0.85rem] font-semibold text-accent hover:underline">
                 <History className="size-4" />
                 Voir tout l’historique du stock
               </Link>
-              <Button variant="ghost" onClick={() => setJournal(false)}>Fermer</Button>
+              <span className="flex items-center gap-2">
+                {/* La liste se referme pour laisser la place à la saisie. */}
+                <Button variant="primary" onClick={() => { setJournal(false); setFournisseurVu(null); setRechercheFournisseur(''); setEntree(true) }}>
+                  <PackagePlus className="size-4" />
+                  Nouvelle entrée
+                </Button>
+                <Button variant="ghost" onClick={() => setJournal(false)}>Fermer</Button>
+              </span>
             </div>
           }>
+          {/* La journée ou la période se choisit ici, dans la liste : on
+              change les dates et les fournisseurs suivent, sous les yeux. */}
+          <div className="mb-3 flex flex-wrap items-end gap-3 rounded-2xl border border-danger/25 bg-danger/[0.04] px-3 py-2.5">
+            <p className="flex items-center gap-1.5 self-center text-[0.74rem] font-semibold uppercase tracking-wide text-danger"><CalendarDays className="size-3.5" /> Période</p>
+            <label className="block text-[0.78rem] font-medium text-fg-muted">Du
+              <div className="mt-1 w-40"><DateField value={periode.du} max={aujourdhui} onChange={(v) => { if (v) { setPeriode((p) => ({ ...p, du: v, au: p.au && p.au < v ? null : p.au })); setFournisseurVu(null) } }} label="Du" className="w-full" /></div>
+            </label>
+            <label className="block text-[0.78rem] font-medium text-fg-muted">Au <span className="font-normal text-fg-subtle">(facultatif)</span>
+              <div className="mt-1 w-40"><DateField value={periode.au} min={periode.du} max={aujourdhui} clearable onChange={(v) => { setPeriode((p) => ({ ...p, au: v })); setFournisseurVu(null) }} label="Au" className="w-full" /></div>
+            </label>
+            {!surAujourdhui ? (
+              <Button variant="ghost" size="sm" onClick={() => { setPeriode({ du: aujourdhui, au: null }); setFournisseurVu(null) }}>Aujourd’hui</Button>
+            ) : null}
+            <p className="ml-auto self-center text-right text-[0.85rem] text-fg">
+              <span className="font-bold tabular-nums">{formatMoney(totalJour)}</span>
+              <span className="block text-[0.76rem] text-fg-muted">{nbFactures} facture{nbFactures > 1 ? 's' : ''} ou BL</span>
+            </p>
+          </div>
           {entreesJour.length === 0 ? (
-            <EmptyState icon={<PackagePlus className="size-6" />} title={`Aucune entrée ${libellePeriode}`} description="Saisissez un arrivage avec « Nouvelle entrée »." />
+            <EmptyState icon={<PackagePlus className="size-6" />} title={`Aucune entrée ${libellePeriode}`} description="Saisissez une facture ou un BL avec « Nouvelle entrée »." />
           ) : (
             <>
             {fournisseurVu === null ? (
@@ -526,7 +674,7 @@ export function GeneralStock({ admin, base }: { admin: boolean; base: '/economat
                   className="flex flex-col items-start gap-2 rounded-2xl border border-accent/35 bg-accent/[0.07] p-4 text-left transition-colors hover:bg-accent/[0.12]">
                   <span className="grid size-10 place-items-center rounded-xl bg-accent text-white"><PackagePlus className="size-5" /></span>
                   <span className="text-[1rem] font-bold text-fg">Tout</span>
-                  <span className="text-[0.8rem] text-fg-muted">{entreesJour.length} article{entreesJour.length > 1 ? 's' : ''} entré{entreesJour.length > 1 ? 's' : ''} {libellePeriode}{admin ? ` · ${formatMoney(totalJour)}` : ''}</span>
+                  <span className="text-[0.8rem] text-fg-muted">{entreesJour.length} article{entreesJour.length > 1 ? 's' : ''} entré{entreesJour.length > 1 ? 's' : ''} {libellePeriode} · {formatMoney(totalJour)}</span>
                 </button>
                 ) : null}
                 {fournisseursJour.filter(([, f]) => correspond(rechercheFournisseur, f.nom, f.phone ?? '', f.taxId ?? '', ...f.references)).map(([cle, f]) => (
@@ -537,7 +685,7 @@ export function GeneralStock({ admin, base }: { admin: boolean; base: '/economat
                     {f.phone || f.taxId ? (
                       <span className="text-[0.78rem] text-fg-muted">{[f.phone, f.taxId ? `MF ${f.taxId}` : null].filter(Boolean).join(' · ')}</span>
                     ) : null}
-                    <span className="text-[0.8rem] text-fg-muted">{f.n} article{f.n > 1 ? 's' : ''}{admin ? ` · ${formatMoney(f.total)}` : ''}{f.references.size > 0 ? ` · ${[...f.references].join(', ')}` : ''}</span>
+                    <span className="text-[0.8rem] text-fg-muted">{f.n} article{f.n > 1 ? 's' : ''} · {formatMoney(f.total)}{f.references.size > 0 ? ` · ${[...f.references].join(', ')}` : ''}</span>
                   </button>
                 ))}
               </div>
@@ -559,49 +707,130 @@ export function GeneralStock({ admin, base }: { admin: boolean; base: '/economat
                   <span className="block truncate text-[1rem] font-bold text-fg">{fournisseurChoisi ? fournisseurChoisi.nom : `Toutes les entrées ${libellePeriode}`}</span>
                   <span className="block text-[0.78rem] text-fg-muted">
                     {fournisseurChoisi
-                      ? [fournisseurChoisi.phone ? `Tél. ${fournisseurChoisi.phone}` : null, fournisseurChoisi.taxId ? `MF ${fournisseurChoisi.taxId}` : null, `${fournisseurChoisi.n} article${fournisseurChoisi.n > 1 ? 's' : ''}`, admin ? formatMoney(fournisseurChoisi.total) : null].filter(Boolean).join(' · ')
-                      : `${entreesJour.length} article${entreesJour.length > 1 ? 's' : ''}${admin ? ` · ${formatMoney(totalJour)}` : ''}`}
+                      ? [fournisseurChoisi.phone ? `Tél. ${fournisseurChoisi.phone}` : null, fournisseurChoisi.taxId ? `MF ${fournisseurChoisi.taxId}` : null, `${facturesVues.length} facture${facturesVues.length > 1 ? 's' : ''}`, formatMoney(fournisseurChoisi.total)].filter(Boolean).join(' · ')
+                      : `${facturesVues.length} facture${facturesVues.length > 1 ? 's' : ''} · ${formatMoney(totalJour)}`}
                   </span>
                 </span>
               </span>
             </div>
-            <TableWrap minWidth="48rem">
-              <thead>
-                <tr>
-                  <Th>Heure</Th>
-                  <Th className="w-full">Article</Th>
-                  <Th>Fournisseur</Th>
-                  <Th className="text-right">Quantité</Th>
-                  {admin ? <Th className="text-right">Prix unitaire</Th> : null}
-                  {admin ? <Th className="text-right">Total</Th> : null}
-                  <Th>Référence</Th>
-                  <Th>Par</Th>
-                  {admin ? <Th className="w-10" /> : null}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-[rgb(var(--glass-edge)/0.12)]">
-                {entreesVues.map((e) => (
-                  <tr key={e.id} className="bg-danger/[0.04] shadow-[inset_3px_0_0_0_var(--danger)]">
-                    <Td className="whitespace-nowrap text-[0.8rem] text-fg-muted">{formatTime(e.createdAt)}</Td>
-                    <Td className="max-w-0"><p className="truncate text-[0.85rem] font-medium text-fg">{e.product.name}</p>{e.note ? <p className="truncate text-[0.72rem] text-fg-subtle">{e.note}</p> : null}</Td>
-                    <Td className="whitespace-nowrap text-[0.8rem] text-fg">{e.supplier ? e.supplier.name : <span className="text-fg-subtle">—</span>}</Td>
-                    <Td className="whitespace-nowrap text-right tabular-nums text-fg">{formatQty(e.quantity)} {e.product.baseUnit.symbol}</Td>
-                    {admin ? <Td className="whitespace-nowrap text-right tabular-nums text-fg-muted">{formatMoney(e.unitPrice)}</Td> : null}
-                    {admin ? <Td className="whitespace-nowrap text-right font-semibold tabular-nums text-danger">+ {formatMoney(e.total)}</Td> : null}
-                    <Td className="whitespace-nowrap font-mono text-[0.75rem] text-fg-muted">{e.reference ?? '—'}</Td>
-                    <Td className="whitespace-nowrap text-[0.8rem] text-fg-muted">{e.createdBy.fullName}</Td>
-                    {admin ? (
-                      <Td>
-                        <button type="button" onClick={() => void runSuppression(() => supprimerEntree(e))} disabled={suppression} title="Retirer cette entrée" aria-label={`Retirer l'entrée de ${e.product.name}`}
-                          className="grid size-7 place-items-center rounded-lg text-fg-subtle transition-colors hover:bg-danger/10 hover:text-danger">
-                          <Trash2 className="size-4" />
-                        </button>
-                      </Td>
+            {/* Les factures, une carte chacune : son numéro, sa date, ce
+                qu'elle porte et ce qu'elle vaut. La carte ouvre la feuille de
+                la facture, où tout se relit et se corrige. */}
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+              {facturesVues.map((f) => {
+                const modifiable = f.type === 'ARRIVAGE'
+                const bloquee = f.verrouLe !== null && !admin
+                const corps = (
+                  <>
+                    <span className="flex items-start justify-between gap-2">
+                      <span className="flex items-center gap-1.5">
+                        <span className={cn('grid size-10 shrink-0 place-items-center rounded-xl text-white', modifiable ? 'bg-accent' : 'bg-[rgb(var(--glass-edge))]')}>
+                          <FileText className="size-5" />
+                        </span>
+                        {/* La place de l'appareil photo : le vrai bouton flotte au-dessus. */}
+                        <span className="size-10" />
+                      </span>
+                      <span className="text-right">
+                        <span className="block text-[1.05rem] font-bold tabular-nums text-danger">+ {formatMoney(f.total)}</span>
+                        {f.tva > 0 ? <span className="block text-[0.72rem] text-fg-muted">TTC {formatMoney(f.total + f.tva)}</span> : null}
+                      </span>
+                    </span>
+                    <span className="mt-2 block text-[0.7rem] font-bold uppercase tracking-[0.08em] text-fg-muted">{modifiable ? 'Facture' : 'Inventaire'}</span>
+                    <span className="block truncate font-mono text-[1rem] font-bold text-fg">{f.reference ? `N° ${f.reference}` : 'Sans numéro'}</span>
+                    {/* Sous « Tout », la carte dit de quel fournisseur elle vient. */}
+                    {fournisseurChoisi ? null : <span className="block truncate text-[0.84rem] font-semibold text-fg">{f.fournisseur ?? 'Sans fournisseur'}</span>}
+                    <span className="mt-1 block text-[0.8rem] text-fg-muted">
+                      {formatDate(f.jour)} · {formatTime(f.heure)}
+                      {f.bl ? <> · BL {f.bl}</> : null}
+                    </span>
+                    <span className="mt-1.5 block truncate text-[0.8rem] text-fg">
+                      <strong>{f.entrees.length} article{f.entrees.length > 1 ? 's' : ''}</strong>
+                      <span className="text-fg-muted"> · {f.entrees.slice(0, 3).map((e) => e.product.name).join(', ')}{f.entrees.length > 3 ? '…' : ''}</span>
+                    </span>
+                    {/* Les photos de la facture papier : leurs vignettes. */}
+                    {(photosPar.get(cleFacture(f.entrees[0].supplier?.id ?? null, f.reference, f.jour)) ?? []).length > 0 ? (
+                      <span className="mt-2 flex items-center gap-1.5">
+                        {(photosPar.get(cleFacture(f.entrees[0].supplier?.id ?? null, f.reference, f.jour)) ?? []).slice(0, 4).map((ph) => (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img key={ph.id} src={`/api/factures/photos/${ph.id}?mini=1`} alt="" loading="lazy"
+                            className="size-11 rounded-lg border border-[rgb(var(--glass-edge)/0.35)] object-cover" />
+                        ))}
+                        {(photosPar.get(cleFacture(f.entrees[0].supplier?.id ?? null, f.reference, f.jour)) ?? []).length > 4 ? (
+                          <span className="grid size-11 place-items-center rounded-lg bg-[rgb(var(--glass-edge)/0.2)] text-[0.78rem] font-bold text-fg-muted">
+                            +{(photosPar.get(cleFacture(f.entrees[0].supplier?.id ?? null, f.reference, f.jour)) ?? []).length - 4}
+                          </span>
+                        ) : null}
+                      </span>
                     ) : null}
-                  </tr>
-                ))}
-              </tbody>
-            </TableWrap>
+                    <span className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[0.74rem] text-fg-muted">
+                      par {f.par}
+                      {f.verrouLe ? (
+                        <span className="inline-flex items-center gap-1 rounded-md bg-[#0f1e33] px-1.5 py-0.5 font-semibold text-white"
+                          title={`Verrouillée le ${formatDate(f.verrouLe)} à ${formatTime(f.verrouLe)}${f.verrouPar ? ` par ${f.verrouPar}` : ''}`}>
+                          <Lock className="size-3" /> verrouillée{f.verrouPar ? ` par ${f.verrouPar}` : ''}
+                        </span>
+                      ) : null}
+                      {f.modifieLe ? (
+                        <span className="rounded-md bg-warn/15 px-1.5 py-0.5 font-medium text-warn">
+                          modifiée le {formatDate(f.modifieLe)} à {formatTime(f.modifieLe)}{f.modifiePar ? ` par ${f.modifiePar}` : ''}
+                        </span>
+                      ) : null}
+                    </span>
+                  </>
+                )
+                return (
+                  <div key={f.cle} className="relative">
+                    {modifiable ? (
+                      <button type="button"
+                        onClick={() => bloquee
+                          ? push('info', `Facture verrouillée${f.verrouPar ? ` par ${f.verrouPar}` : ''} : seule l’administration peut l’ouvrir et la modifier.`)
+                          : setCorrection(f.entrees)}
+                        aria-label={`Ouvrir la facture ${f.reference ?? 'sans numéro'} de ${f.fournisseur ?? 'sans fournisseur'}`}
+                        className="block h-full w-full rounded-2xl border border-[rgb(var(--glass-edge)/0.3)] bg-white/70 p-3.5 text-left shadow-[inset_3px_0_0_0_var(--danger)] transition-[transform,box-shadow,background-color] hover:-translate-y-0.5 hover:bg-white hover:shadow-[inset_3px_0_0_0_var(--danger),0_10px_24px_-12px_rgb(var(--shadow-ambient)/0.4)]">
+                        {corps}
+                      </button>
+                    ) : (
+                      /* Un inventaire ne se corrige pas : il se refait depuis l'article. */
+                      <div className="h-full rounded-2xl border border-[rgb(var(--glass-edge)/0.3)] bg-white/50 p-3.5">{corps}</div>
+                    )}
+                    {/* L'appareil photo, à côté de l'icône de la facture : on
+                        photographie la facture papier. Avec des photos déjà
+                        là, le badge en donne le nombre et ouvre la galerie. */}
+                    {(() => {
+                      const cle = { supplierId: f.entrees[0].supplier?.id ?? null, reference: f.reference, jour: f.jour }
+                      const liste = photosPar.get(cleFacture(cle.supplierId, cle.reference, cle.jour)) ?? []
+                      return (
+                        <span className="absolute left-[3.85rem] top-3.5 flex items-center gap-1">
+                          {bloquee ? (
+                            <span title="Facture verrouillée" className="grid size-10 place-items-center rounded-xl bg-[#0f1e33] text-white"><Lock className="size-5" /></span>
+                          ) : (
+                          <button type="button" onClick={() => prendrePhoto(cle)} disabled={envoi !== null}
+                            title="Photographier la facture" aria-label={`Photographier la facture ${f.reference ?? 'sans numéro'}`}
+                            className="grid size-10 place-items-center rounded-xl border-2 border-[#103528]/30 bg-white text-[#103528] transition-colors hover:bg-[#103528] hover:text-white disabled:opacity-50">
+                            <Camera className="size-5" />
+                          </button>
+                          )}
+                          {liste.length > 0 ? (
+                            <button type="button" onClick={() => setVisionneuse({ photos: liste, index: 0, titre: `Facture ${f.reference ? `n° ${f.reference}` : 'sans numéro'}${f.fournisseur ? ` — ${f.fournisseur}` : ''}`, cle, lecture: bloquee })}
+                              title="Voir les photos" aria-label={`Voir les ${liste.length} photos de la facture`}
+                              className="inline-flex h-7 items-center gap-1 rounded-full bg-[#103528] px-2 text-[0.74rem] font-bold text-white">
+                              {liste.length} photo{liste.length > 1 ? 's' : ''}
+                            </button>
+                          ) : null}
+                        </span>
+                      )
+                    })()}
+                    {admin && !f.verrouLe ? (
+                      <button type="button" onClick={() => void runSuppression(() => supprimerFacture(f.entrees, f.reference))} disabled={suppression}
+                        title="Retirer cette facture du stock" aria-label={`Retirer la facture ${f.reference ?? 'sans numéro'}`}
+                        className="absolute bottom-2.5 right-2.5 grid size-8 place-items-center rounded-lg text-fg-subtle transition-colors hover:bg-danger/10 hover:text-danger">
+                        <Trash2 className="size-4" />
+                      </button>
+                    ) : null}
+                  </div>
+                )
+              })}
+            </div>
             </>
             )}
             </>
@@ -610,15 +839,15 @@ export function GeneralStock({ admin, base }: { admin: boolean; base: '/economat
       ) : null}
 
       {entree && data ? (
-        <NouvelleEntree produits={data.stockProducts.filter((p) => data.generalStock.lines.find((l) => l.productId === p.id)?.kind !== 'PREPARE')}
-          onClose={() => setEntree(false)} onDone={() => { setEntree(false); recharger(); router.refresh() }} />
+        <FactureEntree admin={admin} produits={data.stockProducts.filter((p) => data.generalStock.lines.find((l) => l.productId === p.id)?.kind !== 'PREPARE')}
+          onClose={() => setEntree(false)} onDone={() => { setEntree(false); recharger(); setVersionPhotos((v) => v + 1); router.refresh() }} />
       ) : null}
       {portion && data ? (
         <Dispatching mere={portion} lignes={data.generalStock.lines} onClose={() => setPortion(null)} onDone={() => { setPortion(null); recharger() }} />
       ) : null}
       {detailCout ? <DetailCoutMoyen article={detailCout} onClose={() => setDetailCout(null)} /> : null}
       {preparation && data ? (
-        <NouvellePreparation lignes={data.generalStock.lines} onClose={() => setPreparation(false)} onDone={() => { setPreparation(false); recharger() }} />
+        <NouvellePreparation lignes={data.generalStock.lines} onClose={() => setPreparation(false)} onDone={() => { setPreparation(false); recharger() }} onEdited={recharger} />
       ) : null}
       {modif && data ? (
         <ModifierArticle article={modif} lignes={data.generalStock.lines} onClose={() => setModif(null)} onDone={() => { setModif(null); recharger() }} />
@@ -628,7 +857,7 @@ export function GeneralStock({ admin, base }: { admin: boolean; base: '/economat
 }
 
 /** Un arrivage : l'article, la quantité, le prix — et la facture. */
-type Fournisseur = { id: string; name: string; phone: string | null; taxId: string | null }
+type Fournisseur = { id: string; name: string; phone: string | null; taxId: string | null; address: string | null }
 type Unite = { id: string; name: string; symbol: string }
 
 /** La contenance d'une unité pour un article (1 carton de RIZ = 25 kg), retenue d'une facture à l'autre. */
@@ -643,25 +872,89 @@ function retenirContenance(productId: string, unite: string, valeur: string) {
 function focaliser(label: string) {
   window.requestAnimationFrame(() => document.querySelector<HTMLElement>(`[aria-label="${label}"]`)?.focus())
 }
-/** Une ligne de facture : l'article, ce qu'on en reçoit dans l'unité de la facture, et — quand cette unité ne se convertit pas d'elle-même — ce qu’elle contient d’unités de stock. */
-type LigneSaisie = { cle: number; produit: Produit | null; quantite: string; prix: string; unite: string; contenance: string }
+/** Une ligne de facture : l'article, ce qu'on en reçoit dans l'unité de la facture, son prix, sa remise, sa TVA — et, quand l'unité ne se convertit pas d'elle-même, ce qu’elle contient d’unités de stock. */
+type LigneSaisie = {
+  cle: number
+  /** L'écriture existante que la ligne corrige ; nul pour une ligne nouvelle. */
+  id: string | null
+  produit: Produit | null; quantite: string; prix: string; remise: string; tva: string; unite: string; contenance: string
+}
+
+/** Un nombre tel qu'on l'écrit sur une facture : trois décimales, sans devise. */
+const montant = (n: number) => n.toLocaleString('fr-FR', { minimumFractionDigits: 3, maximumFractionDigits: 3 })
 
 /**
- * Une entrée au stock, c'est une facture : un fournisseur, puis ses lignes.
+ * Une entrée au stock, c'est une facture — et l'écran lui ressemble.
  *
- * Le nom de la société se retrouve à la frappe parmi ceux déjà connus ; le
- * choisir ramène son téléphone et son matricule fiscal. Un nom nouveau se
- * crée avec l'entrée. Chaque ligne porte l'article, la quantité, le prix
- * unitaire et le total qui en découle ; « Valider » enregistre tout d'un
- * coup, une entrée par article, toutes rattachées au même fournisseur et à
- * la même facture.
+ * La feuille reprend la facture du fournisseur telle qu'on la tient en
+ * main : son en-tête, son numéro, sa date, son bon de livraison, puis le
+ * tableau — code, libellé, quantité, prix unitaire hors taxes, remise, TVA,
+ * montant hors taxes — et le pied avec les bases de TVA et le net à payer.
+ * On recopie de haut en bas, sans chercher où va chaque chiffre.
+ *
+ * La même feuille sert à saisir une facture neuve et à en corriger une :
+ * ouverte sur une facture déjà entrée, elle en montre toutes les lignes, qui
+ * se corrigent sur place, et l'on en ajoute d'autres à la suite.
+ *
+ * Le stock se valorise hors taxes et net de remise ; la TVA ne sert qu'au
+ * total de la facture.
  */
-function NouvelleEntree({ produits, onClose, onDone }: { produits: Produit[]; onClose: () => void; onDone: () => void }) {
+function FactureEntree({ produits, facture, photos: photosFacture = [], admin, onClose, onDone, onChange }: {
+  produits: Produit[]
+  /** Les écritures d'une facture déjà entrée, pour la corriger. */
+  facture?: Entry[]
+  /** Les photos déjà enregistrées de cette facture. */
+  photos?: PhotoFacture[]
+  admin: boolean
+  onClose: () => void; onDone: () => void
+  /** La facture a changé sans que la feuille se ferme (déverrouillée). */
+  onChange?: () => void
+}) {
   const { push } = useToast()
+  const confirmerPhoto = useConfirm()
+  // Les photos de la facture : celles déjà enregistrées, et celles prises
+  // ici, qui partent avec la facture à l'enregistrement.
+  const [photosEnBase, setPhotosEnBase] = React.useState<PhotoFacture[]>(photosFacture)
+  const [nouvelles, setNouvelles] = React.useState<{ cle: string; fichier: File; apercu: string }[]>([])
+  const [vue, setVue] = React.useState(0)
+  const entreeCamera = React.useRef<HTMLInputElement>(null)
+  React.useEffect(() => () => { for (const n of nouvelles) URL.revokeObjectURL(n.apercu) }, [nouvelles])
+  const galerie = [
+    ...photosEnBase.map((p) => ({ cle: `b${p.id}`, src: `/api/factures/photos/${p.id}`, mini: `/api/factures/photos/${p.id}?mini=1`, enBase: p as PhotoFacture | null })),
+    ...nouvelles.map((n) => ({ cle: n.cle, src: n.apercu, mini: n.apercu, enBase: null as PhotoFacture | null })),
+  ]
+  const courante = galerie[Math.min(vue, Math.max(galerie.length - 1, 0))] ?? null
+  const ajouterPhotos = (fichiers: FileList | null) => {
+    if (!fichiers) return
+    const liste = [...fichiers].filter((f) => f.type.startsWith('image/')).slice(0, 20)
+    setNouvelles((n) => [...n, ...liste.map((f, i) => ({ cle: `n${Date.now()}-${i}`, fichier: f, apercu: URL.createObjectURL(f) }))])
+    setVue(galerie.length)
+    if (entreeCamera.current) entreeCamera.current.value = ''
+  }
+  const retirerPhoto = async (g: (typeof galerie)[number]) => {
+    if (g.enBase) {
+      const ok = await confirmerPhoto({ title: 'Retirer cette photo ?', message: 'La photo de la facture sera supprimée. La facture et son stock ne changent pas.', confirmLabel: 'Retirer', tone: 'danger' })
+      if (!ok) return
+      try { await gql(DELETE_PHOTO, { id: g.enBase.id }); setPhotosEnBase((l) => l.filter((x) => x.id !== g.enBase!.id)) } catch (e) { push('error', errorMessage(e)); return }
+    } else {
+      setNouvelles((l) => l.filter((x) => x.cle !== g.cle))
+    }
+    setVue((v) => Math.max(0, v - 1))
+  }
+  const existantes = React.useMemo(() => (facture ?? []).slice().sort((a, b) => Number(a.id) - Number(b.id)), [facture])
+  const edition = existantes.length > 0
+  const tete = existantes[0] ?? null
+  /** Le verrou de la facture : seule l'administration l'ouvre alors, et en
+   *  lecture seule tant qu'elle ne l'a pas déverrouillée. */
+  const verrou = existantes.find((e) => e.lockedAt) ?? null
+  const [verrouille, setVerrouille] = React.useState(verrou !== null)
+
   const [fournisseurs, setFournisseurs] = React.useState<Fournisseur[]>([])
   const [unites, setUnites] = React.useState<Unite[]>([])
+  const [equipe, setEquipe] = React.useState<{ id: string; fullName: string }[]>([])
   React.useEffect(() => {
     gql<{ suppliers: Fournisseur[]; units: Unite[] }>(SUPPLIERS).then((d) => { setFournisseurs(d.suppliers); setUnites(d.units) }).catch(() => {})
+    gql<{ stockStaff: { id: string; fullName: string }[] }>(STAFF).then((d) => setEquipe(d.stockStaff)).catch(() => {})
   }, [])
   // Une nouvelle unité se crée depuis la ligne : « Sac », « Bidon »… Elle
   // rejoint la liste, et le sélecteur la pose sur sa ligne.
@@ -672,37 +965,55 @@ function NouvelleEntree({ produits, onClose, onDone }: { produits: Produit[]; on
       return d.createUnit
     } catch (e) { push('error', errorMessage(e)); return null }
   }
-  const [nom, setNom] = React.useState('')
-  const [tel, setTel] = React.useState('')
-  const [mf, setMf] = React.useState('')
+
+  // L'en-tête : le fournisseur, tel que sa facture le présente.
+  const [nom, setNom] = React.useState(tete?.supplier?.name ?? '')
+  const [adresse, setAdresse] = React.useState(tete?.supplierAddress ?? '')
+  const [tel, setTel] = React.useState(tete?.supplier?.phone ?? '')
+  const [mf, setMf] = React.useState(tete?.supplier?.taxId ?? '')
   const [listeOuverte, setListeOuverte] = React.useState(false)
   const connu = fournisseurs.find((f) => normaliser(f.name) === normaliser(nom)) ?? null
   const suggestions = (nom.trim()
     ? fournisseurs.filter((f) => correspond(nom, f.name, f.phone ?? '', f.taxId ?? ''))
     : fournisseurs).slice(0, 6)
   const choisirFournisseur = (f: Fournisseur) => {
-    setNom(f.name); setTel(f.phone ?? ''); setMf(f.taxId ?? ''); setListeOuverte(false)
+    setNom(f.name); setTel(f.phone ?? ''); setMf(f.taxId ?? ''); setAdresse(f.address ?? ''); setListeOuverte(false)
   }
 
-  const [lignes, setLignes] = React.useState<LigneSaisie[]>([{ cle: 1, produit: null, quantite: '', prix: '', unite: '', contenance: '' }])
-  const prochaineCle = React.useRef(2)
+  const vide = (cle: number): LigneSaisie => ({ cle, id: null, produit: null, quantite: '', prix: '', remise: '', tva: '', unite: '', contenance: '' })
+  const [lignes, setLignes] = React.useState<LigneSaisie[]>(() => (edition
+    ? existantes.map((e, i) => ({
+      cle: i + 1, id: e.id,
+      // L'article tel que le catalogue le connaît ; à défaut, tel que l'entrée le porte.
+      produit: produits.find((p) => p.id === e.product.id) ?? { id: e.product.id, name: e.product.name, reference: e.product.reference, category: { name: '' }, baseUnit: e.product.baseUnit },
+      quantite: String(e.quantity), prix: String(e.listPrice ?? e.unitPrice),
+      remise: e.discountPct > 0 ? String(e.discountPct) : '', tva: e.vatPct > 0 ? String(e.vatPct) : '',
+      unite: e.product.baseUnit.symbol, contenance: '',
+    }))
+    : [vide(1)]))
+  const prochaineCle = React.useRef(existantes.length + 2)
+  // Les écritures retirées de la facture : elles partent à l'enregistrement.
+  const [retirees, setRetirees] = React.useState<string[]>([])
   const poser = (cle: number, patch: Partial<LigneSaisie>) =>
     setLignes((ls) => ls.map((l) => (l.cle === cle ? { ...l, ...patch } : l)))
-  const ajouterLigne = () => setLignes((ls) => [...ls, { cle: prochaineCle.current++, produit: null, quantite: '', prix: '', unite: '', contenance: '' }])
-  const retirerLigne = (cle: number) => setLignes((ls) => (ls.length > 1 ? ls.filter((l) => l.cle !== cle) : [{ cle: prochaineCle.current++, produit: null, quantite: '', prix: '', unite: '', contenance: '' }]))
+  const ajouterLigne = () => setLignes((ls) => [...ls, vide(prochaineCle.current++)])
+  const retirerLigne = (l: LigneSaisie) => {
+    if (l.id) setRetirees((r) => [...r, l.id!])
+    setLignes((ls) => (ls.length > 1 ? ls.filter((x) => x.cle !== l.cle) : [vide(prochaineCle.current++)]))
+  }
+  const nombre = (v: string) => { const n = v.replace(',', '.'); return n === '' || /^\d*\.?\d*$/.test(n) ? n : null }
 
-  const [jour, setJour] = React.useState(toDateKey(new Date()))
-  const [reference, setReference] = React.useState('')
-  const [note, setNote] = React.useState('')
+  const [jour, setJour] = React.useState(tete ? tete.businessDay.slice(0, 10) : toDateKey(new Date()))
+  const [reference, setReference] = React.useState(tete?.reference ?? '')
+  const [bl, setBl] = React.useState(tete?.deliveryNote ?? '')
+  const [note, setNote] = React.useState(tete?.note ?? '')
+  const [auteur, setAuteur] = React.useState(tete?.createdBy.id ?? '')
   const [busy, setBusy] = React.useState(false)
 
-  const totalLigne = (l: LigneSaisie) => toNumber(l.quantite) * toNumber(l.prix)
-  // L'unité de saisie : celle de l'article par défaut. La quantité et le
-  // prix unitaire s'écrivent dans l'unité du stock, le total ne bouge pas.
+  // L'unité de saisie : celle de l'article par défaut. Le stock, lui, reste
+  // dans l'unité de l'article ; le montant de la ligne ne bouge pas.
   const uniteDe = (l: LigneSaisie) => l.unite || l.produit?.baseUnit.symbol || ''
-  // Convertible d'elle-même (g → kg) ; sinon la contenance saisie fait la
-  // conversion (1 carton = 25 kg).
-  const convertible = (l: LigneSaisie) => !!l.produit && versBase(1, uniteDe(l), l.produit.baseUnit.symbol) !== null
+  const seConvertit = (l: LigneSaisie) => !!l.produit && versBase(1, uniteDe(l), l.produit.baseUnit.symbol) !== null
   const enBase = (l: LigneSaisie) => {
     if (!l.produit) return null
     const direct = versBase(toNumber(l.quantite), uniteDe(l), l.produit.baseUnit.symbol)
@@ -710,141 +1021,300 @@ function NouvelleEntree({ produits, onClose, onDone }: { produits: Produit[]; on
     const c = toNumber(l.contenance)
     return c > 0 ? toNumber(l.quantite) * c : null
   }
-  const complete = (l: LigneSaisie) => !!l.produit && toNumber(l.quantite) > 0 && l.prix !== '' && toNumber(l.prix) >= 0 && (enBase(l) ?? 0) > 0
-  const entamee = (l: LigneSaisie) => !!l.produit || l.quantite !== '' || l.prix !== ''
+  const brut = (l: LigneSaisie) => toNumber(l.quantite) * toNumber(l.prix)
+  const ht = (l: LigneSaisie) => brut(l) * (1 - toNumber(l.remise) / 100)
+  const tauxValide = (v: string) => v === '' || (toNumber(v) >= 0 && toNumber(v) <= 100)
+  const complete = (l: LigneSaisie) => !!l.produit && toNumber(l.quantite) > 0 && l.prix !== '' && toNumber(l.prix) >= 0
+    && (enBase(l) ?? 0) > 0 && tauxValide(l.remise) && tauxValide(l.tva)
+  const entamee = (l: LigneSaisie) => !!l.id || !!l.produit || l.quantite !== '' || l.prix !== ''
   const completes = lignes.filter(complete)
   const incompletes = lignes.filter((l) => entamee(l) && !complete(l))
   const doublons = new Set(completes.map((l) => l.produit!.id)).size !== completes.length
-  const total = completes.reduce((n, l) => n + totalLigne(l), 0)
+  const totalHt = completes.reduce((n, l) => n + ht(l), 0)
+  // Le pied de la facture : une base et un montant de TVA par taux.
+  const parTaux = React.useMemo(() => {
+    const m = new Map<number, { base: number; tva: number }>()
+    for (const l of lignes) {
+      if (!complete(l)) continue
+      const t = toNumber(l.tva)
+      const c = m.get(t) ?? { base: 0, tva: 0 }
+      c.base += ht(l); c.tva += ht(l) * t / 100
+      m.set(t, c)
+    }
+    return [...m.entries()].sort((a, b) => a[0] - b[0])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lignes])
+  const totalTva = parTaux.reduce((n, [, c]) => n + c.tva, 0)
   const valide = nom.trim() !== '' && completes.length > 0 && incompletes.length === 0 && !doublons
 
-  const envoyer = async () => {
+  /** Enregistre la facture ; `verrouiller` la clôt ensuite pour l'économat. */
+  const envoyer = async (verrouiller = false) => {
     if (!valide) return
+    if (verrouiller) {
+      const ok = await confirmerPhoto({
+        title: 'Enregistrer et verrouiller la facture ?',
+        message: 'La facture sera enregistrée puis verrouillée : l’économat ne pourra plus l’ouvrir ni la modifier, ni changer ses photos. Seule l’administration pourra la rouvrir et la déverrouiller.',
+        confirmLabel: 'Verrouiller', tone: 'danger',
+      })
+      if (!ok) return
+    }
     setBusy(true)
     try {
-      const n = await gql<{ addStockEntries: number }>(ADD_ENTRIES, {
-        supplier: { name: nom.trim(), phone: tel.trim() || null, taxId: mf.trim() || null },
-        reference: reference.trim() || null, note: note.trim() || null, day: jour || null,
+      await gql(SAVE_INVOICE, {
+        supplier: { name: nom.trim(), phone: tel.trim() || null, taxId: mf.trim() || null, address: adresse.trim() || null },
+        reference: reference.trim() || null, deliveryNote: bl.trim() || null, note: note.trim() || null, day: jour || null,
+        createdById: edition && auteur ? auteur : null,
         lines: completes.map((l) => {
           const q = enBase(l)!
-          // Le prix par unité de base : le total de la ligne divisé par ce qui entre.
-          return { productId: l.produit!.id, quantity: q, unitPrice: totalLigne(l) / q }
+          // Le prix par unité de stock : le brut de la ligne divisé par ce qui entre.
+          return { id: l.id, productId: l.produit!.id, quantity: q, listPrice: brut(l) / q, discountPct: toNumber(l.remise), vatPct: toNumber(l.tva) }
         }),
+        removeIds: retirees,
       })
-      push('success', `${n.addStockEntries} article(s) entrés au stock — ${formatMoney(total)} — ${nom.trim()}.`)
+      // Les photos prises sur la feuille partent avec la facture enregistrée.
+      if (nouvelles.length > 0) {
+        const form = new FormData()
+        form.set('day', (jour || toDateKey(new Date())).slice(0, 10))
+        form.set('supplierName', nom.trim())
+        if (reference.trim()) form.set('reference', reference.trim())
+        for (const n of nouvelles) {
+          const p = await preparerPhoto(n.fichier)
+          form.append('image', p.image, 'facture.jpg'); form.append('vignette', p.vignette, 'mini.jpg')
+          form.append('largeur', String(p.largeur)); form.append('hauteur', String(p.hauteur))
+        }
+        const r = await fetch('/api/factures/photos', { method: 'POST', body: form })
+        if (!r.ok) {
+          const d = await r.json().catch(() => ({}))
+          push('error', `Facture enregistrée, mais les photos n’ont pas pu l’être : ${d.error ?? 'envoi impossible'}.${verrouiller ? ' Elle n’est pas verrouillée.' : ''}`)
+          onDone(); return
+        }
+      }
+      // Le verrou en dernier : les photos sont déjà passées.
+      if (verrouiller) {
+        await gql(LOCK_INVOICE, { supplierName: nom.trim(), reference: reference.trim() || null, day: jour || toDateKey(new Date()), locked: true })
+        push('success', `Facture enregistrée et verrouillée — ${completes.length} article(s), ${formatMoney(totalHt)} HT — ${nom.trim()}.`)
+        onDone(); return
+      }
+      push('success', edition
+        ? `Facture corrigée — ${completes.length} article(s), ${formatMoney(totalHt)} HT — ${nom.trim()}.`
+        : `${completes.length} article(s) entrés au stock — ${formatMoney(totalHt)} HT — ${nom.trim()}.`)
       onDone()
     } catch (e) { push('error', errorMessage(e)) } finally { setBusy(false) }
   }
 
-  const champ = 'field h-10 w-full px-3'
+  const deverrouiller = async () => {
+    if (!tete) return
+    const ok = await confirmerPhoto({
+      title: 'Déverrouiller la facture ?',
+      message: 'La facture redevient modifiable, ici comme à l’économat, qui pourra de nouveau l’ouvrir, la corriger et changer ses photos.',
+      confirmLabel: 'Déverrouiller',
+    })
+    if (!ok) return
+    setBusy(true)
+    try {
+      await gql(LOCK_INVOICE, { supplierName: tete.supplier?.name ?? null, reference: tete.reference, day: tete.businessDay.slice(0, 10), locked: false })
+      setVerrouille(false)
+      push('success', 'Facture déverrouillée : vous pouvez maintenant la modifier.')
+      onChange?.()
+    } catch (e) { push('error', errorMessage(e)) } finally { setBusy(false) }
+  }
+
+  // La feuille : encre sombre sur blanc, filets gris, en-têtes grisés —
+  // comme le papier. Les champs n'ont pas de cadre propre : la case du
+  // tableau leur en tient lieu.
+  const filet = 'border !border-[#374151]'
+  const entete = 'border !border-[#374151] bg-[#d4d4d8] px-2 py-1.5 text-[0.7rem] font-bold uppercase tracking-wide text-[#111827]'
+  const saisie = 'h-9 w-full bg-transparent px-2 text-[0.88rem] text-[#111827] outline-none placeholder:text-[#9ca3af] focus:bg-[#eaf2ff]'
+  const auteurs = tete && !equipe.some((u) => u.id === tete.createdBy.id) ? [tete.createdBy, ...equipe] : equipe
+
   return (
-    <Modal title="Nouvelle entrée au stock général" onClose={onClose} size="xl"
+    <Modal title={edition ? 'Modifier la facture' : 'Nouvelle entrée au stock général'} onClose={onClose} size={galerie.length > 0 ? 'full' : 'xl'}
       footer={
         <div className="flex w-full flex-wrap items-center justify-between gap-2">
           <span className="text-[0.85rem] text-fg-muted">
-            {completes.length} article{completes.length > 1 ? 's' : ''} · Total : <strong className="text-fg">{formatMoney(total)}</strong>
+            {completes.length} article{completes.length > 1 ? 's' : ''} · Net à payer : <strong className="text-fg">{formatMoney(totalHt + totalTva)}</strong>
+            {nom.trim() === '' ? <span className="ml-2 text-warn">Nommez le fournisseur.</span> : null}
             {doublons ? <span className="ml-2 text-danger">Un article figure deux fois.</span> : null}
             {incompletes.length > 0 ? <span className="ml-2 text-warn">{incompletes.length} ligne(s) à compléter.</span> : null}
+            {retirees.length > 0 ? <span className="ml-2 text-danger">{retirees.length} ligne(s) retirée(s).</span> : null}
           </span>
           <div className="flex gap-2">
-            <Button variant="ghost" onClick={onClose} disabled={busy}>Annuler</Button>
-            <Button variant="primary" loading={busy} disabled={!valide} onClick={envoyer}>
-              {!busy ? <Check className="size-4" /> : null}
-              Valider
+            {verrouille ? (
+              <>
+                <Button variant="ghost" onClick={onClose} disabled={busy}>Fermer</Button>
+                {/* L'administration seule déverrouille ; alors la feuille se modifie. */}
+                <Button variant="primary" loading={busy} onClick={() => void deverrouiller()}>
+                  {!busy ? <LockOpen className="size-4" /> : null} Déverrouiller pour modifier
+                </Button>
+              </>
+            ) : (
+            <>
+            {/* La photo de la facture papier, prise d'ici. */}
+            <Button variant="secondary" onClick={() => entreeCamera.current?.click()} disabled={busy}>
+              <Camera className="size-4" />
+              {galerie.length > 0 ? `Photos (${galerie.length})` : 'Photographier la facture'}
             </Button>
+            <Button variant="ghost" onClick={onClose} disabled={busy}>Annuler</Button>
+            <Button variant="secondary" onClick={() => void envoyer(true)} disabled={busy || !valide}
+              title="Enregistrer, puis verrouiller : seule l’administration pourra la rouvrir">
+              <Lock className="size-4" /> {edition ? 'Enregistrer et verrouiller' : 'Valider et verrouiller'}
+            </Button>
+            <Button variant="primary" loading={busy} disabled={!valide} onClick={() => void envoyer()}>
+              {!busy ? <Check className="size-4" /> : null}
+              {edition ? 'Enregistrer la facture' : 'Valider'}
+            </Button>
+            </>
+            )}
           </div>
         </div>
       }>
-      <div className="space-y-5">
-        {/* 1. Le fournisseur : le nom se retrouve à la frappe, le reste suit. */}
-        <section className="rounded-xl border border-[rgb(var(--glass-edge)/0.22)] bg-white/40 p-3">
-          <p className="mb-2 flex items-center gap-1.5 text-[0.74rem] font-semibold uppercase tracking-wide text-fg-muted">
-            <Building2 className="size-3.5" /> Fournisseur
+      <input ref={entreeCamera} type="file" accept="image/*" capture="environment" multiple className="hidden"
+        onChange={(e) => ajouterPhotos(e.target.files)} aria-label="Photographier cette facture" />
+      {/* Avec des photos, l'écran se partage : la feuille à gauche, la
+          facture papier à droite — on vérifie ligne par ligne. */}
+      <div className={cn(galerie.length > 0 && 'grid items-start gap-4 xl:grid-cols-[minmax(0,58rem)_minmax(20rem,1fr)]')}>
+      <div className="mx-auto w-full max-w-[62rem] rounded-md bg-white p-4 text-[#111827] shadow-[0_2px_14px_-4px_rgb(15_30_51/0.35)] sm:p-7">
+        {verrouille && verrou ? (
+          <p className="-mt-1 mb-4 flex items-center gap-2 rounded-md bg-[#0f1e33] px-3 py-2 text-[0.84rem] text-white">
+            <Lock className="size-4 shrink-0" />
+            <span>
+              <strong>Facture verrouillée</strong>
+              {verrou.lockedBy ? ` par ${verrou.lockedBy}` : ''} le {formatDate(verrou.lockedAt!)} à {formatTime(verrou.lockedAt!)}
+              {' '}— lecture seule. Cliquez sur <strong>Déverrouiller</strong> pour la modifier.
+            </span>
           </p>
-          <div className="grid gap-3 sm:grid-cols-[1.4fr_1fr_1fr]">
-            <label className="relative block text-[0.8rem] font-medium text-fg-muted">Nom de la société
-              <input
-                value={nom}
-                onChange={(e) => { setNom(e.target.value); setListeOuverte(true) }}
-                onFocus={() => setListeOuverte(true)}
-                onBlur={() => window.setTimeout(() => setListeOuverte(false), 150)}
-                placeholder="Société…"
-                autoFocus
-                role="combobox"
-                aria-controls="liste-societes"
-                aria-autocomplete="list"
-                aria-expanded={listeOuverte && suggestions.length > 0}
-                aria-label="Nom de la société"
-                className={cn(champ, 'mt-1')}
-              />
-              {connu ? (
-                <span className="absolute right-2 top-[2.1rem] inline-flex items-center gap-1 rounded-full bg-ok/12 px-2 py-0.5 text-[0.68rem] font-semibold text-ok"><Check className="size-3" /> connu</span>
-              ) : nom.trim() ? (
-                <span className="absolute right-2 top-[2.1rem] rounded-full bg-accent/12 px-2 py-0.5 text-[0.68rem] font-semibold text-accent">nouveau</span>
-              ) : null}
-              {listeOuverte && suggestions.length > 0 && !connu ? (
-                <div role="listbox" className="absolute left-0 right-0 top-[calc(100%+0.25rem)] z-30 max-h-56 overflow-y-auto rounded-xl border border-[rgb(var(--glass-edge)/0.3)] bg-white shadow-lg">
-                  {suggestions.map((f) => (
-                    <button key={f.id} type="button" role="option" aria-selected={false} onMouseDown={(e) => e.preventDefault()} onClick={() => choisirFournisseur(f)}
-                      className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-[0.83rem] hover:bg-accent/[0.08]">
-                      <span className="font-medium text-fg">{f.name}</span>
-                      <span className="shrink-0 text-[0.72rem] text-fg-subtle">{[f.phone, f.taxId].filter(Boolean).join(' · ')}</span>
-                    </button>
-                  ))}
-                </div>
-              ) : null}
+        ) : null}
+        {/* Verrouillée, la feuille se lit sans se modifier : tous ses champs
+            et boutons sont désactivés d'un coup. */}
+        <fieldset disabled={verrouille} className={cn('m-0 min-w-0 border-0 p-0', verrouille && '[&_button]:cursor-not-allowed [&_button]:opacity-35')}>
+        {/* L'en-tête : à gauche le fournisseur, à droite ses coordonnées. */}
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div className="relative">
+            <p className="flex items-center gap-1.5 text-[0.68rem] font-bold uppercase tracking-[0.1em] text-[#6b7280]"><Building2 className="size-3.5" /> Fournisseur</p>
+            <input
+              value={nom}
+              onChange={(e) => { setNom(e.target.value); setListeOuverte(true) }}
+              onFocus={() => setListeOuverte(true)}
+              onBlur={() => window.setTimeout(() => setListeOuverte(false), 150)}
+              placeholder="Société…"
+              autoFocus={!edition}
+              role="combobox"
+              aria-controls="liste-societes"
+              aria-autocomplete="list"
+              aria-expanded={listeOuverte && suggestions.length > 0}
+              aria-label="Nom de la société"
+              className="mt-0.5 h-12 w-full border-b-2 !border-[#15803d] bg-transparent px-1 text-[1.5rem] font-bold tracking-tight text-[#15803d] outline-none placeholder:font-semibold placeholder:text-[#9ca3af] focus:bg-[#f0fdf4]"
+            />
+            {connu ? (
+              <span className="absolute right-1 top-7 inline-flex items-center gap-1 rounded-full bg-[#dcfce7] px-2 py-0.5 text-[0.68rem] font-semibold text-[#15803d]"><Check className="size-3" /> connu</span>
+            ) : nom.trim() ? (
+              <span className="absolute right-1 top-7 rounded-full bg-[#dbeafe] px-2 py-0.5 text-[0.68rem] font-semibold text-[#1d4ed8]">nouveau</span>
+            ) : null}
+            {listeOuverte && suggestions.length > 0 && !connu ? (
+              <div id="liste-societes" role="listbox" className="absolute left-0 right-0 top-[calc(100%+0.25rem)] z-30 max-h-56 overflow-y-auto rounded-lg border !border-[#d1d5db] bg-white shadow-lg">
+                {suggestions.map((f) => (
+                  <button key={f.id} type="button" role="option" aria-selected={false} onMouseDown={(e) => e.preventDefault()} onClick={() => choisirFournisseur(f)}
+                    className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-[0.83rem] hover:bg-[#eaf2ff]">
+                    <span className="font-medium">{f.name}</span>
+                    <span className="shrink-0 text-[0.72rem] text-[#6b7280]">{[f.phone, f.taxId].filter(Boolean).join(' · ')}</span>
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </div>
+          <div className="text-[0.84rem] sm:text-right">
+            <input value={adresse} onChange={(e) => setAdresse(e.target.value)} maxLength={160} placeholder="Adresse du fournisseur"
+              aria-label="Adresse du fournisseur" className={cn(saisie, 'h-8 border-b border-dashed !border-[#d1d5db] sm:text-right')} />
+            <label className="mt-1 flex items-center gap-2 sm:justify-end">
+              <span className="shrink-0 text-[#4b5563]">Code TVA / MF :</span>
+              <input value={mf} onChange={(e) => setMf(e.target.value)} maxLength={40} placeholder="—"
+                aria-label="Matricule fiscal" className={cn(saisie, 'h-8 w-48 border-b border-dashed !border-[#d1d5db] font-mono')} />
             </label>
-            <label className="block text-[0.8rem] font-medium text-fg-muted">N° de téléphone
-              <input value={tel} onChange={(e) => setTel(e.target.value)} inputMode="tel" maxLength={30} placeholder="—" className={cn(champ, 'mt-1')} />
-            </label>
-            <label className="block text-[0.8rem] font-medium text-fg-muted">Matricule fiscal
-              <input value={mf} onChange={(e) => setMf(e.target.value)} maxLength={40} placeholder="—" className={cn(champ, 'mt-1 font-mono')} />
+            <label className="mt-1 flex items-center gap-2 sm:justify-end">
+              <span className="shrink-0 text-[#4b5563]">Tél :</span>
+              <input value={tel} onChange={(e) => setTel(e.target.value)} inputMode="tel" maxLength={30} placeholder="—"
+                aria-label="Téléphone du fournisseur" className={cn(saisie, 'h-8 w-48 border-b border-dashed !border-[#d1d5db]')} />
             </label>
           </div>
-        </section>
-
-        {/* 2. La facture : sa date, son numéro, une remarque. */}
-        <div className="grid gap-3 sm:grid-cols-3">
-          <label className="block text-[0.8rem] font-medium text-fg-muted">Journée
-            <div className="mt-1"><DateField value={jour} onChange={(v) => setJour(v ?? '')} /></div>
-          </label>
-          <label className="block text-[0.8rem] font-medium text-fg-muted">Référence facture / bon fournisseur
-            <input value={reference} onChange={(e) => setReference(e.target.value)} maxLength={80} className={cn(champ, 'mt-1')} />
-          </label>
-          <label className="block text-[0.8rem] font-medium text-fg-muted">Remarque
-            <input value={note} onChange={(e) => setNote(e.target.value)} maxLength={200} className={cn(champ, 'mt-1')} />
-          </label>
         </div>
 
-        {/* 3. Les articles, une ligne chacun. */}
-        <section className="overflow-hidden rounded-xl border border-[rgb(var(--glass-edge)/0.22)]">
-          <table className="w-full border-collapse text-left text-[0.85rem]">
+        <p className="mt-4 text-[1.6rem] font-bold tracking-wide sm:text-right sm:pr-24">FACTURE</p>
+
+        {/* Le cartouche : numéro, date, bon de livraison ; en face, le client. */}
+        <div className="mt-1 grid gap-3 sm:grid-cols-2">
+          <table className="w-full border-collapse text-[0.85rem]">
+            <tbody>
+              <tr>
+                <th className={cn(filet, 'w-1/2 px-2 py-1 text-center text-[0.74rem] font-bold')}>N°</th>
+                <th className={cn(filet, 'px-2 py-1 text-center text-[0.74rem] font-bold')}>DATE</th>
+              </tr>
+              <tr>
+                <td className={filet}>
+                  <input value={reference} onChange={(e) => setReference(e.target.value)} maxLength={80} placeholder="Numéro de facture"
+                    aria-label="Numéro de facture" className={cn(saisie, 'text-center font-mono')} />
+                </td>
+                <td className={cn(filet, 'px-1')}>
+                  <DateField value={jour} onChange={(v) => setJour(v ?? '')} label="Date de la facture" className="w-full" />
+                </td>
+              </tr>
+              <tr>
+                <td colSpan={2} className={filet}>
+                  <label className="flex items-center gap-2 px-2">
+                    <span className="shrink-0 text-[0.74rem] font-bold">BL</span>
+                    <input value={bl} onChange={(e) => setBl(e.target.value)} maxLength={80} placeholder="Numéro du bon de livraison"
+                      aria-label="Numéro du bon de livraison" className={cn(saisie, 'font-mono')} />
+                  </label>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+          <div className={cn(filet, 'px-3 py-2 text-[0.85rem]')}>
+            <p className="text-[0.68rem] font-bold uppercase tracking-[0.1em] text-[#6b7280]">Client</p>
+            <p className="text-[0.98rem] font-bold">Economan — Stock général</p>
+            {edition ? (
+              <label className="mt-1 flex items-center gap-2 text-[0.8rem] text-[#4b5563]">Saisie par
+                <select value={auteur} onChange={(e) => setAuteur(e.target.value)} aria-label="Saisie par"
+                  className="h-8 min-w-0 flex-1 rounded border !border-[#d1d5db] bg-white px-1.5 text-[0.84rem] text-[#111827]">
+                  {auteurs.map((u) => <option key={u.id} value={u.id}>{u.fullName}</option>)}
+                </select>
+              </label>
+            ) : null}
+            <input value={note} onChange={(e) => setNote(e.target.value)} maxLength={200} placeholder="Remarque"
+              aria-label="Remarque" className={cn(saisie, 'mt-1 h-8 border-b border-dashed !border-[#d1d5db] px-0 text-[0.82rem]')} />
+          </div>
+        </div>
+
+        {/* Le tableau de la facture, colonne pour colonne. */}
+        <div className="mt-4 overflow-x-auto">
+          <table className="w-full min-w-[50rem] border-collapse text-[0.86rem]">
             <thead>
-              <tr className="bg-[#e7edf7] text-[0.72rem] font-semibold uppercase tracking-wider text-fg-muted">
-                <th className="w-10 px-3 py-2.5 text-right">#</th>
-                <th className="px-3 py-2.5">Article</th>
-                <th className="w-60 whitespace-nowrap px-3 py-2.5 text-right">Quantité · unité</th>
-                <th className="w-44 whitespace-nowrap px-3 py-2.5 text-right">Prix unitaire (DT / unité)</th>
-                <th className="w-40 whitespace-nowrap px-3 py-2.5 text-right">Prix total</th>
-                <th className="w-12 px-2 py-2.5" />
+              <tr>
+                <th className={cn(entete, 'w-24')}>Code</th>
+                <th className={entete}>Libellé</th>
+                <th className={cn(entete, 'w-52')}>Qté</th>
+                <th className={cn(entete, 'w-28')}>P.U.H.T.</th>
+                <th className={cn(entete, 'w-20')}>Rem. %</th>
+                <th className={cn(entete, 'w-20')}>TVA %</th>
+                <th className={cn(entete, 'w-32')}>Montant HT</th>
+                <th className="w-9" />
               </tr>
             </thead>
-            <tbody className="divide-y divide-[rgb(var(--glass-edge)/0.14)]">
+            <tbody>
               {lignes.map((l, i) => {
                 const enDouble = !!l.produit && completes.filter((x) => x.produit!.id === l.produit!.id).length > 1
+                const colonne = 'border-x !border-[#374151] align-top'
                 return (
-                  <tr key={l.cle} className={cn(enDouble && 'bg-danger/[0.06]')}>
-                    <td className="px-3 py-2 text-right text-[0.8rem] tabular-nums text-fg-subtle">{i + 1}</td>
-                    <td className="px-3 py-2">
-                      <ChoixArticle produits={produits} produit={l.produit} onChoix={(p) => { poser(l.cle, { produit: p, unite: p?.baseUnit.symbol ?? '', contenance: '' }); if (p) focaliser(`Quantité — ligne ${i + 1}`) }} autoFocus={i > 0 && !l.produit} />
+                  <tr key={l.cle} className={cn(enDouble && 'bg-[#fee2e2]')}>
+                    <td className={cn(colonne, 'px-2 py-2 font-mono text-[0.82rem] font-semibold')}>{l.produit ? l.produit.reference.padStart(5, '0') : ''}</td>
+                    <td className={cn(colonne, 'px-1 py-0.5')}>
+                      <ChoixArticle ligne produits={produits} produit={l.produit} onChoix={(p) => { poser(l.cle, { produit: p, unite: p?.baseUnit.symbol ?? '', contenance: '' }); if (p) focaliser(`Quantité — ligne ${i + 1}`) }} autoFocus={i > 0 && !l.produit} />
                     </td>
-                    <td className="px-3 py-2">
-                      <span className="flex items-center gap-1.5">
-                        <input inputMode="decimal" value={l.quantite} onChange={(e) => poser(l.cle, { quantite: e.target.value.replace(',', '.') })} placeholder="0"
+                    <td className={cn(colonne, 'px-1 py-0.5')}>
+                      <span className="flex items-center gap-1">
+                        <input inputMode="decimal" value={l.quantite} onChange={(e) => { const v = nombre(e.target.value); if (v !== null) poser(l.cle, { quantite: v }) }} placeholder="0"
                           onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); focaliser(`Prix unitaire — ligne ${i + 1}`) } }}
-                          aria-label={`Quantité — ligne ${i + 1}`} className="field h-10 w-full px-2.5 text-right text-[0.9rem] tabular-nums" />
-                        {/* L'unité de la facture : kg ou g, L, cl ou ml… Le
-                            stock, lui, reste dans l'unité de l'article. */}
+                          aria-label={`Quantité — ligne ${i + 1}`} className={cn(saisie, 'text-right font-semibold tabular-nums')} />
+                        {/* L'unité de la facture : kg ou gr, carton, sac… */}
                         {l.produit ? (
                           <ChoixUnite
                             base={l.produit.baseUnit.symbol}
@@ -855,57 +1325,154 @@ function NouvelleEntree({ produits, onClose, onDone }: { produits: Produit[]; on
                             onCreer={creerUnite}
                             ligne={i + 1}
                           />
-                        ) : <span className="w-[6.5rem] shrink-0" />}
+                        ) : null}
                       </span>
                       {/* Une unité qui ne se convertit pas d'elle-même : on
                           dit ce qu’elle contient d’unités de stock. */}
-                      {l.produit && !convertible(l) ? (
-                        <span className={cn('mt-1.5 inline-flex items-center gap-1.5 rounded-lg border px-2 py-1 text-[0.76rem]', toNumber(l.contenance) > 0 ? 'border-[rgb(var(--glass-edge)/0.3)] bg-white/60 text-fg-muted' : 'border-warn/40 bg-warn/[0.08] text-warn')}>
+                      {l.produit && !seConvertit(l) ? (
+                        <span className={cn('mb-1 inline-flex items-center gap-1.5 rounded border px-2 py-0.5 text-[0.76rem]', toNumber(l.contenance) > 0 ? '!border-[#d1d5db] text-[#4b5563]' : '!border-[#f59e0b] bg-[#fffbeb] text-[#b45309]')}>
                           1 {uniteDe(l)} =
-                          <input inputMode="decimal" value={l.contenance} onChange={(e) => { const v = e.target.value.replace(',', '.'); poser(l.cle, { contenance: v }); retenirContenance(l.produit!.id, uniteDe(l), v) }} placeholder="?"
-                            aria-label={`Contenance — ligne ${i + 1}`} className="field h-7 w-16 px-1.5 text-right text-[0.8rem] tabular-nums" />
+                          <input inputMode="decimal" value={l.contenance} onChange={(e) => { const v = nombre(e.target.value); if (v === null) return; poser(l.cle, { contenance: v }); retenirContenance(l.produit!.id, uniteDe(l), v) }} placeholder="?"
+                            aria-label={`Contenance — ligne ${i + 1}`} className="h-6 w-14 rounded border !border-[#d1d5db] bg-white px-1 text-right text-[0.8rem] tabular-nums outline-none" />
                           {l.produit.baseUnit.symbol}
                         </span>
                       ) : null}
                     </td>
-                    <td className="px-3 py-2">
-                      <span className="relative block">
-                        <input inputMode="decimal" value={l.prix} onChange={(e) => poser(l.cle, { prix: e.target.value.replace(',', '.') })} placeholder="0.000"
-                          onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); if (complete(l) && i === lignes.length - 1) ajouterLigne() } }}
-                          aria-label={`Prix unitaire — ligne ${i + 1}`} className={cn('field h-10 w-full px-2.5 text-right text-[0.9rem] tabular-nums', l.produit && 'pr-14')} />
-                        {/* Le prix est par unité choisie : « / sac », pas « / kg ». */}
-                        {l.produit ? <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-[0.72rem] text-fg-subtle">/ {uniteDe(l)}</span> : null}
-                      </span>
+                    <td className={colonne}>
+                      <input inputMode="decimal" value={l.prix} onChange={(e) => { const v = nombre(e.target.value); if (v !== null) poser(l.cle, { prix: v }) }} placeholder="0.000"
+                        onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); if (complete(l) && i === lignes.length - 1) ajouterLigne(); else focaliser(`Quantité — ligne ${i + 2}`) } }}
+                        aria-label={`Prix unitaire — ligne ${i + 1}`} className={cn(saisie, 'text-right font-semibold tabular-nums')} />
                     </td>
-                    <td className="whitespace-nowrap px-3 py-2 text-right text-[0.95rem] font-semibold tabular-nums text-fg">
+                    <td className={colonne}>
+                      <input inputMode="decimal" value={l.remise} onChange={(e) => { const v = nombre(e.target.value); if (v !== null) poser(l.cle, { remise: v }) }}
+                        aria-label={`Remise — ligne ${i + 1}`} className={cn(saisie, 'text-right tabular-nums', !tauxValide(l.remise) && 'bg-[#fee2e2]')} />
+                    </td>
+                    <td className={colonne}>
+                      <input inputMode="decimal" value={l.tva} onChange={(e) => { const v = nombre(e.target.value); if (v !== null) poser(l.cle, { tva: v }) }}
+                        aria-label={`TVA — ligne ${i + 1}`} className={cn(saisie, 'text-right tabular-nums', !tauxValide(l.tva) && 'bg-[#fee2e2]')} />
+                    </td>
+                    <td className={cn(colonne, 'whitespace-nowrap px-2 py-2 text-right tabular-nums')}>
                       {complete(l) ? (
                         <>
-                          {formatMoney(totalLigne(l))}
+                          {montant(ht(l))}
                           {uniteDe(l) !== l.produit!.baseUnit.symbol ? (
-                            <span className="block text-[0.7rem] font-normal text-fg-subtle">= {formatQty(enBase(l)!)} {l.produit!.baseUnit.symbol} au stock</span>
+                            <span className="block text-[0.68rem] text-[#6b7280]">= {formatQty(enBase(l)!)} {l.produit!.baseUnit.symbol} au stock</span>
                           ) : null}
                         </>
-                      ) : <span className="font-normal text-fg-subtle">—</span>}
+                      ) : null}
                     </td>
-                    <td className="px-1 py-1.5 text-right">
-                      <button type="button" onClick={() => retirerLigne(l.cle)} aria-label={`Retirer la ligne ${i + 1}`}
-                        className="grid size-8 place-items-center rounded-lg text-fg-subtle transition-colors hover:bg-danger/12 hover:text-danger">
-                        <Trash2 className="size-4" />
-                      </button>
+                    <td className="pl-1 align-top">
+                      {/* Une écriture déjà au stock ne se retire que par
+                          l'administration ; une ligne nouvelle, par chacun. */}
+                      {!l.id || admin ? (
+                        <button type="button" onClick={() => retirerLigne(l)} aria-label={`Retirer la ligne ${i + 1}`} title={l.id ? 'Retirer cette entrée du stock' : 'Retirer la ligne'}
+                          className="mt-0.5 grid size-8 place-items-center rounded text-[#9ca3af] transition-colors hover:bg-[#fee2e2] hover:text-[#dc2626]">
+                          <Trash2 className="size-4" />
+                        </button>
+                      ) : null}
                     </td>
                   </tr>
                 )
               })}
+              <tr>
+                <td colSpan={7} className="border border-t-0 !border-[#374151] px-1 py-1">
+                  <button type="button" onClick={ajouterLigne}
+                    className="inline-flex h-8 items-center gap-1.5 rounded px-2 text-[0.82rem] font-semibold text-[#1d4ed8] transition-colors hover:bg-[#eaf2ff]">
+                    <Plus className="size-4" />
+                    Ajouter un article
+                  </button>
+                </td>
+                <td />
+              </tr>
             </tbody>
           </table>
-          <div className="flex items-center justify-between gap-2 border-t border-[rgb(var(--glass-edge)/0.14)] bg-white/40 px-2 py-2">
-            <Button variant="secondary" size="sm" onClick={ajouterLigne}>
-              <Plus className="size-3.5" />
-              Ajouter un article
-            </Button>
-            <span className="pr-2 text-[0.85rem] text-fg-muted">Total : <strong className="tabular-nums text-fg">{formatMoney(total)}</strong></span>
+        </div>
+
+        {/* Le pied : les bases de TVA à gauche, les totaux à droite. */}
+        <div className="mt-4 grid gap-4 sm:grid-cols-[minmax(0,22rem)_1fr]">
+          <table className="w-full border-collapse self-start text-[0.84rem]">
+            <thead>
+              <tr>
+                <th className={cn(filet, 'px-2 py-1 text-[0.72rem] font-bold')}>BASE</th>
+                <th className={cn(filet, 'px-2 py-1 text-[0.72rem] font-bold')}>TVA (%)</th>
+                <th className={cn(filet, 'px-2 py-1 text-[0.72rem] font-bold')}>MONT. TVA</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(parTaux.length > 0 ? parTaux : [[0, { base: 0, tva: 0 }] as const]).map(([t, c]) => (
+                <tr key={t}>
+                  <td className={cn(filet, 'px-2 py-1 text-right tabular-nums')}>{c.base > 0 ? montant(c.base) : ''}</td>
+                  <td className={cn(filet, 'px-2 py-1 text-right tabular-nums')}>{c.base > 0 ? formatQty(t) : ''}</td>
+                  <td className={cn(filet, 'px-2 py-1 text-right tabular-nums')}>{c.base > 0 ? montant(c.tva) : ''}</td>
+                </tr>
+              ))}
+              <tr>
+                <td colSpan={2} className={cn(filet, 'px-2 py-1 text-[0.72rem] font-bold')}>TOTAL TVA</td>
+                <td className={cn(filet, 'px-2 py-1 text-right font-semibold tabular-nums')}>{montant(totalTva)}</td>
+              </tr>
+            </tbody>
+          </table>
+          <table className="w-full border-collapse self-start text-[0.88rem] sm:ml-auto sm:max-w-[22rem]">
+            <tbody>
+              <tr>
+                <td className={cn(filet, 'px-2 py-1.5 font-bold')}>Total HT</td>
+                <td className={cn(filet, 'px-2 py-1.5 text-right tabular-nums')}>{montant(totalHt)}</td>
+              </tr>
+              <tr>
+                <td className={cn(filet, 'px-2 py-1.5 font-bold')}>Total TVA</td>
+                <td className={cn(filet, 'px-2 py-1.5 text-right tabular-nums')}>{montant(totalTva)}</td>
+              </tr>
+              <tr className="bg-[#d4d4d8]">
+                <td className={cn(filet, 'px-2 py-1.5 text-[0.95rem] font-bold')}>Net à payer</td>
+                <td className={cn(filet, 'px-2 py-1.5 text-right text-[1rem] font-bold tabular-nums')}>{montant(totalHt + totalTva)} DT</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p className="mt-3 text-[0.72rem] text-[#6b7280]">Le stock se valorise hors taxes et net de remise : la TVA n’entre que dans le total de la facture.</p>
+        </fieldset>
+      </div>
+      {courante ? (
+        <div className="sticky top-0 flex flex-col gap-2 rounded-md bg-[#0f1e33] p-2">
+          <div className="flex items-center justify-between gap-2 px-1 text-[0.8rem] text-white/85">
+            <span className="font-semibold">
+              Photo {Math.min(vue, galerie.length - 1) + 1} / {galerie.length}
+              {courante.enBase ? null : <span className="ml-2 rounded bg-warn/80 px-1.5 py-0.5 text-[0.7rem] font-bold text-white">à enregistrer</span>}
+            </span>
+            <span className="flex items-center gap-1">
+              <a href={courante.src} target="_blank" rel="noreferrer" className="rounded px-2 py-1 text-[0.76rem] font-semibold text-white/85 hover:bg-white/10">Ouvrir en grand</a>
+              {verrouille ? null : (
+                <button type="button" onClick={() => void retirerPhoto(courante)} aria-label="Retirer cette photo" title="Retirer cette photo"
+                  className="grid size-8 place-items-center rounded text-white/80 hover:bg-white/10 hover:text-white"><Trash2 className="size-4" /></button>
+              )}
+            </span>
           </div>
-        </section>
+          {/* La facture papier se lit de près : molette, glisser, pincer. */}
+          <ZoomImage src={courante.src} alt="Photo de la facture" className="h-[calc(100vh-23rem)] min-h-[20rem] rounded bg-black/30">
+            {galerie.length > 1 ? (
+              <>
+                <button type="button" aria-label="Photo précédente" onClick={() => setVue((v) => (v - 1 + galerie.length) % galerie.length)}
+                  className="absolute left-2 top-1/2 grid size-10 -translate-y-1/2 place-items-center rounded-full bg-white/85 text-fg shadow hover:bg-white"><ChevronLeft className="size-5" /></button>
+                <button type="button" aria-label="Photo suivante" onClick={() => setVue((v) => (v + 1) % galerie.length)}
+                  className="absolute right-2 top-1/2 grid size-10 -translate-y-1/2 place-items-center rounded-full bg-white/85 text-fg shadow hover:bg-white"><ChevronRight className="size-5" /></button>
+              </>
+            ) : null}
+          </ZoomImage>
+          <div className="flex gap-1.5 overflow-x-auto">
+            {galerie.map((g, i) => (
+              <button key={g.cle} type="button" onClick={() => setVue(i)} aria-label={`Photo ${i + 1}`}
+                className={cn('shrink-0 overflow-hidden rounded border-2', i === vue ? 'border-accent' : 'border-transparent opacity-70 hover:opacity-100')}>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={g.mini} alt="" loading="lazy" className="size-14 object-cover" />
+              </button>
+            ))}
+            {verrouille ? null : (
+              <button type="button" onClick={() => entreeCamera.current?.click()} aria-label="Ajouter des photos"
+                className="grid size-14 shrink-0 place-items-center rounded border-2 border-dashed border-white/40 text-white/80 hover:bg-white/10"><Camera className="size-5" /></button>
+            )}
+          </div>
+        </div>
+      ) : null}
       </div>
     </Modal>
   )
@@ -959,7 +1526,7 @@ function DetailCoutMoyen({ article, onClose }: { article: Line; onClose: () => v
       {entrees === null ? (
         <p className="flex items-center gap-2 py-6 text-[0.85rem] text-fg-muted"><Loader2 className="size-4 animate-spin" /> Chargement…</p>
       ) : liste.length === 0 ? (
-        <EmptyState icon={<PackagePlus className="size-6" />} title="Aucune entrée" description="Le coût moyen se calcule à partir des arrivages : entrez-en un avec son prix." />
+        <EmptyState icon={<PackagePlus className="size-6" />} title="Aucune entrée" description="Le coût moyen se calcule à partir des factures et des BL : entrez-en un avec son prix." />
       ) : (
         <div className="space-y-4">
           <TableWrap minWidth="38rem">
@@ -1190,8 +1757,10 @@ function ChoixUnite({ base, productId, valeur, unites, onChoix, onCreer, ligne }
  * choisi en badge avec « changer ». La liste flotte hors du tableau, sinon
  * la boîte la coupait après deux résultats.
  */
-function ChoixArticle({ produits, produit, onChoix, autoFocus }: {
+function ChoixArticle({ produits, produit, onChoix, autoFocus, ligne }: {
   produits: Produit[]; produit: Produit | null; onChoix: (p: Produit | null) => void; autoFocus?: boolean
+  /** Sur une ligne de facture : le libellé seul, sur une ligne — le code a sa colonne. */
+  ligne?: boolean
 }) {
   const [recherche, setRecherche] = React.useState('')
   const [ouvert, setOuvert] = React.useState(false)
@@ -1215,6 +1784,17 @@ function ChoixArticle({ produits, produit, onChoix, autoFocus }: {
   const choix = (mot ? produits.filter((p) => correspond(mot, p.name, p.reference, p.category.name)) : produits).slice(0, 10)
   const choisir = (p: Produit) => { onChoix(p); setRecherche(''); setOuvert(false); setEdition(false) }
 
+  if (produit && !edition && ligne) {
+    return (
+      <span className="flex h-9 items-center justify-between gap-2 px-1">
+        <span className="min-w-0 truncate text-[0.88rem] font-medium uppercase text-[#111827]">{produit.name}</span>
+        <button type="button" onClick={() => { setEdition(true); setOuvert(true) }} title="Changer d’article" aria-label={`Changer l’article ${produit.name}`}
+          className="grid size-7 shrink-0 place-items-center rounded text-[#9ca3af] transition-colors hover:bg-[#eaf2ff] hover:text-[#1d4ed8]">
+          <Pencil className="size-3.5" />
+        </button>
+      </span>
+    )
+  }
   if (produit && !edition) {
     return (
       <span className="inline-flex flex-wrap items-center gap-2">
@@ -1275,10 +1855,18 @@ function ChoixArticle({ produits, produit, onChoix, autoFocus }: {
  * pièce peut aussi être choisi, il se rattache alors de lui-même. La
  * contenance connue propose la quantité de pur dès qu'on tape l'obtenu.
  */
-function NouvellePreparation({ lignes, onClose, onDone }: { lignes: Line[]; onClose: () => void; onDone: () => void }) {
+function NouvellePreparation({ lignes, onClose, onDone, onEdited }: { lignes: Line[]; onClose: () => void; onDone: () => void; onEdited: () => void }) {
   const { push } = useToast()
   const [pur, setPur] = React.useState<Line | null>(null)
   const [prepare, setPrepare] = React.useState<Line | null>(null)
+  // La correction du préparé choisi : son nom et ce qu'une unité contient.
+  // « ESCALOPE CUISINE 2.000 » à 2 kg devient « 1.500 » à 1,5 kg sans
+  // quitter la préparation qu'on est en train de saisir.
+  // `unite` : ce en quoi on compte le préparé (p, kg, u…). `uniteContenance` :
+  // l'unité dans laquelle on dit ce qu'il contient — des grammes pour un pur
+  // compté en kilos, ramenés au kilo à l'enregistrement.
+  const [edition, setEdition] = React.useState<{ nom: string; contenance: string; unite: string; uniteContenance: string } | null>(null)
+  const [enregistre, setEnregistre] = React.useState(false)
   const [obtenu, setObtenu] = React.useState('')
   // La contenance : ce qu'une unité de préparé prend de pur. Connue par le
   // dispatching, elle fait tout le calcul ; sinon on la demande une fois ici.
@@ -1324,11 +1912,60 @@ function NouvellePreparation({ lignes, onClose, onDone }: { lignes: Line[]; onCl
     } catch (e) { push('error', errorMessage(e)) } finally { setBusy(false) }
   }
 
+  const enregistrerEdition = async () => {
+    if (!prepare || !edition) return
+    const nom = edition.nom.trim().replace(/\s+/g, ' ')
+    if (nom.length < 2) { push('error', 'Donnez un nom à l’article.'); return }
+    // La contenance se ramène à l'unité du pur : 500 g d'un pur en kilos
+    // s'enregistrent 0,5 kg.
+    const saisi = toNumber(edition.contenance)
+    const q = prepare.mother ? versBase(saisi, edition.uniteContenance, prepare.mother.unitSymbol) : null
+    if (prepare.mother && (q === null || q <= 0)) { push('error', 'La quantité par unité doit être positive.'); return }
+    const unite = edition.unite.trim() || prepare.unitSymbol
+    const nomChange = nom !== prepare.productName
+    const uniteChange = unite !== prepare.unitSymbol
+    const qChange = !!prepare.mother && q !== null && Math.abs(q - prepare.mother.motherQuantity) > 1e-9
+    if (!nomChange && !qChange && !uniteChange) { setEdition(null); return }
+    setEnregistre(true)
+    try {
+      if (nomChange || uniteChange) await gql(RENAME_PREPARED, { productId: prepare.productId, name: nom, unit: uniteChange ? unite : null })
+      if (qChange && prepare.mother) await gql(SET_PORTION, { productId: prepare.productId, parentId: prepare.mother.productId, motherQuantity: q })
+      // L'écran suit aussitôt : le calcul du pur consommé repart de la
+      // nouvelle contenance, sans attendre le rechargement de la liste.
+      setPrepare({ ...prepare, productName: nom, unitSymbol: unite, mother: prepare.mother ? { ...prepare.mother, motherQuantity: qChange && q !== null ? q : prepare.mother.motherQuantity } : null })
+      setEdition(null)
+      onEdited()
+      push('success', `${nom} enregistré${prepare.mother ? ` — 1 ${unite} = ${formatMere(qChange && q !== null ? q : prepare.mother.motherQuantity, prepare.mother.unitSymbol)}` : ''}.`)
+    } catch (e) { push('error', errorMessage(e)) } finally { setEnregistre(false) }
+  }
+
+  /** Le nom d'une unité en toutes lettres : « portion » pour « p », d'après le catalogue. */
+  const nomUnite = (symbole: string) =>
+    (unites.find((u) => u.symbol.toLowerCase() === symbole.toLowerCase())?.name ?? (symbole === 'p' ? 'portion' : symbole)).toLowerCase()
+
   const carte = (l: Line, actif: boolean, onClick: () => void) => (
     <button key={l.productId} type="button" onClick={onClick}
-      className={cn('flex w-full items-center justify-between gap-2 rounded-xl border px-3 py-2 text-left transition-colors', actif ? 'border-accent bg-accent/[0.1]' : 'border-[rgb(var(--glass-edge)/0.25)] bg-white/60 hover:border-accent/40 hover:bg-white')}>
-      <span className="min-w-0"><span className="block truncate text-[0.85rem] font-medium text-fg">{l.productName}</span><span className="block font-mono text-[0.7rem] text-fg-subtle">{l.productRef} · {l.categoryName}{l.mother ? ` · ${formatMere(l.mother.motherQuantity, l.mother.unitSymbol)} / ${l.unitSymbol}` : ''}</span></span>
-      <span className="shrink-0 text-right text-[0.78rem] tabular-nums text-fg-muted">stock <strong className={cn('text-fg', l.stock < -1e-9 && 'text-danger')}>{formatQty(l.stock)} {l.unitSymbol}</strong></span>
+      className={cn('block w-full rounded-xl border px-3 py-2 text-left transition-colors', actif ? 'border-accent bg-accent/[0.1]' : 'border-[rgb(var(--glass-edge)/0.25)] bg-white/60 hover:border-accent/40 hover:bg-white')}>
+      <span className="flex items-center justify-between gap-2">
+        <span className="min-w-0">
+          <span className={cn('block truncate font-medium text-fg', l.mother ? 'text-[0.95rem] font-semibold' : 'text-[0.85rem]')}>{l.productName}</span>
+          {/* La famille accompagne le nom ; la composition a sa ligne à elle. */}
+          <span className="block font-mono text-[0.7rem] text-fg-subtle">{l.productRef} · {l.categoryName}</span>
+        </span>
+        <span className="shrink-0 text-right text-[0.78rem] tabular-nums text-fg-muted">stock <strong className={cn('text-fg', l.stock < -1e-9 && 'text-danger')}>{formatQty(l.stock)} {l.unitSymbol}</strong></span>
+      </span>
+      {l.mother ? (
+        /* Un préparé se présente par ce qu'il contient, en toutes lettres et
+           en gros, sur sa propre ligne : « 250 gr par portion » se lit,
+           « 250 gr / p » se déchiffrait. */
+        <span className="mt-2 flex flex-wrap items-center gap-2 rounded-lg border border-ok/35 bg-ok/10 px-2.5 py-2">
+          <FlaskConical className="size-5 shrink-0 text-ok" />
+          <span className="text-[0.8rem] font-bold text-fg-muted">Composition de l’article :</span>
+          <span className="text-[1.1rem] font-bold leading-none text-ok">
+            {formatMere(l.mother.motherQuantity, l.mother.unitSymbol)} par {nomUnite(l.unitSymbol)}
+          </span>
+        </span>
+      ) : null}
     </button>
   )
 
@@ -1385,7 +2022,77 @@ function NouvellePreparation({ lignes, onClose, onDone }: { lignes: Line[]; onCl
           <p className="mb-2 text-[0.72rem] font-bold uppercase tracking-[0.12em] text-ok">2 · Article préparé obtenu</p>
           {!pur ? <p className="py-6 text-center text-[0.8rem] text-fg-muted">Choisissez d’abord l’article pur.</p> : prepare ? (
             <>
-              {carte(prepare, true, () => { setPrepare(null); setContenanceSaisie(''); setUniteSaisie('') })}
+              {carte(prepare, true, () => { setPrepare(null); setContenanceSaisie(''); setUniteSaisie(''); setEdition(null) })}
+              {/* Le nom et la contenance se corrigent ici, pour un article
+                  préparé déjà rattaché à son pur. */}
+              {prepare.mother && prepare.kind === 'PREPARE' ? (
+                edition ? (
+                  <div className="mt-2 rounded-xl border border-accent/35 bg-accent/[0.06] p-3">
+                    <label className="block text-[0.78rem] font-medium text-fg-muted">Nom de l’article
+                      <input value={edition.nom} onChange={(e) => setEdition({ ...edition, nom: e.target.value })} autoFocus maxLength={120}
+                        onKeyDown={(e) => { if (e.key === 'Enter') void enregistrerEdition() }}
+                        aria-label="Nom de l’article préparé" className="field mt-1 h-10 w-full px-3 text-[0.9rem]" />
+                    </label>
+                    <p className="mt-2.5 text-[0.78rem] font-medium text-fg-muted">Unité et quantité</p>
+                    <div className="mt-1 flex flex-wrap items-center gap-2 text-[0.8rem] text-fg">
+                      <span>1</span>
+                      {/* Ce en quoi on compte le préparé. */}
+                      <select value={edition.unite} onChange={(e) => setEdition({ ...edition, unite: e.target.value })}
+                        aria-label="Unité de l’article préparé" className="field h-10 w-32 px-2 text-[0.8rem]">
+                        {(unites.some((u) => u.symbol === edition.unite) ? [] : [{ id: edition.unite, symbol: edition.unite, name: edition.unite }])
+                          .concat(unites).map((u) => <option key={u.id} value={u.symbol}>{u.symbol} · {u.name}</option>)}
+                      </select>
+                      <span>=</span>
+                      <input inputMode="decimal" value={edition.contenance} onChange={(e) => setEdition({ ...edition, contenance: e.target.value.replace(',', '.') })}
+                        onKeyDown={(e) => { if (e.key === 'Enter') void enregistrerEdition() }}
+                        aria-label={`Quantité de ${prepare.mother.productName} dans 1 ${edition.unite}`} className="field h-10 w-24 px-2 text-right tabular-nums" />
+                      {/* L'unité de saisie : toutes celles du catalogue, celles
+                          qui se convertissent vers l'unité du pur en tête. */}
+                      <select value={edition.uniteContenance} onChange={(e) => setEdition({ ...edition, uniteContenance: e.target.value })}
+                        aria-label={`Unité de la quantité de ${prepare.mother.productName}`} className="field h-10 w-32 px-2 text-[0.8rem]">
+                        {[...new Map([
+                          ...unitesCompatibles(prepare.mother.unitSymbol).map((s) => [s.toLowerCase(), { symbol: s, name: unites.find((u) => u.symbol.toLowerCase() === s.toLowerCase())?.name ?? '' }] as const),
+                          ...unites.map((u) => [u.symbol.toLowerCase(), { symbol: u.symbol, name: u.name }] as const),
+                        ]).values()].map((u) => <option key={u.symbol} value={u.symbol}>{u.symbol}{u.name ? ` · ${u.name}` : ''}</option>)}
+                      </select>
+                      <span>de {prepare.mother.productName}</span>
+                    </div>
+                    {/* Une unité qui ne se ramène pas à celle du pur : on le dit
+                        tout de suite, plutôt que d'enregistrer un chiffre faux. */}
+                    {!convertible(edition.uniteContenance, prepare.mother.unitSymbol) ? (
+                      <p role="alert" className="mt-1.5 text-[0.76rem] font-medium text-danger">
+                        {prepare.mother.productName} se compte en {prepare.mother.unitSymbol} : « {edition.uniteContenance} » ne s’y convertit pas.
+                        Choisissez {unitesCompatibles(prepare.mother.unitSymbol).join(' ou ')}.
+                      </p>
+                    ) : null}
+                    {edition.unite !== prepare.unitSymbol && Math.abs(prepare.stock) > 1e-9 ? (
+                      <p className="mt-1.5 text-[0.74rem] font-medium text-warn">
+                        Le stock actuel ({formatQty(prepare.stock)} {prepare.unitSymbol}) se lira désormais en {edition.unite} : le nombre ne change pas.
+                      </p>
+                    ) : null}
+                    <p className="mt-1.5 text-[0.72rem] text-fg-subtle">Vaut pour les prochaines préparations : celles déjà faites gardent ce qu’elles ont consommé.</p>
+                    <div className="mt-2 flex justify-end gap-2">
+                      <Button variant="ghost" size="sm" disabled={enregistre} onClick={() => setEdition(null)}>Annuler</Button>
+                      <Button variant="primary" size="sm" loading={enregistre} disabled={!convertible(edition.uniteContenance, prepare.mother.unitSymbol)} onClick={() => void enregistrerEdition()}>{!enregistre ? <Check className="size-3.5" /> : null}Enregistrer</Button>
+                    </div>
+                  </div>
+                ) : (
+                  <button type="button" onClick={() => {
+                    // La saisie s'ouvre comme la carte l'affiche : 0,25 kg se
+                    // lit « 250 gr », et c'est ce qu'on corrige.
+                    const m = prepare.mother!
+                    const petit = m.motherQuantity < 1
+                    const [q, u] = petit && m.unitSymbol === 'kg' ? [m.motherQuantity * 1000, 'gr']
+                      : petit && m.unitSymbol === 'L' ? [m.motherQuantity * 1000, 'ml']
+                        : [m.motherQuantity, m.unitSymbol]
+                    setEdition({ nom: prepare.productName, contenance: String(Math.round(q * 1000) / 1000), unite: prepare.unitSymbol, uniteContenance: u })
+                  }}
+                    className="mt-2 inline-flex h-9 items-center gap-1.5 rounded-lg border border-accent/40 bg-accent/10 px-3 text-[0.8rem] font-semibold text-accent transition-colors hover:bg-accent/15">
+                    <Pencil className="size-3.5" />
+                    Modifier le nom, l’unité et la quantité
+                  </button>
+                )
+              ) : null}
               <label className="mt-3 block text-[0.8rem] font-medium text-fg-muted">Combien de {uniteMade} préparé{uniteMade === 'p' ? 's (portions)' : 's'} ?
                 <input inputMode="decimal" value={obtenu} onChange={(e) => setObtenu(e.target.value.replace(',', '.'))} placeholder="0" autoFocus
                   aria-label="Quantité préparée obtenue" className="field mt-1 h-11 w-full px-3 text-right text-[1rem] tabular-nums" />

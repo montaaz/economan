@@ -3,7 +3,7 @@
 import * as React from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { Menu, X, LogOut, ChevronDown } from 'lucide-react'
+import { Menu, X, LogOut, ChevronDown, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
 import { Icon } from '@/components/ui/icon'
 import { cn, initials } from '@/lib/utils'
 import { navForRole, primaryNav, ROLE_LABEL, type NavGroup } from '@/lib/nav'
@@ -18,6 +18,29 @@ export type ShellUser = {
   departmentName: string | null
 }
 
+/*
+ * La barre latérale repliée — les icônes seules — se garde d'une visite à
+ * l'autre, sur cet appareil. Lue après l'hydratation (le serveur ne la
+ * connaît pas), elle ne fait pas clignoter la page.
+ */
+const CLE_REPLIE = 'economan:barre-repliee'
+const ecouteurs = new Set<() => void>()
+function lireReplie() {
+  try { return localStorage.getItem(CLE_REPLIE) === '1' } catch { return false }
+}
+function ecrireReplie(v: boolean) {
+  try { localStorage.setItem(CLE_REPLIE, v ? '1' : '0') } catch { /* stockage indisponible : on garde l'état pour la page */ }
+  ecouteurs.forEach((f) => f())
+}
+function useBarreRepliee(): [boolean, () => void] {
+  const replie = React.useSyncExternalStore(
+    (f) => { ecouteurs.add(f); return () => { ecouteurs.delete(f) } },
+    lireReplie,
+    () => false,
+  )
+  return [replie, () => ecrireReplie(!replie)]
+}
+
 /** Actif si le chemin correspond exactement, ou en est un sous-segment. */
 function isActive(pathname: string, href: string): boolean {
   if (pathname === href) return true
@@ -30,6 +53,7 @@ function isActive(pathname: string, href: string): boolean {
 export function AppShell({ user, children }: { user: ShellUser; children: React.ReactNode }) {
   const pathname = usePathname()
   const [drawerOpen, setDrawerOpen] = React.useState(false)
+  const [replie, basculer] = useBarreRepliee()
   const groups = React.useMemo(() => navForRole(user.role), [user.role])
   const bottom = React.useMemo(() => primaryNav(user.role), [user.role])
 
@@ -47,12 +71,13 @@ export function AppShell({ user, children }: { user: ShellUser; children: React.
   return (
     <div className="flex min-h-dvh w-full">
       {/* Barre latérale — ordinateur */}
-      <aside className="no-print sticky top-0 hidden h-dvh w-[16.5rem] shrink-0 flex-col gap-1 border-r border-[rgb(var(--glass-edge)/0.18)] bg-white/45 px-3 py-4 backdrop-blur-2xl lg:flex">
-        <div className="px-2 pb-3">
-          <Logo />
+      <aside className={cn('no-print sticky top-0 hidden h-dvh shrink-0 flex-col gap-1 border-r border-[rgb(var(--glass-edge)/0.18)] bg-white/45 py-4 backdrop-blur-2xl transition-[width] duration-200 lg:flex',
+        replie ? 'w-[4.75rem] px-2' : 'w-[16.5rem] px-3')}>
+        <div className={cn('pb-3', replie ? 'flex justify-center' : 'px-2')}>
+          <Logo icone={replie} />
         </div>
-        <SidebarNav groups={groups} pathname={pathname} />
-        <UserCard user={user} />
+        <SidebarNav groups={groups} pathname={pathname} replie={replie} />
+        <UserCard user={user} replie={replie} />
       </aside>
 
       {/* Tiroir — mobile et tablette */}
@@ -81,7 +106,7 @@ export function AppShell({ user, children }: { user: ShellUser; children: React.
       ) : null}
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <TopBar user={user} onMenu={() => setDrawerOpen(true)} />
+        <TopBar user={user} onMenu={() => setDrawerOpen(true)} replie={replie} onBasculer={basculer} />
         <main className="mx-auto w-full max-w-[100rem] flex-1 px-3 pb-24 pt-4 sm:px-5 sm:pb-8 lg:px-7">
           {children}
         </main>
@@ -91,14 +116,18 @@ export function AppShell({ user, children }: { user: ShellUser; children: React.
   )
 }
 
-function SidebarNav({ groups, pathname }: { groups: NavGroup[]; pathname: string }) {
+function SidebarNav({ groups, pathname, replie = false }: { groups: NavGroup[]; pathname: string; replie?: boolean }) {
   return (
-    <nav className="min-h-0 flex-1 space-y-4 overflow-y-auto pb-2">
-      {groups.map((group) => (
+    <nav className={cn('min-h-0 flex-1 overflow-y-auto pb-2', replie ? 'space-y-2' : 'space-y-4')}>
+      {groups.map((group, gi) => (
         <div key={group.title}>
-          <p className="px-3 pb-1.5 text-[0.68rem] font-semibold uppercase tracking-[0.09em] text-fg-subtle">
-            {group.title}
-          </p>
+          {replie ? (
+            gi > 0 ? <span aria-hidden className="mx-auto mb-2 block h-px w-8 bg-[rgb(var(--glass-edge)/0.3)]" /> : null
+          ) : (
+            <p className="px-3 pb-1.5 text-[0.68rem] font-semibold uppercase tracking-[0.09em] text-fg-subtle">
+              {group.title}
+            </p>
+          )}
           <ul className="space-y-0.5">
             {group.items.map((item) => {
               const active = isActive(pathname, item.href)
@@ -107,8 +136,11 @@ function SidebarNav({ groups, pathname }: { groups: NavGroup[]; pathname: string
                   <Link
                     href={item.href}
                     aria-current={active ? 'page' : undefined}
+                    aria-label={replie ? item.label : undefined}
+                    title={replie ? item.label : undefined}
                     className={cn(
-                      'group relative flex items-center gap-2.5 rounded-xl px-3 py-2 text-[0.87rem] transition-colors',
+                      'group relative flex items-center rounded-xl text-[0.87rem] transition-colors',
+                      replie ? 'h-11 justify-center' : 'gap-2.5 px-3 py-2',
                       active
                         ? 'bg-white/80 font-semibold text-accent shadow-[0_1px_0_0_rgb(255_255_255/0.8)_inset,0_6px_16px_-10px_rgb(20_46_88/0.5)]'
                         : 'text-fg-muted hover:bg-[rgb(var(--glass-edge)/0.14)] hover:text-fg',
@@ -117,8 +149,8 @@ function SidebarNav({ groups, pathname }: { groups: NavGroup[]; pathname: string
                     {active ? (
                       <span className="absolute inset-y-1.5 left-0 w-[3px] rounded-r-full bg-accent" />
                     ) : null}
-                    <Icon name={item.icon} className="size-[1.05rem] shrink-0" />
-                    <span className="truncate">{item.label}</span>
+                    <Icon name={item.icon} className={cn('shrink-0', replie ? 'size-5' : 'size-[1.05rem]')} />
+                    {replie ? null : <span className="truncate">{item.label}</span>}
                   </Link>
                 </li>
               )
@@ -130,13 +162,13 @@ function SidebarNav({ groups, pathname }: { groups: NavGroup[]; pathname: string
   )
 }
 
-function UserCard({ user }: { user: ShellUser }) {
+function UserCard({ user, replie = false }: { user: ShellUser; replie?: boolean }) {
   const [open, setOpen] = React.useState(false)
 
   return (
     <div className="relative shrink-0 border-t border-[rgb(var(--glass-edge)/0.18)] pt-2">
       {open ? (
-        <div className="absolute bottom-full left-0 mb-2 w-full overflow-hidden rounded-xl border border-[rgb(var(--glass-edge)/0.24)] bg-[var(--bg-3)]/97 p-1 shadow-lg backdrop-blur-xl">
+        <div className="absolute bottom-full left-0 mb-2 w-full min-w-[12rem] overflow-hidden rounded-xl border border-[rgb(var(--glass-edge)/0.24)] bg-[var(--bg-3)]/97 p-1 shadow-lg backdrop-blur-xl">
           <form action={logout}>
             <button
               type="submit"
@@ -152,11 +184,13 @@ function UserCard({ user }: { user: ShellUser }) {
       <button
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
-        className="flex w-full items-center gap-2.5 rounded-xl px-2 py-2 text-left transition-colors hover:bg-[rgb(var(--glass-edge)/0.14)]"
+        title={replie ? `${user.fullName} — ${ROLE_LABEL[user.role]}` : undefined}
+        className={cn('flex w-full items-center rounded-xl py-2 text-left transition-colors hover:bg-[rgb(var(--glass-edge)/0.14)]', replie ? 'justify-center' : 'gap-2.5 px-2')}
       >
         <span className="grid size-9 shrink-0 place-items-center rounded-full bg-gradient-to-br from-[var(--accent-soft)] to-[var(--accent)] text-[0.78rem] font-bold text-white">
           {initials(user.fullName)}
         </span>
+        {replie ? null : (<>
         <span className="min-w-0 flex-1">
           <span className="block truncate text-[0.84rem] font-medium text-fg">{user.fullName}</span>
           <span className="block truncate text-[0.74rem] text-fg-subtle">
@@ -165,12 +199,13 @@ function UserCard({ user }: { user: ShellUser }) {
           </span>
         </span>
         <ChevronDown className={cn('size-4 shrink-0 text-fg-subtle transition-transform', open && 'rotate-180')} />
+        </>)}
       </button>
     </div>
   )
 }
 
-function TopBar({ user, onMenu }: { user: ShellUser; onMenu: () => void }) {
+function TopBar({ user, onMenu, replie, onBasculer }: { user: ShellUser; onMenu: () => void; replie: boolean; onBasculer: () => void }) {
   return (
     <header className="no-print sticky top-0 z-30 border-b border-[rgb(var(--glass-edge)/0.16)] bg-[var(--bg)]/75 backdrop-blur-2xl">
       <div className="mx-auto flex h-14 w-full max-w-[100rem] items-center gap-3 px-3 sm:px-5 lg:px-7">
@@ -180,6 +215,16 @@ function TopBar({ user, onMenu }: { user: ShellUser; onMenu: () => void }) {
           className="grid size-9 shrink-0 place-items-center rounded-xl text-fg-muted hover:bg-[rgb(var(--glass-edge)/0.16)] lg:hidden"
         >
           <Menu className="size-5" />
+        </button>
+
+        {/* Ordinateur : replier la barre latérale aux icônes, ou la rouvrir. */}
+        <button
+          onClick={onBasculer}
+          aria-label={replie ? 'Ouvrir la barre latérale' : 'Replier la barre latérale'}
+          title={replie ? 'Ouvrir la barre latérale' : 'Replier la barre latérale'}
+          className="hidden size-9 shrink-0 place-items-center rounded-xl text-fg-muted transition-colors hover:bg-[rgb(var(--glass-edge)/0.16)] hover:text-fg lg:grid"
+        >
+          {replie ? <PanelLeftOpen className="size-5" /> : <PanelLeftClose className="size-5" />}
         </button>
 
         <div className="lg:hidden">

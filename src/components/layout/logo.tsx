@@ -1,4 +1,5 @@
-export function Logo({ compact }: { compact?: boolean }) {
+/** `icone` : le pictogramme seul, pour la barre latérale repliée. */
+export function Logo({ compact, icone }: { compact?: boolean; icone?: boolean }) {
   return (
     <span className="flex items-center gap-2.5">
       <span className="relative grid size-9 shrink-0 place-items-center">
@@ -20,7 +21,7 @@ export function Logo({ compact }: { compact?: boolean }) {
           <rect x="9.4" y="21.6" width="21.2" height="2.6" rx="1.3" fill="url(#ec-shine)" />
         </svg>
       </span>
-      {!compact ? (
+      {icone ? null : !compact ? (
         <span className="min-w-0">
           <span className="block text-[0.98rem] font-bold leading-tight tracking-tight text-fg">Economan</span>
           <span className="block text-[0.68rem] leading-tight tracking-wide text-fg-subtle">

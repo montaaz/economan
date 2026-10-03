@@ -8,13 +8,17 @@ const geistMono = Geist_Mono({ variable: '--font-geist-mono', subsets: ['latin']
 export const metadata: Metadata = {
   title: { default: 'Economan — Commandes par département', template: '%s · Economan' },
   description: 'Prise de commande par département, traitement économat et suivi des bons de livraison.',
+  applicationName: 'Business Bey',
+  // iPhone : « Sur l'écran d'accueil » ouvre l'application en plein écran, avec son nom.
+  appleWebApp: { capable: true, title: 'Business Bey', statusBarStyle: 'default' },
 }
 
 export const viewport: Viewport = {
   width: 'device-width',
   initialScale: 1,
   viewportFit: 'cover',
-  themeColor: '#eef3fb',
+  // La barre du téléphone prend le vert de Business Bey.
+  themeColor: '#0e4a2d',
 }
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {

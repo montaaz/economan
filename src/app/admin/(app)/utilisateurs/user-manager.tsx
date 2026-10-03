@@ -227,14 +227,12 @@ export function UserManager({
                       >
                         {u.isActive ? <Eye className="size-4" /> : <EyeOff className="size-4" />}
                       </Button>
-                      {u.role === 'EMPLOYEE' ? (
-                        <Button variant="ghost" size="icon" aria-label={`Visage de ${u.fullName}`}
+                      <Button variant="ghost" size="icon" aria-label={`Visage de ${u.fullName}`}
                           title={u.faceProfile ? 'Visage enregistré : le refaire ou le retirer' : 'Enregistrer son visage'}
                           className={u.faceProfile ? 'text-ok' : undefined}
                           onClick={() => setVisage(u)}>
                           <ScanFace className="size-4" />
                         </Button>
-                      ) : null}
                       <Button variant="ghost" size="icon" aria-label="Modifier" onClick={() => setEditing(u)}>
                         <Pencil className="size-4" />
                       </Button>

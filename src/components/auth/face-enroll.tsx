@@ -35,6 +35,8 @@ export function FaceEnrollModal({ user, enregistreLe, onClose }: {
   const video = React.useRef<HTMLVideoElement>(null)
   const flux = React.useRef<MediaStream | null>(null)
   const actif = React.useRef(false)
+  // Une confirmation ouverte par-dessus : Échap est pour elle, pas pour cet écran.
+  const confirmation = React.useRef(false)
   const [phase, setPhase] = React.useState<Phase>('accueil')
   const [allumes, setAllumes] = React.useState<boolean[]>(() => Array(TRAITS).fill(false))
   const [consigne, setConsigne] = React.useState('')
@@ -43,7 +45,7 @@ export function FaceEnrollModal({ user, enregistreLe, onClose }: {
   const arreter = React.useCallback(() => { actif.current = false; fermerCamera(flux.current); flux.current = null }, [])
   React.useEffect(() => arreter, [arreter])
   React.useEffect(() => {
-    const k = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.stopPropagation(); arreter(); onClose() } }
+    const k = (e: KeyboardEvent) => { if (e.key === 'Escape' && !confirmation.current) { e.stopPropagation(); arreter(); onClose() } }
     document.addEventListener('keydown', k, true)
     return () => document.removeEventListener('keydown', k, true)
   }, [arreter, onClose])
@@ -136,7 +138,9 @@ export function FaceEnrollModal({ user, enregistreLe, onClose }: {
   }
 
   const retirer = async () => {
+    confirmation.current = true
     const ok = await confirmer({ title: `Retirer le visage de ${user.fullName} ?`, message: 'Il se connectera de nouveau avec son mot de passe.', confirmLabel: 'Retirer', tone: 'danger' })
+    confirmation.current = false
     if (!ok) return
     const r = await fetch(`/api/face/enroll?userId=${user.id}`, { method: 'DELETE' })
     if (r.ok) { push('success', 'Visage retiré.'); router.refresh(); onClose() } else push('error', 'Suppression impossible.')
@@ -146,7 +150,7 @@ export function FaceEnrollModal({ user, enregistreLe, onClose }: {
   const progression = allumes.filter(Boolean).length / TRAITS
 
   return createPortal(
-    <div className="fixed inset-0 z-[80] flex flex-col items-center justify-center bg-[#05080f]/95 px-4 text-white backdrop-blur-md" role="dialog" aria-modal="true" aria-label={`Visage de ${user.fullName}`}>
+    <div className="fixed inset-0 z-[45] flex flex-col items-center justify-center bg-[#05080f]/95 px-4 text-white backdrop-blur-md" role="dialog" aria-modal="true" aria-label={`Visage de ${user.fullName}`}>
       <button type="button" onClick={fermer} aria-label="Fermer"
         className="absolute right-4 top-4 grid size-11 place-items-center rounded-full bg-white/10 text-white/80 transition-colors hover:bg-white/20 hover:text-white">
         <X className="size-5" />

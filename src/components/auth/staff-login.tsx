@@ -5,7 +5,8 @@ import * as React from 'react'
 import { useActionState } from 'react'
 import { useFormStatus } from 'react-dom'
 import Link from 'next/link'
-import { AlertCircle, ArrowLeft, Eye, EyeOff, LogIn } from 'lucide-react'
+import { AlertCircle, ArrowLeft, Eye, EyeOff, LogIn, ScanFace } from 'lucide-react'
+import { FaceLogin } from '@/components/auth/face-login'
 import { GlassCard, Button, Field } from '@/components/ui/glass'
 import { loginStaff, type LoginState } from '@/server/auth/actions'
 import { Logo } from '@/components/layout/logo'
@@ -20,6 +21,9 @@ export function StaffLogin({
 }) {
   const [state, formAction] = useActionState<LoginState, FormData>(loginStaff, {})
   const [showPassword, setShowPassword] = React.useState(false)
+  // La connexion par le visage : l'identifiant d'abord, puis la caméra.
+  const [identifiant, setIdentifiant] = React.useState(devUsername(role) ?? '')
+  const [visage, setVisage] = React.useState(false)
 
   return (
     <div className="mx-auto flex min-h-dvh w-full max-w-md flex-col justify-center px-4 py-10">
@@ -61,12 +65,31 @@ export function StaffLogin({
               autoComplete="username"
               required
               autoFocus
-              placeholder={role === 'ADMIN' ? 'admin' : 'economat'}
-              defaultValue={devUsername(role)}
+              placeholder={role === 'ADMIN' ? 'admin' : role === 'CONTROLEUR' ? 'controle' : 'economat'}
+              value={identifiant}
+              onChange={(e) => { setIdentifiant(e.target.value); setVisage(false) }}
               className="field"
             />
           </Field>
 
+          {visage ? (
+            <FaceLogin username={identifiant.trim()} role={role} onPassword={() => setVisage(false)} />
+          ) : (
+            <button type="button" disabled={identifiant.trim().length < 2} onClick={() => setVisage(true)}
+              className="flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-[#05080f] text-[0.95rem] font-semibold text-white shadow-md transition-[filter,transform] hover:brightness-125 active:scale-[0.99] disabled:opacity-40">
+              <ScanFace className="size-5" /> Se connecter avec mon visage
+            </button>
+          )}
+
+          {visage ? null : (
+          <div className="flex items-center gap-3">
+            <span className="h-px flex-1 bg-[rgb(var(--glass-edge)/0.28)]" />
+            <span className="text-[0.74rem] font-medium uppercase tracking-wide text-fg-subtle">ou mot de passe</span>
+            <span className="h-px flex-1 bg-[rgb(var(--glass-edge)/0.28)]" />
+          </div>
+          )}
+
+          <div className={visage ? 'hidden' : 'space-y-4'}>
           <Field label="Mot de passe" htmlFor="password" required>
             <div className="relative">
               <input
@@ -91,6 +114,7 @@ export function StaffLogin({
           </Field>
 
           <SubmitButton />
+          </div>
         </form>
       </GlassCard>
 

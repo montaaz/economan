@@ -17,7 +17,14 @@ const ESSAIS = 3
  * reconnu, tremble en rouge sinon. « Utiliser mon mot de passe » est
  * toujours là.
  */
-export function FaceLogin({ userId, onPassword }: { userId: number; onPassword: () => void }) {
+export function FaceLogin({ userId, username, role, onPassword }: {
+  /** Un agent, choisi sur la page de son département… */
+  userId?: number
+  /** …ou le personnel, par son identifiant et l'espace où il entre. */
+  username?: string
+  role?: 'ADMIN' | 'ECONOMAN' | 'CONTROLEUR'
+  onPassword: () => void
+}) {
   const router = useRouter()
   const video = React.useRef<HTMLVideoElement>(null)
   const [etat, setEtat] = React.useState<EtatScan>('attente')
@@ -55,7 +62,7 @@ export function FaceLogin({ userId, onPassword }: { userId: number; onPassword: 
           images.push(a.signature)
           if (images.length < IMAGES) continue
 
-          const r = await fetch('/api/face/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ userId, descriptors: images }) })
+          const r = await fetch('/api/face/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ userId, username, role, descriptors: images }) })
           const res = await r.json().catch(() => ({}))
           images = []
           if (!vivant) return
@@ -84,7 +91,7 @@ export function FaceLogin({ userId, onPassword }: { userId: number; onPassword: 
       }
     })()
     return () => { vivant = false; fermerCamera(flux) }
-  }, [userId, essai, router])
+  }, [userId, username, role, essai, router])
 
   return (
     <div className="space-y-4 rounded-3xl bg-[#05080f] px-3 py-6 text-white">

@@ -15,7 +15,7 @@ async function admin() {
 
 async function agent(id: number) {
   if (!Number.isInteger(id)) return null
-  return prisma.user.findFirst({ where: { id, role: 'EMPLOYEE' }, select: { id: true } })
+  return prisma.user.findFirst({ where: { id }, select: { id: true } })
 }
 
 /** `{ userId, descriptors: number[][] }` : 3 à 10 prises du visage de l'agent. */

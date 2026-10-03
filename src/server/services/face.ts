@@ -55,9 +55,10 @@ export async function supprimerVisage(userId: number) {
   await prisma.faceProfile.deleteMany({ where: { userId } })
 }
 
+type Role = 'EMPLOYEE' | 'ECONOMAN' | 'CONTROLEUR' | 'ADMIN'
 export type VerdictVisage =
-  | { ok: true; user: { id: number; username: string; fullName: string; role: 'EMPLOYEE'; departmentId: number | null; departmentName: string | null } }
-  | { ok: false; raison: 'inconnu' | 'non-reconnu' | 'bloque' | 'desactive' }
+  | { ok: true; user: { id: number; username: string; fullName: string; role: Role; departmentId: number | null; departmentName: string | null } }
+  | { ok: false; raison: 'inconnu' | 'non-reconnu' | 'bloque' | 'desactive' | 'acces' }
 
 /** La distance d'une image au visage enregistré : à l'angle le plus proche, ou à la moyenne. */
 function ecart(profil: { descriptor: number[]; sampleData: number[] }, d: number[]) {
@@ -66,8 +67,22 @@ function ecart(profil: { descriptor: number[]; sampleData: number[] }, d: number
   return meilleur
 }
 
-/** Compare des images successives au visage de l'agent choisi, et note la tentative. */
-export async function verifierVisage(userId: number, images: number[][]): Promise<VerdictVisage> {
+/**
+ * Compare des images successives au visage d'un compte, et note la tentative.
+ *
+ * Par la porte d'un département, seul un agent entre (`porte` = 'EMPLOYEE').
+ * Par la porte du personnel, le compte se désigne par son identifiant et
+ * doit avoir accès à l'espace demandé — mêmes règles que le mot de passe.
+ */
+export async function verifierVisage(
+  qui: { userId: number } | { username: string },
+  images: number[][],
+  porte: 'EMPLOYEE' | 'ADMIN' | 'ECONOMAN' | 'CONTROLEUR' = 'EMPLOYEE',
+): Promise<VerdictVisage> {
+  const cle = 'userId' in qui ? { id: qui.userId } : { username: qui.username.trim().toLowerCase() }
+  const trouve = await prisma.user.findUnique({ where: cle, select: { id: true } })
+  if (!trouve) return { ok: false, raison: 'inconnu' }
+  const userId = trouve.id
   const [user, echecs] = await Promise.all([
     prisma.user.findUnique({
       where: { id: userId },
@@ -80,9 +95,12 @@ export async function verifierVisage(userId: number, images: number[][]): Promis
   ])
   // Un compte bloqué par l'administration n'entre ni par le visage ni autrement.
   if (user && !user.isActive) return { ok: false, raison: 'desactive' }
-  if (!user || user.role !== 'EMPLOYEE' || !user.faceProfile || user.faceProfile.descriptor.length !== TAILLE) {
-    return { ok: false, raison: 'inconnu' }
-  }
+  if (!user || !user.faceProfile || user.faceProfile.descriptor.length !== TAILLE) return { ok: false, raison: 'inconnu' }
+  // Chaque porte ses comptes : un économe n'entre pas par l'administration.
+  const permis = porte === 'EMPLOYEE' ? user.role === 'EMPLOYEE'
+    : porte === 'ADMIN' ? user.role === 'ADMIN'
+      : user.role === porte || user.role === 'ADMIN'
+  if (!permis) return { ok: false, raison: 'acces' }
   if (echecs >= ECHECS_MAX) return { ok: false, raison: 'bloque' }
   const ecarts = images.map((d) => ecart(user.faceProfile!, d)).sort((a, b) => a - b)
   const mediane = ecarts[Math.floor(ecarts.length / 2)]
@@ -91,6 +109,6 @@ export async function verifierVisage(userId: number, images: number[][]): Promis
   if (!ok) return { ok: false, raison: 'non-reconnu' }
   return {
     ok: true,
-    user: { id: user.id, username: user.username, fullName: user.fullName, role: 'EMPLOYEE', departmentId: user.departmentId, departmentName: user.department?.name ?? null },
+    user: { id: user.id, username: user.username, fullName: user.fullName, role: user.role, departmentId: user.departmentId, departmentName: user.department?.name ?? null },
   }
 }

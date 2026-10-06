@@ -4,6 +4,7 @@ import bcrypt from 'bcryptjs'
 import { revalidatePath } from 'next/cache'
 import { prisma } from '@/server/db'
 import { requireRole } from '@/server/auth/guards'
+import { deleteArticle } from '@/server/services/stock'
 import type { Role } from '@/generated/prisma/enums'
 import type { Prisma } from '@/generated/prisma/client'
 
@@ -246,41 +247,65 @@ export async function createProductForDepartment(
     return { ok: false, error: 'Stock fixe invalide.' }
   }
 
+  // Un article retiré de la feuille reste au catalogue : le recréer sous le
+  // même nom le remet simplement sur la feuille, au lieu de répondre qu'il
+  // existe déjà.
   const clash = await prisma.product.findFirst({
     where: { name: { equals: name, mode: 'insensitive' } },
-    select: { id: true, name: true },
+    select: {
+      id: true, name: true, kind: true, categoryId: true,
+      departments: { select: { departmentId: true, department: { select: { name: true } } } },
+    },
   })
-  if (clash) {
-    return { ok: false, error: `L’article « ${clash.name} » existe déjà au catalogue.` }
+  if (clash?.kind === 'MERE') {
+    return { ok: false, error: `« ${clash.name} » est un article pur : il ne se commande pas.` }
+  }
+  const ici = clash?.departments.find((d) => d.departmentId === departmentId)
+  if (clash && ici) {
+    return { ok: false, error: `L’article « ${clash.name} » est déjà sur la feuille de ${ici.department.name}.` }
   }
 
   await prisma.$transaction(async (tx) => {
-    // Les références sont numériques : on repart du plus grand nombre utilisé.
-    const refs = await tx.product.findMany({ select: { reference: true } })
-    const next =
-      Math.max(
-        ...refs.map((r) => Number(r.reference)).filter((n) => Number.isFinite(n)),
-        0,
-      ) + 1
+    let productId: number
+    let famille = categoryId
+    if (clash) {
+      productId = clash.id
+      // Il ne sert à aucun autre département : il prend la famille et l'unité
+      // choisies. Sinon il garde sa famille, que les autres feuilles utilisent.
+      if (clash.departments.length === 0) {
+        await tx.product.update({ where: { id: clash.id }, data: { categoryId, baseUnitId: unitId, isActive: true } })
+      } else {
+        famille = clash.categoryId
+        await tx.product.update({ where: { id: clash.id }, data: { isActive: true } })
+      }
+      await tx.stockFixe.deleteMany({ where: { departmentId, productId } })
+    } else {
+      // Les références sont numériques : on repart du plus grand nombre utilisé.
+      const refs = await tx.product.findMany({ select: { reference: true } })
+      const next =
+        Math.max(
+          ...refs.map((r) => Number(r.reference)).filter((n) => Number.isFinite(n)),
+          0,
+        ) + 1
+      productId = (await tx.product.create({
+        data: {
+          reference: String(next).padStart(4, '0'),
+          name,
+          categoryId,
+          baseUnitId: unitId,
+        },
+        select: { id: true },
+      })).id
+    }
 
-    const product = await tx.product.create({
-      data: {
-        reference: String(next).padStart(4, '0'),
-        name,
-        categoryId,
-        baseUnitId: unitId,
-      },
-      select: { id: true },
-    })
-
-    await attachToSheet(tx, departmentId, product.id, categoryId)
+    await attachToSheet(tx, departmentId, productId, famille)
 
     if (quantity > 0) {
       await tx.stockFixe.create({
-        data: { departmentId, productId: product.id, quantity },
+        data: { departmentId, productId, quantity },
       })
     }
-  })
+  }, { timeout: 20_000 })
 
   revalidatePath('/admin/stock-fixe')
   revalidatePath('/employe/commande')
@@ -304,12 +329,13 @@ export async function listCategoryProducts(categoryId: number) {
 }
 
 /**
- * Place un article en fin de son bloc de famille sur la feuille d'un
- * département, en décalant les suivants.
+ * Place un article sur la feuille d'un département, à la fin de sa famille.
  *
- * La feuille suit l'ordre du papier, où une même famille peut s'ouvrir
- * plusieurs fois : on vise la fin du *premier* bloc, sans quoi l'article
- * atterrirait en fin de feuille.
+ * La famille n'y figure pas encore (tous ses articles retirés, ou feuille
+ * qui suivait les liens de familles) : l'article ouvre son bloc à la place
+ * de la famille dans l'ordre du catalogue, pas tout en bas de la feuille.
+ * Un département sans feuille propre reçoit d'abord la feuille qu'il voyait,
+ * sans quoi il ne lui resterait que ce seul article.
  */
 async function attachToSheet(
   tx: Prisma.TransactionClient,
@@ -317,37 +343,38 @@ async function attachToSheet(
   productId: number,
   categoryId: number,
 ) {
-  const sheet = await tx.departmentProduct.findMany({
-    where: { departmentId },
-    orderBy: { sortOrder: 'asc' },
-    select: { productId: true, sortOrder: true, product: { select: { categoryId: true } } },
-  })
-
-  // On vise la DERNIÈRE ligne de la famille, pas la fin de son premier bloc.
-  // S'arrêter au premier bloc créait un nouveau bloc à chaque ajout dès que la
-  // famille apparaissait déjà plusieurs fois : le Bar comptait 14 familles
-  // réparties sur 32 blocs.
-  let after: number | null = null
-  for (const row of sheet) {
-    if (row.product.categoryId === categoryId) after = row.sortOrder
+  const feuille = (await feuilleFigee(tx, departmentId)).filter((r) => r.productId !== productId)
+  // La DERNIÈRE ligne de la famille : s'arrêter au premier bloc en créait un
+  // nouveau à chaque ajout dès que la famille apparaissait plusieurs fois.
+  let at = -1
+  feuille.forEach((r, i) => { if (r.product.categoryId === categoryId) at = i + 1 })
+  if (at === -1) {
+    const rangs = new Map((await tx.category.findMany({
+      where: { id: { in: [...new Set([categoryId, ...feuille.map((r) => r.product.categoryId)])] } },
+      select: { id: true, sortOrder: true },
+    })).map((c) => [c.id, c.sortOrder]))
+    const rang = rangs.get(categoryId) ?? 0
+    at = feuille.findIndex((r) => (rangs.get(r.product.categoryId) ?? 0) > rang)
+    if (at === -1) at = feuille.length
   }
+  const ids = feuille.map((r) => r.productId)
+  ids.splice(at, 0, productId)
 
-  if (after !== null) {
-    for (const row of sheet.filter((r) => r.sortOrder > after)) {
-      await tx.departmentProduct.update({
-        where: { departmentId_productId: { departmentId, productId: row.productId } },
-        data: { sortOrder: row.sortOrder + 10 },
-      })
-    }
-  }
-
-  await tx.departmentProduct.create({
-    data: {
-      departmentId,
-      productId,
-      sortOrder: after !== null ? after + 5 : (sheet.at(-1)?.sortOrder ?? 0) + 10,
-    },
+  await tx.departmentProduct.upsert({
+    where: { departmentId_productId: { departmentId, productId } },
+    update: {},
+    create: { departmentId, productId, sortOrder: 0 },
   })
+  await tx.departmentCategory.upsert({
+    where: { departmentId_categoryId: { departmentId, categoryId } },
+    update: {},
+    create: { departmentId, categoryId },
+  })
+  // Toute la feuille renumérotée d'une requête, par pas de 10.
+  await tx.$executeRaw`
+    UPDATE "department_products" AS d SET "sortOrder" = v.rang
+    FROM (SELECT unnest(${ids}::int[]) AS pid, generate_series(10, ${ids.length * 10}, 10) AS rang) AS v
+    WHERE d."departmentId" = ${departmentId} AND d."productId" = v.pid`
 }
 
 /**
@@ -425,16 +452,25 @@ export async function updateProduct(_prev: ActionResult, form: FormData): Promis
   if (!categoryId || !unitId) return { ok: false, error: 'Famille et unité sont obligatoires.' }
   if (name.length < 2) return { ok: false, error: 'Le nom de l’article est obligatoire.' }
 
-  const clash = await prisma.product.findFirst({
-    where: { name: { equals: name, mode: 'insensitive' }, NOT: { id } },
-    select: { name: true },
-  })
-  if (clash) return { ok: false, error: `L’article « ${clash.name} » existe déjà.` }
+  // Depuis Stock fixe, le nom est celui de la feuille du département : les
+  // autres départements gardent le leur.
+  const departmentId = Number(form.get('departmentId')) || null
+  if (departmentId) {
+    const r = await nommerSurFeuille(departmentId, id, name)
+    if (!r.ok) return r
+    await prisma.product.update({ where: { id }, data: { categoryId, baseUnitId: unitId } })
+  } else {
+    const clash = await prisma.product.findFirst({
+      where: { name: { equals: name, mode: 'insensitive' }, NOT: { id } },
+      select: { name: true },
+    })
+    if (clash) return { ok: false, error: `L’article « ${clash.name} » existe déjà.` }
 
-  await prisma.product.update({
-    where: { id },
-    data: { name, categoryId, baseUnitId: unitId },
-  })
+    await prisma.product.update({
+      where: { id },
+      data: { name, categoryId, baseUnitId: unitId },
+    })
+  }
 
   revalidatePath('/admin/affectations')
   revalidatePath('/admin/stock-fixe')
@@ -753,6 +789,7 @@ export async function toggleDepartmentCategory(
 
   await prisma.$transaction(async (tx) => {
     if (!linked) {
+      await feuilleFigee(tx, departmentId)
       const products = await tx.product.findMany({
         where: { categoryId },
         select: { id: true },
@@ -764,6 +801,9 @@ export async function toggleDepartmentCategory(
       return
     }
 
+    // Un département sans feuille propre la reçoit d'abord : sinon il ne lui
+    // resterait que les articles de cette famille.
+    await feuilleFigee(tx, departmentId)
     await tx.departmentCategory.upsert({
       where: { departmentId_categoryId: { departmentId, categoryId } },
       update: {},
@@ -771,7 +811,7 @@ export async function toggleDepartmentCategory(
     })
 
     const products = await tx.product.findMany({
-      where: { categoryId, isActive: true },
+      where: { categoryId, isActive: true, kind: { not: 'MERE' } },
       orderBy: { name: 'asc' },
       select: { id: true },
     })
@@ -788,7 +828,7 @@ export async function toggleDepartmentCategory(
       data: products.map((p) => ({ departmentId, productId: p.id, sortOrder: (order += 10) })),
       skipDuplicates: true,
     })
-  })
+  }, { timeout: 20_000 })
 
   revalidatePath('/admin/stock-fixe')
   revalidatePath('/employe/commande')
@@ -816,6 +856,10 @@ export async function toggleDepartmentProduct(
 
   await prisma.$transaction(async (tx) => {
     if (!onSheet) {
+      // Un département sans feuille propre voit ses articles par ses familles :
+      // on fige d'abord sa feuille, sinon retirer un article ne retirait rien
+      // et le compte à zéro qui suit détachait toute la famille.
+      await feuilleFigee(tx, departmentId)
       await tx.departmentProduct.deleteMany({ where: { departmentId, productId } })
       await tx.stockFixe.deleteMany({ where: { departmentId, productId } })
 
@@ -901,6 +945,189 @@ export async function moveProductInSheet(
     throw e
   }
 
+  revalidatePath('/admin/stock-fixe')
+  revalidatePath('/employe/commande')
+  return { ok: true }
+}
+
+/* ------------------------------------------ familles d'une feuille */
+
+/**
+ * La feuille d'un département, article par article, dans son ordre. Un
+ * département qui suivait encore ses familles (sans feuille propre) reçoit
+ * ici une feuille figée telle qu'il la voyait : on peut alors la réordonner
+ * sans toucher aux autres départements.
+ */
+async function feuilleFigee(tx: Prisma.TransactionClient, departmentId: number) {
+  let feuille = await tx.departmentProduct.findMany({
+    where: { departmentId, product: { isActive: true } },
+    orderBy: { sortOrder: 'asc' },
+    select: { productId: true, product: { select: { categoryId: true } } },
+  })
+  if (feuille.length === 0) {
+    const catalogue = await tx.product.findMany({
+      where: { isActive: true, kind: { not: 'MERE' }, category: { departments: { some: { departmentId } } } },
+      orderBy: [{ category: { sortOrder: 'asc' } }, { name: 'asc' }],
+      select: { id: true, categoryId: true },
+    })
+    if (catalogue.length > 0) {
+      await tx.departmentProduct.createMany({
+        data: catalogue.map((x, i) => ({ departmentId, productId: x.id, sortOrder: (i + 1) * 10 })),
+        skipDuplicates: true,
+      })
+    }
+    feuille = catalogue.map((x) => ({ productId: x.id, product: { categoryId: x.categoryId } }))
+  }
+  return feuille
+}
+
+/**
+ * Monte ou descend une famille sur la feuille d'un département : tout son
+ * bloc d'articles passe avant (ou après) la famille voisine. Les articles
+ * gardent leur ordre entre eux ; les autres départements ne bougent pas.
+ */
+export async function moveFamilyInSheet(departmentId: number, categoryId: number, sens: 'haut' | 'bas'): Promise<ActionResult> {
+  await requireRole(['ADMIN'], '/admin/login')
+  const fait = await prisma.$transaction(async (tx) => {
+    const feuille = await feuilleFigee(tx, departmentId)
+    // Les familles dans l'ordre où elles apparaissent ; leurs articles regroupés.
+    const ordre: number[] = []
+    const blocs = new Map<number, number[]>()
+    for (const r of feuille) {
+      const c = r.product.categoryId
+      if (!blocs.has(c)) { blocs.set(c, []); ordre.push(c) }
+      blocs.get(c)!.push(r.productId)
+    }
+    const i = ordre.indexOf(categoryId)
+    if (i === -1) return 'absente'
+    const j = sens === 'haut' ? i - 1 : i + 1
+    if (j < 0 || j >= ordre.length) return 'bord'
+    ;[ordre[i], ordre[j]] = [ordre[j], ordre[i]]
+    const ids = ordre.flatMap((c) => blocs.get(c)!)
+    // Une seule requête pour toute la feuille.
+    await tx.$executeRaw`
+      UPDATE "department_products" AS d SET "sortOrder" = v.rang
+      FROM (SELECT unnest(${ids}::int[]) AS pid, generate_series(10, ${ids.length * 10}, 10) AS rang) AS v
+      WHERE d."departmentId" = ${departmentId} AND d."productId" = v.pid`
+    return 'ok'
+  }, { timeout: 20_000 })
+  if (fait === 'absente') return { ok: false, error: 'Cette famille n’est pas sur la feuille de ce département.' }
+  if (fait === 'bord') return { ok: false, error: sens === 'haut' ? 'La famille est déjà en tête.' : 'La famille est déjà en dernier.' }
+  revalidatePath('/admin/stock-fixe')
+  revalidatePath('/employe/commande')
+  return { ok: true }
+}
+
+/**
+ * Retire une famille de la feuille d'UN département : ses articles en
+ * sortent avec leur stock fixe. Ils restent au catalogue et sur les feuilles
+ * des autres départements ; on les remet en ajoutant un article à la famille.
+ */
+export async function removeFamilyFromSheet(departmentId: number, categoryId: number): Promise<ActionResult> {
+  await requireRole(['ADMIN'], '/admin/login')
+  const n = await prisma.$transaction(async (tx) => {
+    const feuille = await feuilleFigee(tx, departmentId)
+    const ids = feuille.filter((r) => r.product.categoryId === categoryId).map((r) => r.productId)
+    if (ids.length === 0) return 0
+    await tx.departmentProduct.deleteMany({ where: { departmentId, productId: { in: ids } } })
+    await tx.stockFixe.deleteMany({ where: { departmentId, productId: { in: ids } } })
+    // La famille ne revient pas non plus par le chemin des catégories.
+    await tx.departmentCategory.deleteMany({ where: { departmentId, categoryId } })
+    return ids.length
+  }, { timeout: 20_000 })
+  if (n === 0) return { ok: false, error: 'Cette famille n’est pas sur la feuille de ce département.' }
+  revalidatePath('/admin/stock-fixe')
+  revalidatePath('/employe/commande')
+  return { ok: true }
+}
+
+/**
+ * Supprime une famille du catalogue.
+ *
+ * Avec `avecArticles`, ses articles partent avec elle : supprimés, ou
+ * désactivés s'ils ont un historique (commandes, stock, fiches) pour que les
+ * bons passés restent lisibles. Ils quittent toutes les feuilles. Sans, une
+ * famille qui porte encore des articles est refusée.
+ */
+export async function deleteFamily(categoryId: number, avecArticles = false): Promise<ActionResult> {
+  await requireRole(['ADMIN'], '/admin/login')
+  const ids = (await prisma.product.findMany({ where: { categoryId, isActive: true }, select: { id: true } })).map((p) => p.id)
+  if (ids.length > 0 && !avecArticles) {
+    return { ok: false, error: `Cette famille porte encore ${ids.length} article(s).` }
+  }
+  try {
+    for (const id of ids) await deleteArticle(id, true)
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : 'Suppression impossible.' }
+  }
+  const restants = await prisma.product.count({ where: { categoryId } })
+  if (restants > 0) {
+    // Des articles désactivés gardent leur historique : la famille se masque.
+    await prisma.$transaction([
+      prisma.departmentCategory.deleteMany({ where: { categoryId } }),
+      prisma.category.update({ where: { id: categoryId }, data: { isActive: false } }),
+    ])
+  } else {
+    await prisma.$transaction([
+      prisma.departmentCategory.deleteMany({ where: { categoryId } }),
+      prisma.category.deleteMany({ where: { id: categoryId } }),
+    ])
+  }
+  revalidatePath('/admin/stock-fixe')
+  revalidatePath('/employe/commande')
+  return { ok: true }
+}
+
+/** Renomme une famille. Le nom est celui du catalogue : il change pour tous les départements. */
+export async function renameFamily(categoryId: number, name: string): Promise<ActionResult> {
+  await requireRole(['ADMIN'], '/admin/login')
+  const nom = name.trim().replace(/\s+/g, ' ').toUpperCase()
+  if (nom.length < 2) return { ok: false, error: 'Nom trop court.' }
+  if (nom.length > 80) return { ok: false, error: 'Nom trop long.' }
+  const doublon = await prisma.category.findFirst({ where: { name: { equals: nom, mode: 'insensitive' }, NOT: { id: categoryId } }, select: { name: true } })
+  if (doublon) return { ok: false, error: `La famille « ${doublon.name} » existe déjà.` }
+  const { count } = await prisma.category.updateMany({ where: { id: categoryId }, data: { name: nom } })
+  if (count === 0) return { ok: false, error: 'Famille introuvable.' }
+  revalidatePath('/admin/stock-fixe')
+  revalidatePath('/employe/commande')
+  return { ok: true }
+}
+
+/**
+ * Le nom d'un article sur la feuille d'UN département. Le catalogue et les
+ * autres départements gardent le leur : « MAIS » au Petit Déjeuner reste
+ * « MAIS 0.285GR » en Cuisine. Reprendre le nom du catalogue efface le nom
+ * propre. Les commandes passées gardent le nom qu'elles portaient.
+ */
+async function nommerSurFeuille(departmentId: number, productId: number, name: string): Promise<ActionResult> {
+  const clean = name.trim()
+  if (clean.length < 2) return { ok: false, error: 'Nom trop court.' }
+  const product = await prisma.product.findUnique({ where: { id: productId }, select: { name: true } })
+  if (!product) return { ok: false, error: 'Article introuvable.' }
+
+  return prisma.$transaction(async (tx) => {
+    // Un département qui suivait ses familles reçoit d'abord sa feuille.
+    await feuilleFigee(tx, departmentId)
+    const feuille = await tx.departmentProduct.findMany({
+      where: { departmentId, product: { isActive: true }, NOT: { productId } },
+      select: { displayName: true, product: { select: { name: true } } },
+    })
+    const autre = feuille.find((r) => (r.displayName ?? r.product.name).toLowerCase() === clean.toLowerCase())
+    if (autre) return { ok: false, error: `« ${clean} » est déjà sur cette feuille.` }
+    const displayName = clean === product.name ? null : clean
+    await tx.departmentProduct.upsert({
+      where: { departmentId_productId: { departmentId, productId } },
+      update: { displayName },
+      create: { departmentId, productId, displayName, sortOrder: 1_000_000 },
+    })
+    return { ok: true as const }
+  }, { timeout: 20_000 })
+}
+
+export async function renameProductInDepartment(departmentId: number, productId: number, name: string): Promise<ActionResult> {
+  await requireRole(['ADMIN'], '/admin/login')
+  const r = await nommerSurFeuille(departmentId, productId, name)
+  if (!r.ok) return r
   revalidatePath('/admin/stock-fixe')
   revalidatePath('/employe/commande')
   return { ok: true }

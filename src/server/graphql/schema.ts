@@ -1004,7 +1004,8 @@ async function departmentCatalog(departmentId: number) {
     orderBy: { sortOrder: 'asc' },
     include: { product: { include: { category: true, baseUnit: true } } },
   })
-  if (explicit.length > 0) return explicit.map((e) => e.product)
+  // Le nom propre à la feuille du département passe devant celui du catalogue.
+  if (explicit.length > 0) return explicit.map((e) => (e.displayName ? { ...e.product, name: e.displayName } : e.product))
 
   return prisma.product.findMany({
     where: { isActive: true, kind: { not: 'MERE' }, category: { departments: { some: { departmentId } } } },

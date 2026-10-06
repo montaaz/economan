@@ -395,6 +395,9 @@ model DepartmentProduct {
   departmentId Int
   productId    Int
   sortOrder    Int      @default(0)
+  /// Le nom de l'article sur la feuille de CE département (« MAIS » au
+  /// Petit Déjeuner pour « MAIS 0.285GR » au catalogue). Nul : nom du catalogue.
+  displayName  String?
   createdAt    DateTime @default(now())
 
   department Department @relation(fields: [departmentId], references: [id], onDelete: Cascade, onUpdate: Cascade)

@@ -7,6 +7,7 @@ import { AlertCircle } from 'lucide-react'
 import { Button, Field } from '@/components/ui/glass'
 import { Modal } from '@/components/ui/modal'
 import { updateProduct, moveProductInSheet, type ActionResult } from '@/server/services/admin'
+import { FamilleSelect, type FamilleRef } from './famille-select'
 
 type Ref = { id: string; name: string }
 
@@ -19,7 +20,7 @@ type Ref = { id: string; name: string }
  * compréhensible, l'inverse déplacerait une ligne dont le nom n'a pas changé.
  */
 export function EditProductModal({
-  product, departmentId, categories, units, total, onClose, onSaved,
+  product, departmentId, departmentName, categories, units, total, onClose, onSaved,
 }: {
   product: {
     id: string
@@ -30,7 +31,8 @@ export function EditProductModal({
     position: number
   }
   departmentId: number
-  categories: Ref[]
+  departmentName: string
+  categories: FamilleRef[]
   units: (Ref & { symbol: string })[]
   /** Nombre de lignes de la feuille, pour borner la position. */
   total: number
@@ -74,6 +76,8 @@ export function EditProductModal({
     <Modal title="Modifier l’article" onClose={onClose}>
       <form action={formAction} className="space-y-4">
         <input type="hidden" name="id" value={product.id} />
+        {/* Le nom saisi ici est celui de ce département seulement. */}
+        <input type="hidden" name="departmentId" value={departmentId} />
 
         <p className="rounded-xl border border-[rgb(var(--glass-edge)/0.28)] bg-white/50 px-3 py-2 font-mono text-[0.78rem] text-fg-muted">
           Référence {product.reference}
@@ -102,11 +106,8 @@ export function EditProductModal({
         </Field>
 
         <Field label="Famille" htmlFor="e-cat" required>
-          <select id="e-cat" name="categoryId" defaultValue={product.categoryId} className="field" required>
-            {categories.map((c) => (
-              <option key={c.id} value={c.id}>{c.name}</option>
-            ))}
-          </select>
+          <FamilleSelect id="e-cat" name="categoryId" defaultValue={product.categoryId} categories={categories}
+            departmentId={departmentId} departmentName={departmentName} />
         </Field>
 
         <Field label="Unité" htmlFor="e-unit" required>

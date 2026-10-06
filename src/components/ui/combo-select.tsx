@@ -11,6 +11,10 @@ export type ComboOption = {
   label: string
   /** Le groupe de l'option (la famille d'un plat) : un intertitre dans la liste. */
   group?: string
+  /** Un détail sous le libellé (les départements d'une famille). */
+  meta?: React.ReactNode
+  /** Mots cherchés en plus du libellé et du groupe. */
+  keywords?: string
 }
 
 /**
@@ -48,7 +52,7 @@ export function ComboSelect({
 
   const choisie = options.find((o) => o.value === value) ?? null
   const mot = normaliser(recherche.trim())
-  const visibles = options.filter((o) => correspond(mot, o.label, o.group))
+  const visibles = options.filter((o) => correspond(mot, o.label, o.group, o.keywords))
 
   // Position : sous le champ, ou au-dessus s'il manque de place.
   const [pos, setPos] = React.useState<{ left: number; width: number; top?: number; bottom?: number; max: number } | null>(null)
@@ -176,7 +180,10 @@ export function ComboSelect({
                       selectionnee && 'font-semibold text-accent',
                     )}
                   >
-                    <span className="min-w-0 flex-1 truncate">{o.label}</span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate">{o.label}</span>
+                      {o.meta ? <span className="mt-0.5 block font-normal">{o.meta}</span> : null}
+                    </span>
                     {selectionnee ? <Check className="size-4 shrink-0 text-accent" /> : null}
                   </button>
                 </React.Fragment>

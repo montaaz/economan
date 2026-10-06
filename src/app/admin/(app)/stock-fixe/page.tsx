@@ -6,6 +6,7 @@ import { Building2 } from 'lucide-react'
 import { StockFixeEditor } from './stock-fixe-editor'
 import { NewCategoryButton } from './new-category-button'
 import { UnitsButton } from './units-button'
+import { FamillesButton } from './familles-button'
 import { RelationsButton } from './relations-button'
 
 export const metadata: Metadata = { title: 'Stock fixe' }
@@ -49,6 +50,7 @@ export default async function StockFixePage({
       where: { departmentId: selected.id, product: { isActive: true } },
       orderBy: { sortOrder: 'asc' },
       select: {
+        displayName: true,
         product: {
           select: {
             id: true, name: true, reference: true,
@@ -70,7 +72,7 @@ export default async function StockFixePage({
   ])
 
   const products = sheet.length > 0
-    ? sheet.map((row) => row.product)
+    ? sheet.map((row) => ({ ...row.product, catalogueName: row.displayName ? row.product.name : null, name: row.displayName ?? row.product.name }))
     : await prisma.product.findMany({
         where: {
           isActive: true,
@@ -83,6 +85,29 @@ export default async function StockFixePage({
           baseUnit: { select: { id: true, symbol: true } },
         },
       })
+
+  // Pour chaque famille, les départements qui l'utilisent : leur feuille, ou
+  // leurs familles affectées tant qu'ils n'ont pas de feuille propre.
+  const usages = await prisma.$queryRaw<{ categoryId: number; departmentId: number }[]>`
+    SELECT DISTINCT p."categoryId", dp."departmentId"
+      FROM department_products dp JOIN products p ON p.id = dp."productId"
+     WHERE p."isActive"
+    UNION
+    SELECT dc."categoryId", dc."departmentId" FROM department_categories dc
+     WHERE NOT EXISTS (SELECT 1 FROM department_products x WHERE x."departmentId" = dc."departmentId")`
+  const rangDep = new Map(departments.map((d, i) => [d.id, i]))
+  const departementsDe = new Map<number, { id: number; name: string; color: string }[]>()
+  for (const u of usages) {
+    const d = departments.find((x) => x.id === u.departmentId)
+    if (!d) continue
+    const l = departementsDe.get(u.categoryId) ?? []
+    l.push({ id: d.id, name: d.name, color: d.color })
+    departementsDe.set(u.categoryId, l)
+  }
+  for (const l of departementsDe.values()) l.sort((a, b) => (rangDep.get(a.id) ?? 0) - (rangDep.get(b.id) ?? 0))
+  const nbArticles = new Map((await prisma.product.groupBy({ by: ['categoryId'], where: { isActive: true }, _count: true })).map((g) => [g.categoryId, g._count]))
+
+  const familles = categories.map((c) => ({ id: String(c.id), name: c.name, articles: nbArticles.get(c.id) ?? 0, departements: departementsDe.get(c.id) ?? [] }))
 
   const units = await prisma.unit.findMany({
     orderBy: { name: 'asc' },
@@ -98,6 +123,10 @@ export default async function StockFixePage({
         description="La quantité que chaque département doit détenir. L’employé saisit son stock réel ; la commande est l’écart entre cette cible et ce qu’il a."
         actions={
           <>
+            <FamillesButton
+              categories={familles}
+              departments={departments.map((d) => ({ id: d.id, name: d.name, color: d.color }))}
+            />
             <RelationsButton departments={departments} />
             <UnitsButton />
             <NewCategoryButton departments={departments} selectedId={selected.id} />
@@ -107,11 +136,12 @@ export default async function StockFixePage({
       <StockFixeEditor
         departments={departments}
         selectedId={selected.id}
-        categories={categories.map((c) => ({ id: String(c.id), name: c.name }))}
+        categories={familles}
         units={units.map((u) => ({ id: String(u.id), name: u.name, symbol: u.symbol }))}
         products={products.map((p) => ({
           id: String(p.id),
           name: p.name,
+          catalogueName: 'catalogueName' in p ? (p.catalogueName as string | null) : null,
           reference: p.reference,
           unitSymbol: p.baseUnit.symbol,
           unitId: String(p.baseUnit.id),

@@ -4,7 +4,7 @@ import * as React from 'react'
 import { useActionState } from 'react'
 import { useFormStatus } from 'react-dom'
 import { useRouter } from 'next/navigation'
-import { Search, PackageSearch, Target, Plus, AlertCircle, Pencil, Trash2, Check, Loader2 } from 'lucide-react'
+import { Search, PackageSearch, Target, Plus, AlertCircle, Pencil, Trash2, Check, Loader2, ChevronUp, ChevronDown } from 'lucide-react'
 import { GlassCard, Button, EmptyState, TableWrap, Th, Td, usePending } from '@/components/ui/glass'
 import { Icon } from '@/components/ui/icon'
 import { useToast } from '@/components/ui/toast'
@@ -12,13 +12,14 @@ import { Modal } from '@/components/ui/modal'
 import { Field } from '@/components/ui/glass'
 import { gql, errorMessage } from '@/lib/graphql-client'
 import {
-  createProductForDepartment, renameProduct, moveProductInSheet, setProductUnit,
-  toggleDepartmentProduct, type ActionResult,
+  createProductForDepartment, renameProductInDepartment, moveProductInSheet, setProductUnit,
+  toggleDepartmentProduct, moveFamilyInSheet, removeFamilyFromSheet, renameFamily, type ActionResult,
 } from '@/server/services/admin'
 import { InlineEdit } from '@/components/ui/inline-edit'
 import { useConfirm } from '@/components/ui/confirm'
 import { UnitPicker } from './unit-picker'
 import { EditProductModal } from './edit-product-modal'
+import { FamilleSelect, type FamilleRef } from './famille-select'
 import { cn, toNumber } from '@/lib/utils'
 
 type Dept = { id: number; name: string; code: string; color: string; icon: string | null }
@@ -26,6 +27,8 @@ type Dept = { id: number; name: string; code: string; color: string; icon: strin
 export type ParLine = {
   id: string
   name: string
+  /** Le nom du catalogue, quand ce département en a un propre. */
+  catalogueName?: string | null
   reference: string
   unitSymbol: string
   unitId: string
@@ -47,7 +50,7 @@ export function StockFixeEditor({
   departments: Dept[]
   selectedId: number
   products: ParLine[]
-  categories: Ref[]
+  categories: FamilleRef[]
   units: (Ref & { symbol: string })[]
 }) {
   // Famille visée par le formulaire d'ajout ; null quand il est fermé.
@@ -124,6 +127,32 @@ export function StockFixeEditor({
   )
 
   const current = departments.find((d) => d.id === selectedId)
+
+  // Les familles de la feuille, dans leur ordre : ▲ ▼ les déplacent.
+  const ordreFamilles = React.useMemo(() => {
+    const vues: string[] = []
+    for (const p of products) if (!vues.includes(p.category.id)) vues.push(p.category.id)
+    return vues
+  }, [products])
+  const [familleEnCours, setFamilleEnCours] = React.useState<string | null>(null)
+  const geste = async (famille: { id: string; name: string }, fn: () => Promise<ActionResult>, succes: string) => {
+    setFamilleEnCours(famille.id)
+    try {
+      const r = await fn()
+      if (!r.ok) { push('error', r.error ?? 'Action impossible.'); return }
+      push('success', succes)
+      router.refresh()
+    } catch (e) { push('error', errorMessage(e)) } finally { setFamilleEnCours(null) }
+  }
+  const retirerFamille = async (famille: { id: string; name: string }, nombre: number) => {
+    const ok = await confirmer({
+      title: `Retirer « ${famille.name} » de ${current?.name ?? 'ce département'} ?`,
+      message: `Ses ${nombre} article(s) quittent la feuille de ${current?.name ?? 'ce département'}, avec leur stock fixe. Ils restent au catalogue et sur les feuilles des autres départements.`,
+      confirmLabel: 'Retirer la famille', tone: 'danger',
+    })
+    if (!ok) return
+    await geste(famille, () => removeFamilyFromSheet(selectedId, Number(famille.id)), `Famille « ${famille.name} » retirée de ${current?.name ?? 'ce département'}.`)
+  }
 
   /**
    * Retire un article de la feuille de CE département.
@@ -354,21 +383,59 @@ export function StockFixeEditor({
                 const closesFamily = next?.category.id !== p.category.id
                 return (
                   <React.Fragment key={p.id}>
-                    {opensFamily ? (
-                      <tr>
-                        <td
-                          colSpan={5}
-                          className="bg-ok/12 px-2 py-1.5 text-[0.72rem] font-bold uppercase tracking-[0.06em] text-ok sm:px-3 sm:text-[0.76rem]"
-                        >
-                          <span className="flex items-center gap-1.5">
-                            {p.category.icon ? (
-                              <Icon name={p.category.icon} className="size-3.5 shrink-0" />
-                            ) : null}
-                            {p.category.name}
-                          </span>
-                        </td>
-                      </tr>
-                    ) : null}
+                    {opensFamily ? (() => {
+                      const rang = ordreFamilles.indexOf(p.category.id)
+                      const nombre = products.filter((x) => x.category.id === p.category.id).length
+                      // Sous un filtre, l'ordre affiché n'est plus celui de la feuille : on ne déplace pas.
+                      const filtre = search.trim() !== '' || activeCategory !== null
+                      const occupe = familleEnCours === p.category.id
+                      const btn = 'grid size-7 place-items-center rounded-md text-ok transition-colors hover:bg-ok/15 disabled:pointer-events-none disabled:opacity-30'
+                      return (
+                        <tr>
+                          <td
+                            colSpan={5}
+                            className="bg-ok/12 px-2 py-1 text-[0.72rem] font-bold uppercase tracking-[0.06em] text-ok sm:px-3 sm:text-[0.76rem]"
+                          >
+                            <span className="flex items-center gap-1.5">
+                              {p.category.icon ? (
+                                <Icon name={p.category.icon} className="size-3.5 shrink-0" />
+                              ) : null}
+                              <span className="min-w-0 flex-1">
+                                <InlineEdit
+                                  value={p.category.name}
+                                  ariaLabel={`Renommer la famille ${p.category.name}`}
+                                  inputClassName="text-[0.78rem] uppercase"
+                                  validate={(v) => (v.trim().length >= 2 ? null : 'Nom trop court')}
+                                  onSave={async (v) => {
+                                    const r = await renameFamily(Number(p.category.id), v)
+                                    if (!r.ok) return r.error ?? 'Renommage impossible.'
+                                    push('success', `Famille renommée : ${v.trim().toUpperCase()} (pour tous les départements).`)
+                                    router.refresh()
+                                  }}
+                                />
+                                <span className="ml-1.5 font-semibold normal-case tracking-normal opacity-70">({nombre})</span>
+                              </span>
+                              {occupe ? <Loader2 className="size-4 animate-spin" /> : null}
+                              <button type="button" className={btn} disabled={filtre || rang <= 0 || occupe}
+                                title={filtre ? 'Effacez la recherche et le filtre pour déplacer' : 'Monter la famille'} aria-label={`Monter la famille ${p.category.name}`}
+                                onClick={() => void geste(p.category, () => moveFamilyInSheet(selectedId, Number(p.category.id), 'haut'), `« ${p.category.name} » montée.`)}>
+                                <ChevronUp className="size-4" />
+                              </button>
+                              <button type="button" className={btn} disabled={filtre || rang === ordreFamilles.length - 1 || occupe}
+                                title={filtre ? 'Effacez la recherche et le filtre pour déplacer' : 'Descendre la famille'} aria-label={`Descendre la famille ${p.category.name}`}
+                                onClick={() => void geste(p.category, () => moveFamilyInSheet(selectedId, Number(p.category.id), 'bas'), `« ${p.category.name} » descendue.`)}>
+                                <ChevronDown className="size-4" />
+                              </button>
+                              <button type="button" className={cn(btn, 'text-danger hover:bg-danger/12')} disabled={occupe}
+                                title={`Retirer la famille de ${current?.name ?? 'ce département'}`} aria-label={`Retirer la famille ${p.category.name}`}
+                                onClick={() => void retirerFamille(p.category, nombre)}>
+                                <Trash2 className="size-3.5" />
+                              </button>
+                            </span>
+                          </td>
+                        </tr>
+                      )
+                    })() : null}
                   <tr className={cn(changed && 'bg-warn/[0.07]')}>
                     <Td className="px-1 text-right text-[0.72rem] tabular-nums text-fg-subtle sm:px-3 sm:text-[0.78rem]">
                       {/* Le rang affiché suit le filtre ; on édite la position
@@ -399,15 +466,20 @@ export function StockFixeEditor({
                           inputClassName="text-[0.85rem]"
                           validate={(v) => (v.length >= 2 ? null : 'Nom trop court')}
                           onSave={async (v) => {
-                            const r = await renameProduct(Number(p.id), v)
+                            const r = await renameProductInDepartment(selectedId, Number(p.id), v)
                             if (!r.ok) return r.error ?? 'Renommage impossible.'
-                            push('success', 'Article renommé.')
+                            push('success', `Article renommé pour ${current?.name ?? 'ce département'}.`)
                             router.refresh()
                           }}
                         />
                       </p>
                       <p className="truncate font-mono text-[0.68rem] text-fg-subtle sm:text-[0.7rem]">
                         {p.reference}
+                        {p.catalogueName ? (
+                          <span className="ml-1.5 font-sans" title="Nom du catalogue et des autres départements">
+                            · catalogue : {p.catalogueName}
+                          </span>
+                        ) : null}
                       </p>
                     </Td>
                     <Td className="px-1 sm:px-3">
@@ -525,6 +597,7 @@ export function StockFixeEditor({
             position: positionOf.get(editing.id) ?? 1,
           }}
           departmentId={selectedId}
+          departmentName={current?.name ?? ''}
           categories={allCategories}
           units={units}
           total={products.length}
@@ -562,7 +635,7 @@ function AddProductForm({
   departmentId: number
   departmentName: string
   family: { id: string; name: string }
-  categories: Ref[]
+  categories: FamilleRef[]
   units: (Ref & { symbol: string })[]
   /** Faux quand le formulaire s'ouvre depuis l'en-tête : la famille est à choisir. */
   preset?: boolean
@@ -608,11 +681,8 @@ function AddProductForm({
         </Field>
 
         <Field label="Famille" htmlFor="p-cat" required>
-          <select id="p-cat" name="categoryId" defaultValue={family.id} className="field" required>
-            {categories.map((c) => (
-              <option key={c.id} value={c.id}>{c.name}</option>
-            ))}
-          </select>
+          <FamilleSelect id="p-cat" name="categoryId" defaultValue={family.id} categories={categories}
+            departmentId={departmentId} departmentName={departmentName} />
         </Field>
 
         <Field label="Unité" htmlFor="p-unit" required>

@@ -46,6 +46,15 @@ async function sheetRanks(
   return new Map(rows.map((r) => [r.productId, r.sortOrder]))
 }
 
+/** Les noms propres à la feuille du département (« MAIS » pour « MAIS 0.285GR »). */
+async function sheetNames(tx: Prisma.TransactionClient, departmentId: number, productIds: number[]) {
+  const rows = await tx.departmentProduct.findMany({
+    where: { departmentId, productId: { in: productIds }, displayName: { not: null } },
+    select: { productId: true, displayName: true },
+  })
+  return new Map(rows.map((r) => [r.productId, r.displayName!]))
+}
+
 /** Rang de repli pour un article absent de la feuille : après tous les autres. */
 const HORS_FEUILLE = 1_000_000
 
@@ -178,6 +187,7 @@ export async function createOrder(params: {
     // L'ordre de la feuille est figé dans la ligne : la feuille peut être
     // réorganisée demain, le ticket déjà imprimé doit rester lisible tel quel.
     const rangs = await sheetRanks(tx, departmentId, [...seen])
+    const noms = await sheetNames(tx, departmentId, [...seen])
 
     // Un rayon ne contient pas plus que sa cible : au-delà, le chiffre est une
     // erreur de saisie. L'accepter donnerait bien 0 à commander, mais figerait
@@ -243,7 +253,7 @@ export async function createOrder(params: {
             return {
               productId: p.id,
               unitId: p.baseUnitId,
-              productName: p.name,
+              productName: noms.get(p.id) ?? p.name,
               productRef: p.reference,
               categoryName: p.category.name,
               stockFixe: l.target,
@@ -344,6 +354,7 @@ export async function updateOrder(params: {
     })
     const parBy = new Map(pars.map((p) => [p.productId, Number(p.quantity)]))
     const rangs = await sheetRanks(tx, departmentId, [...seen])
+    const noms = await sheetNames(tx, departmentId, [...seen])
 
     // Un rayon ne contient pas plus que sa cible : au-delà, le chiffre est une
     // erreur de saisie. L'accepter donnerait bien 0 à commander, mais figerait
@@ -386,7 +397,7 @@ export async function updateOrder(params: {
             return {
               productId: p.id,
               unitId: p.baseUnitId,
-              productName: p.name,
+              productName: noms.get(p.id) ?? p.name,
               productRef: p.reference,
               categoryName: p.category.name,
               stockFixe: l.target,

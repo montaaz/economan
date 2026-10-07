@@ -761,13 +761,17 @@ model DeclaredSale {
 /// départements peuvent commander. Une seule ligne (id = 1). Il change avec
 /// la saison — ramadan, été — et c'est l'administration qui le règle.
 model OrderSchedule {
-  id        Int      @id @default(1)
-  enabled   Boolean  @default(false)
-  opensAt   String   @default("08:00")
-  closesAt  String   @default("12:00")
+  id          Int      @id @default(1)
+  enabled     Boolean  @default(false)
+  opensAt     String   @default("08:00")
+  closesAt    String   @default("12:00")
   /// Le nom de l'horaire en cours : « Ramadan », « Été »…
-  label     String?
-  updatedAt DateTime @updatedAt
+  label       String?
+  /// L'heure où commence la journée de travail (« 05:00 ») : avant elle, on
+  /// est encore la veille. Les commandes passées à 01 h restent dans la
+  /// journée commencée la veille, et le tableau du jour ne se vide pas à minuit.
+  dayStartsAt String   @default("00:00")
+  updatedAt   DateTime @updatedAt
 
   @@map("order_schedule")
 }

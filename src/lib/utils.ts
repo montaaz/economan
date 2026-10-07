@@ -147,7 +147,32 @@ export function businessDay(d = new Date()): Date {
     .format(d)
     .split('-')
     .map(Number)
-  return new Date(Date.UTC(y, m - 1, day))
+  const date = new Date(Date.UTC(y, m - 1, day))
+  // La journée de travail commence à l'heure réglée par l'administration
+  // (05:00, par exemple) : avant, on est encore la veille.
+  const debut = debutJourneeMinutes()
+  if (debut > 0) {
+    const [h, min] = new Intl.DateTimeFormat('en-GB', { timeZone: BUSINESS_TZ, hour: '2-digit', minute: '2-digit', hour12: false })
+      .format(d).split(':').map(Number)
+    if ((h % 24) * 60 + min < debut) date.setUTCDate(date.getUTCDate() - 1)
+  }
+  return date
+}
+
+/**
+ * L'heure de début de la journée de travail, en minutes depuis minuit.
+ *
+ * Gardée sur `globalThis` : le serveur la charge au démarrage puis la relit
+ * régulièrement (voir `server/day-start`), et chaque partie de l'application
+ * — pages, API, actions — lit la même valeur sans requête.
+ */
+type GlobalJournee = { __economanDebutJournee?: number }
+export function debutJourneeMinutes(): number {
+  return (globalThis as GlobalJournee).__economanDebutJournee ?? 0
+}
+export function fixerDebutJournee(hhmm: string) {
+  const m = /^(\d{2}):(\d{2})$/.exec(hhmm)
+  ;(globalThis as GlobalJournee).__economanDebutJournee = m ? Math.min(Number(m[1]) * 60 + Number(m[2]), 23 * 60 + 59) : 0
 }
 
 /**

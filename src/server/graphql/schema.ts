@@ -933,8 +933,8 @@ const typeDefs = /* GraphQL */ `
     receiveOrder(id: ID!, note: String): Order!
     "Le département confirme la réception d'un servi complémentaire, indépendamment de la commande."
     receiveRefill(id: ID!, rank: Int!, note: String): Order!
-    "Administration : règle le stock fixe d'un département."
-    setStockFixe(departmentId: ID!, lines: [StockFixeInput!]!): Int!
+    "Administration : le stock fixe d'un département. slot : le jeu modifié (1, 2, 3) ; absent, le jeu actif."
+    setStockFixe(departmentId: ID!, lines: [StockFixeInput!]!, slot: Int): Int!
 
     "Administration : crée une famille de la carte de vente."
     createSalesFamily(input: SalesFamilyInput!): SalesFamily!
@@ -962,8 +962,9 @@ function requireUser(ctx: Ctx): SessionUser {
 
 function requireEmployee(ctx: Ctx) {
   const u = requireUser(ctx)
-  if (u.role !== 'EMPLOYEE' || !u.departmentId) {
-    throw new GraphQLError('Aucun département ne vous est attribué.', { extensions: { code: 'FORBIDDEN' } })
+  // L'employé de son département, ou le contrôle entré dans un département.
+  if ((u.role !== 'EMPLOYEE' && u.role !== 'CONTROLEUR') || !u.departmentId) {
+    throw new GraphQLError(u.role === 'CONTROLEUR' ? 'Choisissez d’abord le département pour lequel vous commandez.' : 'Aucun département ne vous est attribué.', { extensions: { code: 'FORBIDDEN' } })
   }
   return u as SessionUser & { departmentId: number }
 }
@@ -2348,7 +2349,11 @@ const resolvers = {
       a: { departmentId: string; lines: { productId: string; quantityOnHand: number; quantityAsked?: number | null }[]; note?: string },
       ctx: Ctx,
     ) => {
-      const u = requireAdmin(ctx)
+      // L'administration, ou le contrôle de gestion — pour le département où il est entré.
+      const u = ctx.user?.role === 'CONTROLEUR' ? requireEmployee(ctx) : requireAdmin(ctx)
+      if (u.role === 'CONTROLEUR' && Number(a.departmentId) !== u.departmentId) {
+        throw new GraphQLError('Vous commandez pour un autre département : changez de département d’abord.', { extensions: { code: 'FORBIDDEN' } })
+      }
       const created = await run(() =>
         createOrder({
           actor: u,
@@ -2382,7 +2387,7 @@ const resolvers = {
             quantityOnHand: l.quantityOnHand,
             // Seule l'administration, sur une commande urgente, tape la
             // quantité : le service ignore ce champ ailleurs.
-            quantityAsked: u.role === 'ADMIN' ? (l.quantityAsked ?? undefined) : undefined,
+            quantityAsked: u.role !== 'EMPLOYEE' ? (l.quantityAsked ?? undefined) : undefined,
           })),
           note: a.note,
         }),
@@ -2901,7 +2906,7 @@ const resolvers = {
 
     setStockFixe: async (
       _p: unknown,
-      a: { departmentId: string; lines: { productId: string; quantity: number }[] },
+      a: { departmentId: string; lines: { productId: string; quantity: number }[]; slot?: number | null },
       ctx: Ctx,
     ) => {
       const u = requireUser(ctx)
@@ -2931,6 +2936,27 @@ const resolvers = {
       const connus = await prisma.product.count({ where: { id: { in: ids } } })
       if (connus !== ids.length) {
         throw new GraphQLError('Un des articles est inconnu.', { extensions: { code: 'BUSINESS_RULE' } })
+      }
+
+      // Un jeu en réserve (pas celui en service) s'écrit à part : les
+      // départements continuent de commander avec le jeu actif.
+      const dep = await prisma.department.findUnique({ where: { id: departmentId }, select: { activeStockFixe: true } })
+      const slot = a.slot ?? dep?.activeStockFixe ?? 1
+      if (![1, 2, 3].includes(slot)) {
+        throw new GraphQLError('Jeu de stock fixe inconnu.', { extensions: { code: 'BAD_USER_INPUT' } })
+      }
+      if (dep && slot !== dep.activeStockFixe) {
+        await prisma.$transaction(async (tx) => {
+          if (toZero.length > 0) await tx.stockFixeSet.deleteMany({ where: { departmentId, slot, productId: { in: toZero } } })
+          if (toSet.length > 0) {
+            await tx.$executeRaw`
+              INSERT INTO "stock_fixe_sets" ("departmentId", "slot", "productId", "quantity", "updatedAt")
+              VALUES ${Prisma.join(toSet.map((l) => Prisma.sql`(${departmentId}::int, ${slot}::int, ${Number(l.productId)}::int, ${l.quantity}::numeric, now())`))}
+              ON CONFLICT ("departmentId", "slot", "productId")
+              DO UPDATE SET "quantity" = EXCLUDED."quantity", "updatedAt" = now()`
+          }
+        }, { timeout: 15_000 })
+        return toSet.length
       }
 
       await prisma.$transaction(async (tx) => {

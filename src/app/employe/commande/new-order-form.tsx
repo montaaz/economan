@@ -71,7 +71,11 @@ export function NewOrderForm({
    * plafond au stock fixe : on sort ce qu'il faut, tout de suite. Le ticket
    * s'ouvre ensuite dans l'espace de l'administration.
    */
-  urgent?: { departmentId: string }
+  urgent?: {
+    departmentId: string
+    /** Où ouvrir le ticket une fois passé (défaut : l'espace de l'administration). */
+    retour?: string
+  }
   /**
    * Commande en cours de correction. Le même formulaire sert aux deux cas :
    * l'employé recompte toute sa feuille, la seule différence est la mutation
@@ -293,7 +297,7 @@ export function NewOrderForm({
           : `${o.reference} — ticket n°${o.ticketNumber}, ${o.lineCount} article(s).`,
         single: true, tone: 'info', autoClose: 2500, icon: <CheckCircle2 className="size-6" />,
       })
-      router.push(urgent ? `/admin/commandes/${o.id}` : `/employe/commandes/${o.id}`)
+      router.push(urgent ? `${urgent.retour ?? '/admin/commandes'}/${o.id}` : `/employe/commandes/${o.id}`)
       router.refresh()
     } catch (error) {
       refuser('Commande refusée', errorMessage(error))

@@ -5,6 +5,7 @@ import { revalidatePath } from 'next/cache'
 import { prisma } from '@/server/db'
 import { requireRole } from '@/server/auth/guards'
 import { deleteArticle } from '@/server/services/stock'
+import { chiffrerMotDePasse, dechiffrerMotDePasse } from '@/server/auth/password-vault'
 import type { Role } from '@/generated/prisma/enums'
 import type { Prisma } from '@/generated/prisma/client'
 
@@ -158,7 +159,7 @@ export async function saveUser(_prev: ActionResult, form: FormData): Promise<Act
       where: { id },
       data: {
         fullName, username, role, departmentId: deptForRole,
-        ...(password ? { passwordHash: await bcrypt.hash(password, 10) } : {}),
+        ...(password ? { passwordHash: await bcrypt.hash(password, 10), passwordEnc: chiffrerMotDePasse(password) } : {}),
       },
     })
   } else {
@@ -166,6 +167,7 @@ export async function saveUser(_prev: ActionResult, form: FormData): Promise<Act
       data: {
         fullName, username, role, departmentId: deptForRole,
         passwordHash: await bcrypt.hash(password, 10),
+        passwordEnc: chiffrerMotDePasse(password),
         avatarColor: DEPT_COLORS[Math.floor(Math.random() * DEPT_COLORS.length)],
       },
     })
@@ -174,6 +176,19 @@ export async function saveUser(_prev: ActionResult, form: FormData): Promise<Act
   revalidatePath('/admin/utilisateurs')
   revalidatePath('/')
   return { ok: true }
+}
+
+/**
+ * Le mot de passe d'un compte, en clair — administration seule. Nul tant
+ * qu'il n'est pas connu : fixé avant l'arrivée du coffre, il ne se lit qu'à
+ * la prochaine connexion de l'utilisateur, ou quand l'administration en
+ * donne un nouveau.
+ */
+export async function revealPassword(id: number): Promise<{ ok: boolean; password: string | null; error?: string }> {
+  await requireRole(['ADMIN'], '/admin/login')
+  const u = await prisma.user.findUnique({ where: { id }, select: { passwordEnc: true } })
+  if (!u) return { ok: false, password: null, error: 'Utilisateur introuvable.' }
+  return { ok: true, password: dechiffrerMotDePasse(u.passwordEnc) }
 }
 
 export async function toggleUser(id: number, isActive: boolean): Promise<ActionResult> {
@@ -1073,6 +1088,41 @@ export async function deleteFamily(categoryId: number, avecArticles = false): Pr
       prisma.category.deleteMany({ where: { id: categoryId } }),
     ])
   }
+  revalidatePath('/admin/stock-fixe')
+  revalidatePath('/employe/commande')
+  return { ok: true }
+}
+
+/**
+ * Met en service un autre jeu de stock fixe (1, 2 ou 3) pour un département.
+ *
+ * Le jeu actif est rangé dans sa réserve, le jeu choisi prend sa place dans
+ * stock_fixe : dès la prochaine commande, le département commande avec lui.
+ * Les commandes déjà passées gardent le stock fixe figé sur leurs lignes.
+ */
+export async function activateStockFixe(departmentId: number, slot: number): Promise<ActionResult> {
+  await requireRole(['ADMIN'], '/admin/login')
+  if (![1, 2, 3].includes(slot)) return { ok: false, error: 'Jeu de stock fixe inconnu.' }
+  const dep = await prisma.department.findUnique({ where: { id: departmentId }, select: { activeStockFixe: true } })
+  if (!dep) return { ok: false, error: 'Département introuvable.' }
+  if (dep.activeStockFixe === slot) return { ok: true }
+  const actif = dep.activeStockFixe
+  await prisma.$transaction(async (tx) => {
+    // Personne n'écrit la feuille pendant la bascule.
+    await tx.$executeRaw`SELECT id FROM "departments" WHERE id = ${departmentId} FOR UPDATE`
+    // 1. Le jeu en service retourne dans sa réserve, tel qu'il est.
+    await tx.stockFixeSet.deleteMany({ where: { departmentId, slot: actif } })
+    await tx.$executeRaw`
+      INSERT INTO "stock_fixe_sets" ("departmentId", "slot", "productId", "quantity", "updatedAt")
+      SELECT "departmentId", ${actif}::int, "productId", "quantity", now() FROM "stock_fixe" WHERE "departmentId" = ${departmentId}`
+    // 2. Le jeu choisi entre en service.
+    await tx.stockFixe.deleteMany({ where: { departmentId } })
+    await tx.$executeRaw`
+      INSERT INTO "stock_fixe" ("departmentId", "productId", "quantity", "updatedAt")
+      SELECT "departmentId", "productId", "quantity", now() FROM "stock_fixe_sets"
+       WHERE "departmentId" = ${departmentId} AND "slot" = ${slot} AND "quantity" > 0`
+    await tx.department.update({ where: { id: departmentId }, data: { activeStockFixe: slot } })
+  }, { timeout: 20_000 })
   revalidatePath('/admin/stock-fixe')
   revalidatePath('/employe/commande')
   return { ok: true }

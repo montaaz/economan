@@ -15,14 +15,14 @@ export const dynamic = 'force-dynamic'
 export default async function StockFixePage({
   searchParams,
 }: {
-  searchParams: Promise<{ dep?: string }>
+  searchParams: Promise<{ dep?: string; jeu?: string }>
 }) {
-  const { dep } = await searchParams
+  const { dep, jeu } = await searchParams
 
   const departments = await prisma.department.findMany({
     where: { isActive: true },
     orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
-    select: { id: true, name: true, code: true, color: true, icon: true },
+    select: { id: true, name: true, code: true, color: true, icon: true, activeStockFixe: true },
   })
 
   if (departments.length === 0) {
@@ -41,6 +41,9 @@ export default async function StockFixePage({
   }
 
   const selected = departments.find((d) => String(d.id) === dep) ?? departments[0]
+  // Trois jeux de stock fixe par département ; on regarde (et modifie)
+  // celui choisi, sans toucher à celui en service tant qu'on ne bascule pas.
+  const vue = ['1', '2', '3'].includes(jeu ?? '') ? Number(jeu) : selected.activeStockFixe
 
   // Même règle que la feuille de l'employé : une liste explicite prime sur les
   // catégories. Sans cela l'écran réglait des articles que le département ne
@@ -60,10 +63,16 @@ export default async function StockFixePage({
         },
       },
     }),
-    prisma.stockFixe.findMany({
-      where: { departmentId: selected.id },
-      select: { productId: true, quantity: true },
-    }),
+    // Le jeu affiché : celui en service (stock_fixe), ou une réserve.
+    vue === selected.activeStockFixe
+      ? prisma.stockFixe.findMany({
+        where: { departmentId: selected.id },
+        select: { productId: true, quantity: true },
+      })
+      : prisma.stockFixeSet.findMany({
+        where: { departmentId: selected.id, slot: vue },
+        select: { productId: true, quantity: true },
+      }),
     prisma.category.findMany({
       where: { isActive: true },
       orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
@@ -134,8 +143,11 @@ export default async function StockFixePage({
         }
       />
       <StockFixeEditor
+        key={`${selected.id}-${vue}`}
         departments={departments}
         selectedId={selected.id}
+        jeuActif={selected.activeStockFixe}
+        jeuVu={vue}
         categories={familles}
         units={units.map((u) => ({ id: String(u.id), name: u.name, symbol: u.symbol }))}
         products={products.map((p) => ({

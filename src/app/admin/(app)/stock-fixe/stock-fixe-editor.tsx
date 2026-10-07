@@ -4,7 +4,7 @@ import * as React from 'react'
 import { useActionState } from 'react'
 import { useFormStatus } from 'react-dom'
 import { useRouter } from 'next/navigation'
-import { Search, PackageSearch, Target, Plus, AlertCircle, Pencil, Trash2, Check, Loader2, ChevronUp, ChevronDown } from 'lucide-react'
+import { Search, PackageSearch, Target, Plus, AlertCircle, Pencil, Trash2, Check, Loader2, ChevronUp, ChevronDown, CircleCheck, Power } from 'lucide-react'
 import { GlassCard, Button, EmptyState, TableWrap, Th, Td, usePending } from '@/components/ui/glass'
 import { Icon } from '@/components/ui/icon'
 import { useToast } from '@/components/ui/toast'
@@ -13,7 +13,7 @@ import { Field } from '@/components/ui/glass'
 import { gql, errorMessage } from '@/lib/graphql-client'
 import {
   createProductForDepartment, renameProductInDepartment, moveProductInSheet, setProductUnit,
-  toggleDepartmentProduct, moveFamilyInSheet, removeFamilyFromSheet, renameFamily, type ActionResult,
+  toggleDepartmentProduct, moveFamilyInSheet, removeFamilyFromSheet, renameFamily, activateStockFixe, type ActionResult,
 } from '@/server/services/admin'
 import { InlineEdit } from '@/components/ui/inline-edit'
 import { useConfirm } from '@/components/ui/confirm'
@@ -37,18 +37,22 @@ export type ParLine = {
 }
 
 const SET_PAR = /* GraphQL */ `
-  mutation SetPar($departmentId: ID!, $lines: [StockFixeInput!]!) {
-    setStockFixe(departmentId: $departmentId, lines: $lines)
+  mutation SetPar($departmentId: ID!, $lines: [StockFixeInput!]!, $slot: Int) {
+    setStockFixe(departmentId: $departmentId, lines: $lines, slot: $slot)
   }
 `
 
 type Ref = { id: string; name: string }
 
 export function StockFixeEditor({
-  departments, selectedId, products, categories: allCategories, units,
+  departments, selectedId, products, categories: allCategories, units, jeuActif = 1, jeuVu = 1,
 }: {
   departments: Dept[]
   selectedId: number
+  /** Le jeu de stock fixe en service pour ce département (1, 2, 3). */
+  jeuActif?: number
+  /** Le jeu affiché et modifié ici. */
+  jeuVu?: number
   products: ParLine[]
   categories: FamilleRef[]
   units: (Ref & { symbol: string })[]
@@ -230,7 +234,7 @@ export function StockFixeEditor({
 
       setSync('envoi')
       try {
-        await gql(SET_PAR, { departmentId: String(selectedId), lines: aEnvoyer })
+        await gql(SET_PAR, { departmentId: String(selectedId), lines: aEnvoyer, slot: jeuVu })
         for (const l of aEnvoyer) enregistre.current[l.productId] = valuesRef.current[l.productId]
         setSync('ok')
         router.refresh()
@@ -239,7 +243,7 @@ export function StockFixeEditor({
         push('error', errorMessage(e))
       }
     }, 1000)
-  }, [selectedId, router, push])
+  }, [selectedId, jeuVu, router, push])
 
   // Une saisie laissée en attente au moment de quitter serait perdue.
   React.useEffect(() => () => {
@@ -274,6 +278,8 @@ export function StockFixeEditor({
           )
         })}
       </div>
+
+      <JeuxStockFixe departmentId={selectedId} departmentName={current?.name ?? ''} actif={jeuActif} vu={jeuVu} />
 
       <GlassCard overflowVisible>
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[rgb(var(--glass-edge)/0.16)] px-4 py-3 sm:px-5">
@@ -752,3 +758,112 @@ function SyncStatus({ etat }: { etat: 'repos' | 'attente' | 'envoi' | 'ok' | 'er
     </span>
   )
 }
+
+/**
+ * Les trois jeux de stock fixe d'un département.
+ *
+ * On regarde et on règle n'importe lequel ; un seul est en service. Mettre
+ * un autre jeu en service change tout de suite ce que le département
+ * commande — les commandes déjà passées gardent leur stock fixe.
+ */
+function JeuxStockFixe({ departmentId, departmentName, actif, vu }: {
+  departmentId: number
+  departmentName: string
+  actif: number
+  vu: number
+}) {
+  const router = useRouter()
+  const { push } = useToast()
+  const confirmer = useConfirm()
+  const [enCours, setEnCours] = React.useState(false)
+  const lien = (jeu: number) => `?dep=${departmentId}&jeu=${jeu}`
+
+  const activer = async () => {
+    const ok = await confirmer({
+      title: `Mettre en service le stock fixe ${vu} ?`,
+      message: `${departmentName} commandera dès maintenant avec le stock fixe ${vu} (au lieu du ${actif}). Les commandes déjà passées ne changent pas, et le stock fixe ${actif} reste enregistré : vous pourrez y revenir à tout moment.`,
+      confirmLabel: `Mettre en service le stock fixe ${vu}`,
+    })
+    if (!ok) return
+    setEnCours(true)
+    try {
+      const r = await activateStockFixe(departmentId, vu)
+      if (!r.ok) { push('error', r.error ?? 'Bascule impossible.'); return }
+      push('success', `${departmentName} commande maintenant avec le stock fixe ${vu}.`)
+      router.refresh()
+    } catch (e) { push('error', errorMessage(e)) } finally { setEnCours(false) }
+  }
+
+  // Chaque jeu a sa couleur : on reconnaît d'un coup d'œil celui en service.
+  const COULEURS: Record<number, { from: string; to: string; ink: string; soft: string }> = {
+    1: { from: '#3b82f6', to: '#1d4ed8', ink: '#1d4ed8', soft: '#eff6ff' },
+    2: { from: '#8b5cf6', to: '#6d28d9', ink: '#6d28d9', soft: '#f5f3ff' },
+    3: { from: '#f59e0b', to: '#c2410c', ink: '#b45309', soft: '#fffbeb' },
+  }
+  const cv = COULEURS[vu]
+
+  return (
+    <div className="mb-4 space-y-2.5">
+      <div className="grid grid-cols-3 gap-2 sm:gap-3">
+        {[1, 2, 3].map((j) => {
+          const c = COULEURS[j]
+          const enService = j === actif
+          const choisi = j === vu
+          return (
+            <button
+              key={j}
+              type="button"
+              onClick={() => router.push(lien(j))}
+              aria-pressed={choisi}
+              className={cn(
+                'relative flex flex-col items-start gap-1 overflow-hidden rounded-2xl border-2 px-3 py-2.5 text-left transition-[transform,box-shadow] hover:-translate-y-0.5 sm:px-4 sm:py-3',
+                enService ? 'border-transparent text-white' : 'bg-white/80',
+                choisi ? 'shadow-[0_14px_30px_-14px_rgb(15_23_42/0.55)]' : 'shadow-sm',
+              )}
+              style={enService
+                ? { background: `linear-gradient(135deg, ${c.from}, ${c.to})`, boxShadow: choisi ? `0 0 0 3px ${c.from}55, 0 14px 30px -14px ${c.to}` : undefined }
+                : { borderColor: choisi ? c.from : `${c.from}40`, background: choisi ? c.soft : undefined }}
+            >
+              {enService ? <CircleCheck className="absolute right-2.5 top-2.5 size-4 text-white" /> : null}
+              <span className={cn('whitespace-nowrap text-[0.62rem] font-bold uppercase tracking-[0.08em] sm:text-[0.7rem] sm:tracking-[0.1em]', enService ? 'text-white/80' : '')} style={enService ? undefined : { color: c.ink }}>
+                Stock fixe
+              </span>
+              <span className={cn('text-[1.6rem] font-extrabold leading-none sm:text-[1.9rem]', enService ? 'text-white' : '')} style={enService ? undefined : { color: c.ink }}>
+                {j}
+              </span>
+              <span
+                className={cn('mt-0.5 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[0.62rem] font-bold uppercase tracking-wide sm:text-[0.66rem]',
+                  enService ? 'bg-white/25 text-white' : 'bg-[rgb(var(--glass-edge)/0.14)] text-fg-subtle')}
+              >
+                {enService ? 'En service' : 'En réserve'}
+              </span>
+            </button>
+          )
+        })}
+      </div>
+      {vu === actif ? (
+        <p className="flex items-center gap-2 rounded-xl px-3 py-2 text-[0.82rem] font-medium" style={{ background: cv.soft, color: cv.ink }}>
+          <CircleCheck className="size-4 shrink-0" />
+          {departmentName} commande avec le stock fixe {vu}. Les modifications s’appliquent aux prochaines commandes.
+        </p>
+      ) : (
+        <div className="flex flex-col gap-2.5 rounded-xl border border-warn/35 bg-warn/[0.08] px-3 py-2.5 sm:flex-row sm:items-center">
+          <p className="min-w-0 text-[0.82rem] font-medium text-warn sm:flex-1">
+            Stock fixe {vu} en réserve : vos réglages ici ne changent rien tant qu’il n’est pas en service. {departmentName} commande avec le stock fixe {actif}.
+          </p>
+          <button
+            type="button"
+            disabled={enCours}
+            onClick={() => void activer()}
+            className="inline-flex h-10 w-full shrink-0 items-center justify-center gap-2 rounded-xl px-4 text-[0.86rem] font-bold text-white shadow-md transition-[filter] hover:brightness-110 disabled:opacity-60 sm:w-auto"
+            style={{ background: `linear-gradient(135deg, ${cv.from}, ${cv.to})` }}
+          >
+            {enCours ? <Loader2 className="size-4 animate-spin" /> : <Power className="size-4" />}
+            Mettre en service le stock fixe {vu}
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+

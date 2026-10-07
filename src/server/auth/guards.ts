@@ -15,9 +15,13 @@ export async function requireRole(roles: Role[], loginPath = '/'): Promise<Sessi
   return user
 }
 
-/** Employé rattaché à un département — le seul profil qui passe commande. */
+/**
+ * Qui commande pour un département : l'employé qui y est rattaché, ou le
+ * contrôle de gestion entré dans ce département (le ticket porte son nom).
+ */
 export async function requireEmployeeDepartment(): Promise<SessionUser & { departmentId: number }> {
   const user = await requireUser('/')
-  if (user.role !== 'EMPLOYEE' || !user.departmentId) redirect('/')
+  if (user.role === 'CONTROLEUR' && !user.departmentId) redirect('/controle/departement')
+  if ((user.role !== 'EMPLOYEE' && user.role !== 'CONTROLEUR') || !user.departmentId) redirect('/')
   return user as SessionUser & { departmentId: number }
 }

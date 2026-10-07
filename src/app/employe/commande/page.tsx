@@ -30,8 +30,9 @@ export default async function NewOrderPage() {
   const user = await requireEmployeeDepartment()
   // L'horaire des commandes : hors de sa plage, on le dit tout de suite
   // plutôt que de laisser remplir cent lignes qui seront refusées.
+  // Le contrôle de gestion qui commande pour un service n'a pas d'horaire.
   const fenetre = await fenetreDe(user.id)
-  if (!fenetre.open) {
+  if (user.role === 'EMPLOYEE' && !fenetre.open) {
     return (
       <>
         <BackLink href="/employe">Retour</BackLink>
@@ -64,7 +65,11 @@ export default async function NewOrderPage() {
           </p>
         }
       />
-      {fenetre.restricted ? (
+      {user.role === 'CONTROLEUR' ? (
+        <p className="mb-3 inline-flex items-center gap-1.5 rounded-full bg-accent/12 px-3 py-1 text-[0.82rem] font-semibold text-accent">
+          Commande pour {user.departmentName} — le ticket portera votre nom, {user.fullName}.
+        </p>
+      ) : fenetre.restricted ? (
         <p className="mb-3 inline-flex items-center gap-1.5 rounded-full bg-ok/12 px-3 py-1 text-[0.82rem] font-semibold text-ok">
           <Clock className="size-4" />
           Commandes ouvertes jusqu’à {fenetre.closesAt}{fenetre.label ? ` — horaire ${fenetre.label}` : ''}

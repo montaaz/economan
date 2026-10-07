@@ -4,8 +4,18 @@ import bcrypt from 'bcryptjs'
 import { redirect } from 'next/navigation'
 import { prisma } from '@/server/db'
 import { createSession, destroySession, homeForRole } from './session'
+import { chiffrerMotDePasse, dechiffrerMotDePasse } from './password-vault'
 
 export type LoginState = { error?: string }
+
+/**
+ * Le mot de passe vient d'être vérifié : on garde la copie chiffrée que
+ * l'administration peut relire, si elle manque ou n'est plus à jour.
+ */
+async function garderMotDePasse(user: { id: number; passwordEnc: string | null }, password: string) {
+  if (dechiffrerMotDePasse(user.passwordEnc) === password) return
+  await prisma.user.update({ where: { id: user.id }, data: { passwordEnc: chiffrerMotDePasse(password) } })
+}
 
 /** Connexion employé : il a déjà choisi son département puis son nom. */
 export async function loginEmployee(_prev: LoginState, formData: FormData): Promise<LoginState> {
@@ -21,6 +31,7 @@ export async function loginEmployee(_prev: LoginState, formData: FormData): Prom
     return { error: 'Mot de passe incorrect.' }
   }
 
+  await garderMotDePasse(user, password)
   await prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } })
   await createSession({
     id: user.id,
@@ -55,6 +66,7 @@ export async function loginStaff(_prev: LoginState, formData: FormData): Promise
     return { error: 'Ce compte n’a pas accès à l’espace contrôle de gestion.' }
   }
 
+  await garderMotDePasse(user, password)
   await prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } })
   await createSession({
     id: user.id,

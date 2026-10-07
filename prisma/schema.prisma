@@ -26,17 +26,21 @@ model Department {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  categories     DepartmentCategory[]
-  products       DepartmentProduct[]
-  users          User[]
-  orders         Order[]
-  stockFixe      StockFixe[]
-  salesItems     SalesItem[]
-  compositions   PreparedComposition[]
-  recipes        Recipe[]
-  declaredSales  DeclaredSale[]
-  stockChecks    StockCheck[]
-  stockCheckLogs StockCheckLog[]
+  categories      DepartmentCategory[]
+  products        DepartmentProduct[]
+  users           User[]
+  orders          Order[]
+  stockFixe       StockFixe[]
+  salesItems      SalesItem[]
+  compositions    PreparedComposition[]
+  recipes         Recipe[]
+  declaredSales   DeclaredSale[]
+  stockChecks     StockCheck[]
+  stockCheckLogs  StockCheckLog[]
+  /// Le jeu de stock fixe en service (1, 2 ou 3). La table stock_fixe porte
+  /// toujours le jeu actif ; les deux autres attendent dans stock_fixe_sets.
+  activeStockFixe Int                   @default(1)
+  stockFixeSets   StockFixeSet[]
 
   @@index([isActive, sortOrder])
   @@map("departments")
@@ -126,6 +130,7 @@ model Product {
   preparationsMade Preparation[]         @relation("PreparationProduct")
   stockChecks      StockCheck[]
   stockCheckLogs   StockCheckLog[]
+  stockFixeSets    StockFixeSet[]
 
   // Chemin chaud : « tous les articles actifs d'une catégorie, triés ».
   @@index([categoryId, isActive, sortOrder])
@@ -155,6 +160,10 @@ model User {
   username      String    @unique
   fullName      String
   passwordHash  String
+  /// Copie chiffrée (AES-256-GCM, clé tirée d'AUTH_SECRET) du mot de passe,
+  /// que seule l'administration relit. Remplie quand l'administration fixe le
+  /// mot de passe, ou à la prochaine connexion de l'utilisateur.
+  passwordEnc   String?
   role          Role      @default(EMPLOYEE)
   departmentId  Int?
   avatarColor   String    @default("#38bdf8")
@@ -896,4 +905,21 @@ model StockCheckLog {
   @@index([productId])
   @@index([userId])
   @@map("stock_check_logs")
+}
+
+/// Les jeux de stock fixe en réserve d'un département (1, 2, 3). Basculer
+/// range le jeu actif ici et charge le jeu choisi dans stock_fixe.
+model StockFixeSet {
+  departmentId Int
+  slot         Int
+  productId    Int
+  quantity     Decimal  @db.Decimal(14, 3)
+  updatedAt    DateTime @updatedAt
+
+  department Department @relation(fields: [departmentId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  product    Product    @relation(fields: [productId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@id([departmentId, slot, productId])
+  @@index([productId])
+  @@map("stock_fixe_sets")
 }

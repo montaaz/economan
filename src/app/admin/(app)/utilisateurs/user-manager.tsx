@@ -4,7 +4,7 @@ import * as React from 'react'
 import { useActionState } from 'react'
 import { useFormStatus } from 'react-dom'
 import { useRouter } from 'next/navigation'
-import { Plus, Pencil, Trash2, Eye, EyeOff, AlertCircle, Users, Fingerprint, Shield, ScanFace } from 'lucide-react'
+import { Plus, Pencil, Trash2, Eye, EyeOff, AlertCircle, Users, Fingerprint, Shield, ScanFace, Copy, Check, Wand2 } from 'lucide-react'
 import { FaceEnrollModal } from '@/components/auth/face-enroll'
 import { Icon } from '@/components/ui/icon'
 import { GlassCard, Button, Badge, Field, EmptyState, TableWrap, Th, Td } from '@/components/ui/glass'
@@ -13,7 +13,7 @@ import { useToast } from '@/components/ui/toast'
 import { useConfirm } from '@/components/ui/confirm'
 import { cn, formatDateTime, initials } from '@/lib/utils'
 import { ROLE_LABEL } from '@/lib/nav'
-import { saveUser, toggleUser, deleteUser, type ActionResult } from '@/server/services/admin'
+import { saveUser, toggleUser, deleteUser, revealPassword, type ActionResult } from '@/server/services/admin'
 import type { Role } from '@/generated/prisma/enums'
 
 export type ManagedUser = {
@@ -372,21 +372,17 @@ function UserForm({
           </Field>
         ) : null}
 
+        {user ? <CurrentPassword userId={Number(user.id)} /> : null}
+
         <Field
           label={user ? 'Nouveau mot de passe' : 'Mot de passe'}
           htmlFor="u-password"
           required={!user}
-          hint={user ? 'Laissez vide pour conserver le mot de passe actuel.' : '8 caractères minimum.'}
+          hint={user
+            ? 'Laissez vide pour garder le mot de passe actuel.'
+            : '8 caractères minimum. « Générer » en crée un solide, à copier pour l’utilisateur.'}
         >
-          <input
-            id="u-password"
-            name="password"
-            type="password"
-            autoComplete="new-password"
-            placeholder="••••••••"
-            className="field"
-            required={!user}
-          />
+          <PasswordField required={!user} />
         </Field>
 
         <div className="flex items-center justify-end gap-2 pt-1">
@@ -437,3 +433,138 @@ function FiltreBouton({
     </button>
   )
 }
+
+/** Lettres et chiffres sans ambiguïté (ni 0/O, ni 1/l/I) : il se dicte et se recopie sans erreur. */
+const ALPHABET = 'abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789'
+function genererMotDePasse(n = 10) {
+  const r = new Uint32Array(n)
+  crypto.getRandomValues(r)
+  return Array.from(r, (x) => ALPHABET[x % ALPHABET.length]).join('')
+}
+
+/** Copie un texte. Hors HTTPS (adresse du réseau local), le presse-papiers moderne est refusé : l'ancienne méthode passe partout. */
+async function copierTexte(texte: string) {
+  try {
+    await navigator.clipboard.writeText(texte)
+  } catch {
+    const t = document.createElement('textarea')
+    t.value = texte; t.style.position = 'fixed'; t.style.opacity = '0'
+    document.body.appendChild(t); t.select()
+    document.execCommand('copy'); t.remove()
+  }
+}
+
+/**
+ * Le mot de passe actuel d'un compte, pour l'administration : masqué, un œil
+ * pour le voir, « Copier ». Il n'est connu qu'une fois fixé par
+ * l'administration, ou après la prochaine connexion de l'utilisateur.
+ */
+function CurrentPassword({ userId }: { userId: number }) {
+  const [valeur, setValeur] = React.useState<string | null | undefined>(undefined)
+  const [visible, setVisible] = React.useState(false)
+  const [copie, setCopie] = React.useState(false)
+
+  React.useEffect(() => {
+    let vivant = true
+    revealPassword(userId).then((r) => { if (vivant) setValeur(r.ok ? r.password : null) }).catch(() => { if (vivant) setValeur(null) })
+    return () => { vivant = false }
+  }, [userId])
+
+  const connu = typeof valeur === 'string'
+  return (
+    <div className="rounded-xl border border-[rgb(var(--glass-edge)/0.28)] bg-white/55 p-3">
+      <p className="mb-1.5 text-[0.8rem] font-semibold text-fg-muted">Mot de passe actuel</p>
+      {valeur === undefined ? (
+        <p className="text-[0.82rem] text-fg-subtle">Chargement…</p>
+      ) : connu ? (
+        <div className="flex items-center gap-2">
+          <span className={cn('min-w-0 flex-1 truncate rounded-lg bg-white/80 px-3 py-2 font-mono text-[0.95rem] text-fg', !visible && 'tracking-[0.3em]')}>
+            {visible ? valeur : '•'.repeat(Math.max(8, valeur.length))}
+          </span>
+          <button
+            type="button"
+            onClick={() => setVisible((v) => !v)}
+            aria-label={visible ? 'Masquer le mot de passe actuel' : 'Afficher le mot de passe actuel'}
+            className="grid size-9 shrink-0 place-items-center rounded-lg text-fg-subtle transition-colors hover:bg-[rgb(var(--glass-edge)/0.16)] hover:text-fg"
+          >
+            {visible ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+          </button>
+          <button
+            type="button"
+            onClick={async () => { await copierTexte(valeur); setCopie(true); window.setTimeout(() => setCopie(false), 1800) }}
+            className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg border border-[rgb(var(--glass-edge)/0.35)] bg-white/70 px-2.5 text-[0.78rem] font-semibold text-fg-muted transition-colors hover:text-fg"
+          >
+            {copie ? <Check className="size-3.5 text-ok" /> : <Copy className="size-3.5" />}
+            {copie ? 'Copié' : 'Copier'}
+          </button>
+        </div>
+      ) : (
+        <p className="text-[0.8rem] leading-snug text-fg-subtle">
+          Pas encore connu : il s’affichera après la prochaine connexion de cet utilisateur avec son mot de passe.
+          Ou donnez-en un nouveau ci-dessous (« Générer », « Copier », « Enregistrer »).
+        </p>
+      )}
+    </div>
+  )
+}
+
+/** Le nouveau mot de passe : un œil pour le voir, « Copier », « Générer ». */
+function PasswordField({ required }: { required: boolean }) {
+  const [valeur, setValeur] = React.useState('')
+  const [visible, setVisible] = React.useState(false)
+  const [copie, setCopie] = React.useState(false)
+
+  const copier = async () => {
+    if (!valeur) return
+    await copierTexte(valeur)
+    // Le bouton dit « Copié » : une fenêtre à fermer serait de trop pour un copier.
+    setCopie(true)
+    window.setTimeout(() => setCopie(false), 1800)
+  }
+
+  return (
+    <div className="space-y-2">
+      <div className="relative">
+        <input
+          id="u-password"
+          name="password"
+          type={visible ? 'text' : 'password'}
+          autoComplete="new-password"
+          placeholder="••••••••"
+          className={cn('field pr-11', visible && 'font-mono tracking-wide')}
+          required={required}
+          value={valeur}
+          onChange={(e) => setValeur(e.target.value)}
+        />
+        <button
+          type="button"
+          onClick={() => setVisible((v) => !v)}
+          aria-label={visible ? 'Masquer le mot de passe' : 'Afficher le mot de passe'}
+          title={visible ? 'Masquer' : 'Afficher'}
+          className="absolute right-1.5 top-1/2 grid size-8 -translate-y-1/2 place-items-center rounded-lg text-fg-subtle transition-colors hover:bg-[rgb(var(--glass-edge)/0.16)] hover:text-fg"
+        >
+          {visible ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+        </button>
+      </div>
+      <div className="flex flex-wrap gap-2">
+        <button
+          type="button"
+          onClick={() => { setValeur(genererMotDePasse()); setVisible(true) }}
+          className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-accent/30 bg-accent/10 px-2.5 text-[0.78rem] font-semibold text-accent transition-colors hover:bg-accent/15"
+        >
+          <Wand2 className="size-3.5" /> Générer
+        </button>
+        <button
+          type="button"
+          onClick={() => void copier()}
+          disabled={!valeur}
+          className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-[rgb(var(--glass-edge)/0.35)] bg-white/70 px-2.5 text-[0.78rem] font-semibold text-fg-muted transition-colors hover:text-fg disabled:opacity-40"
+        >
+          {copie ? <Check className="size-3.5 text-ok" /> : <Copy className="size-3.5" />}
+          {copie ? 'Copié' : 'Copier'}
+        </button>
+      </div>
+    </div>
+  )
+}
+

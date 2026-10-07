@@ -15,6 +15,12 @@ export type SessionUser = {
   role: Role
   departmentId: number | null
   departmentName: string | null
+  /**
+   * Le contrôle de gestion « entre » dans un département pour commander à
+   * sa place : la session porte alors ce département, et tout l'espace de
+   * commande fonctionne comme pour l'employé — mais sous le nom du contrôleur.
+   */
+  actingDepartmentId?: number | null
 }
 
 function secret() {
@@ -66,6 +72,7 @@ export const readSession = cache(async (): Promise<SessionUser | null> => {
       role: payload.role as Role,
       departmentId: (payload.departmentId as number | null) ?? null,
       departmentName: (payload.departmentName as string | null) ?? null,
+      actingDepartmentId: (payload.actingDepartmentId as number | null | undefined) ?? null,
     }
   } catch {
     return null
@@ -77,12 +84,27 @@ export const readSession = cache(async (): Promise<SessionUser | null> => {
     select: { isActive: true, role: true, fullName: true, departmentId: true, department: { select: { name: true } } },
   })
   if (!compte || !compte.isActive) return null
+  if (compte.role === 'CONTROLEUR' && session.actingDepartmentId) {
+    const dep = await prisma.department.findFirst({
+      where: { id: session.actingDepartmentId, isActive: true },
+      select: { id: true, name: true },
+    })
+    return {
+      ...session,
+      fullName: compte.fullName,
+      role: compte.role,
+      departmentId: dep?.id ?? null,
+      departmentName: dep?.name ?? null,
+      actingDepartmentId: dep?.id ?? null,
+    }
+  }
   return {
     ...session,
     fullName: compte.fullName,
     role: compte.role,
     departmentId: compte.departmentId,
     departmentName: compte.department?.name ?? null,
+    actingDepartmentId: null,
   }
 })
 

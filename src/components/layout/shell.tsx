@@ -54,7 +54,7 @@ export function AppShell({ user, children }: { user: ShellUser; children: React.
   const pathname = usePathname()
   const [drawerOpen, setDrawerOpen] = React.useState(false)
   const [replie, basculer] = useBarreRepliee()
-  const groups = React.useMemo(() => navForRole(user.role), [user.role])
+  const groups = React.useMemo(() => navForRole(user.role, user.departmentName), [user.role, user.departmentName])
   const bottom = React.useMemo(() => primaryNav(user.role), [user.role])
 
   React.useEffect(() => {
@@ -141,12 +141,14 @@ function SidebarNav({ groups, pathname, replie = false }: { groups: NavGroup[]; 
                     className={cn(
                       'group relative flex items-center rounded-xl text-[0.87rem] transition-colors',
                       replie ? 'h-11 justify-center' : 'gap-2.5 px-3 py-2',
-                      active
-                        ? 'bg-white/80 font-semibold text-accent shadow-[0_1px_0_0_rgb(255_255_255/0.8)_inset,0_6px_16px_-10px_rgb(20_46_88/0.5)]'
-                        : 'text-fg-muted hover:bg-[rgb(var(--glass-edge)/0.14)] hover:text-fg',
+                      item.tone === 'urgent'
+                        ? cn('my-0.5 bg-[#7f1d1d] font-bold text-white shadow-[0_6px_16px_-8px_rgb(127_29_29/0.7)] hover:bg-[#661717]', active && 'ring-2 ring-[#7f1d1d]/35 ring-offset-1')
+                        : active
+                          ? 'bg-white/80 font-semibold text-accent shadow-[0_1px_0_0_rgb(255_255_255/0.8)_inset,0_6px_16px_-10px_rgb(20_46_88/0.5)]'
+                          : 'text-fg-muted hover:bg-[rgb(var(--glass-edge)/0.14)] hover:text-fg',
                     )}
                   >
-                    {active ? (
+                    {active && item.tone !== 'urgent' ? (
                       <span className="absolute inset-y-1.5 left-0 w-[3px] rounded-r-full bg-accent" />
                     ) : null}
                     <Icon name={item.icon} className={cn('shrink-0', replie ? 'size-5' : 'size-[1.05rem]')} />

@@ -9,6 +9,8 @@ export type NavItem = {
   primary?: boolean
   /** Libellé court, quand le libellé complet serait tronqué en bas d'écran. */
   shortLabel?: string
+  /** Un bouton d'alerte (commande urgente) : rouge dans la barre latérale. */
+  tone?: 'urgent'
 }
 
 export type NavGroup = { title: string; items: NavItem[] }
@@ -85,10 +87,37 @@ const ADMIN: NavGroup[] = [
   },
 ]
 
-export function navForRole(role: Role): NavGroup[] {
+/**
+ * Le contrôle de gestion commande aussi pour un service : il choisit le
+ * département, puis retrouve les écrans de l'employé — le ticket porte son nom.
+ */
+function commandeControle(departmentName: string | null | undefined): NavGroup {
+  // L'urgence s'ouvre comme celle de l'administration : le choix du
+  // département d'abord, puis sa feuille.
+  const urgence: NavItem = { href: '/controle/commande-urgente', label: 'Commande urgente', shortLabel: 'Urgent', icon: 'Siren', tone: 'urgent' }
+  return departmentName
+    ? {
+      title: `Commander · ${departmentName}`,
+      items: [
+        { href: '/employe/commande', label: 'Nouvelle commande', shortLabel: 'Commander', icon: 'PlusCircle' },
+        { href: '/employe', label: 'Commandes du service', shortLabel: 'Commandes', icon: 'ClipboardList' },
+        urgence,
+        { href: '/controle/departement', label: 'Changer de département', shortLabel: 'Département', icon: 'Building2' },
+      ],
+    }
+    : {
+      title: 'Commander pour un service',
+      items: [
+        { href: '/controle/departement', label: 'Choisir le département', shortLabel: 'Département', icon: 'Building2' },
+        urgence,
+      ],
+    }
+}
+
+export function navForRole(role: Role, departmentName?: string | null): NavGroup[] {
   if (role === 'ADMIN') return ADMIN
   if (role === 'ECONOMAN') return ECONOMAN
-  if (role === 'CONTROLEUR') return CONTROLEUR
+  if (role === 'CONTROLEUR') return [CONTROLEUR[0], commandeControle(departmentName), ...CONTROLEUR.slice(1)]
   return EMPLOYEE
 }
 

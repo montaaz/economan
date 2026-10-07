@@ -36,7 +36,12 @@ export function UrgentOrderButton({ departments, className }: { departments: Dep
   )
 }
 
-function ChoixDepartement({ departments, onClose }: { departments: Dept[]; onClose: () => void }) {
+export function ChoixDepartement({ departments, onClose, choisir }: {
+  departments: Dept[]
+  onClose: () => void
+  /** Ce que fait le choix ; par défaut, la feuille urgente de l'administration. */
+  choisir?: (id: string) => void
+}) {
   const router = useRouter()
   return (
     <Modal title="Commande urgente — pour quel département ?" onClose={onClose} wide>
@@ -48,7 +53,7 @@ function ChoixDepartement({ departments, onClose }: { departments: Dept[]; onClo
           <button
             key={d.id}
             type="button"
-            onClick={() => { onClose(); router.push(`/admin/commande-urgente/${d.id}`) }}
+            onClick={() => { if (choisir) choisir(d.id); else { onClose(); router.push(`/admin/commande-urgente/${d.id}`) } }}
             className="group relative flex items-center gap-3 overflow-hidden rounded-2xl border p-3.5 text-left transition-[transform,box-shadow] hover:-translate-y-0.5 hover:shadow-[0_12px_28px_-14px_rgb(var(--shadow-ambient)/0.55)] sm:p-4"
             style={{
               borderColor: `${d.color}55`,

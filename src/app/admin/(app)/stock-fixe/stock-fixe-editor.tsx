@@ -34,7 +34,21 @@ export type ParLine = {
   unitId: string
   category: { id: string; name: string; icon: string | null }
   quantity: number
+  /** Le stock fixe de l'article dans chacun des trois jeux. */
+  sets?: Record<1 | 2 | 3, number>
 }
+
+const JEUX = [1, 2, 3] as const
+
+/** Chaque jeu de stock fixe a sa couleur, des cartes du haut aux colonnes du tableau. */
+const COULEURS_JEU: Record<number, { from: string; to: string; ink: string; soft: string }> = {
+  1: { from: '#3b82f6', to: '#1d4ed8', ink: '#1d4ed8', soft: '#eff6ff' },
+  2: { from: '#8b5cf6', to: '#6d28d9', ink: '#6d28d9', soft: '#f5f3ff' },
+  3: { from: '#f59e0b', to: '#c2410c', ink: '#b45309', soft: '#fffbeb' },
+}
+
+/** La clé d'une valeur saisie : le jeu, puis l'article. */
+const cleJeu = (jeu: number, id: string) => `${jeu}:${id}`
 
 const SET_PAR = /* GraphQL */ `
   mutation SetPar($departmentId: ID!, $lines: [StockFixeInput!]!, $slot: Int) {
@@ -77,10 +91,13 @@ export function StockFixeEditor({
   // État de l'enregistrement automatique, affiché en en-tête.
   const [sync, setSync] = React.useState<'repos' | 'attente' | 'envoi' | 'ok' | 'erreur'>('repos')
 
-  // Valeurs éditées, indexées par article. On part des valeurs en base.
+  // Valeurs éditées, indexées par jeu et par article (« 2:1234 ») : les trois
+  // jeux se règlent côte à côte. On part des valeurs en base.
   const initial = React.useMemo(
-    () => Object.fromEntries(products.map((p) => [p.id, String(p.quantity)])),
-    [products],
+    () => Object.fromEntries(products.flatMap((p) => JEUX.map((j) => [
+      cleJeu(j, p.id), String(p.sets?.[j] ?? (j === jeuVu ? p.quantity : 0)),
+    ]))),
+    [products, jeuVu],
   )
   const [values, setValues] = React.useState<Record<string, string>>(initial)
 
@@ -126,8 +143,8 @@ export function StockFixeEditor({
   }, [products])
 
   const configured = React.useMemo(
-    () => products.filter((p) => toNumber(values[p.id]) > 0).length,
-    [products, values],
+    () => products.filter((p) => toNumber(values[cleJeu(jeuVu, p.id)]) > 0).length,
+    [products, values, jeuVu],
   )
 
   const current = departments.find((d) => d.id === selectedId)
@@ -201,10 +218,10 @@ export function StockFixeEditor({
     }
   }
 
-  const setValue = (id: string, raw: string) => {
+  const setValue = (cle: string, raw: string) => {
     const v = raw.replace(',', '.')
     if (v !== '' && !/^\d*\.?\d*$/.test(v)) return
-    setValues((s) => ({ ...s, [id]: v }))
+    setValues((s) => ({ ...s, [cle]: v }))
     planifier()
   }
 
@@ -226,16 +243,24 @@ export function StockFixeEditor({
     if (enAttente.current) window.clearTimeout(enAttente.current)
     setSync('attente')
     enAttente.current = window.setTimeout(async () => {
-      const aEnvoyer = Object.entries(valuesRef.current)
-        .filter(([id, v]) => v !== '' && v !== enregistre.current[id])
-        .map(([id, v]) => ({ productId: id, quantity: toNumber(v) }))
-
-      if (aEnvoyer.length === 0) return setSync('repos')
+      // Ce qui a changé, jeu par jeu : un envoi par jeu touché.
+      const changes = Object.entries(valuesRef.current)
+        .filter(([cle, v]) => v !== '' && v !== enregistre.current[cle])
+      if (changes.length === 0) return setSync('repos')
+      const parJeu = new Map<number, { productId: string; quantity: number }[]>()
+      for (const [cle, v] of changes) {
+        const [jeu, id] = cle.split(':')
+        const l = parJeu.get(Number(jeu)) ?? []
+        l.push({ productId: id, quantity: toNumber(v) })
+        parJeu.set(Number(jeu), l)
+      }
 
       setSync('envoi')
       try {
-        await gql(SET_PAR, { departmentId: String(selectedId), lines: aEnvoyer, slot: jeuVu })
-        for (const l of aEnvoyer) enregistre.current[l.productId] = valuesRef.current[l.productId]
+        for (const [jeu, lines] of parJeu) {
+          await gql(SET_PAR, { departmentId: String(selectedId), lines, slot: jeu })
+        }
+        for (const [cle] of changes) enregistre.current[cle] = valuesRef.current[cle]
         setSync('ok')
         router.refresh()
       } catch (e) {
@@ -243,7 +268,7 @@ export function StockFixeEditor({
         push('error', errorMessage(e))
       }
     }, 1000)
-  }, [selectedId, jeuVu, router, push])
+  }, [selectedId, router, push])
 
   // Une saisie laissée en attente au moment de quitter serait perdue.
   React.useEffect(() => () => {
@@ -374,14 +399,36 @@ export function StockFixeEditor({
                 {/* L'unité suit la valeur qu'elle qualifie : « 24 u » se lit
                     d'un bloc, alors qu'une colonne séparée à gauche obligeait
                     à faire l'aller-retour. */}
-                <Th className="w-[7rem] px-1 text-right sm:w-40 sm:px-3">Stock fixe</Th>
+                {/* Les trois jeux côte à côte. Le titre est un bouton : il
+                    choisit le jeu, comme les cartes du haut. */}
+                {JEUX.map((j) => {
+                  const c = COULEURS_JEU[j]
+                  return (
+                    <Th key={j} className="px-0.5 text-center sm:px-1.5">
+                      <button
+                        type="button"
+                        onClick={() => router.push(`?dep=${selectedId}&jeu=${j}`)}
+                        aria-pressed={j === jeuVu}
+                        title={j === jeuActif ? `Stock fixe ${j} — en service` : `Stock fixe ${j} — en réserve`}
+                        className="inline-flex items-center gap-1 whitespace-nowrap rounded-lg px-1.5 py-1 text-[0.68rem] font-bold uppercase tracking-wide transition-colors sm:px-2.5 sm:text-[0.72rem]"
+                        style={j === jeuVu
+                          ? { background: `linear-gradient(135deg, ${c.from}, ${c.to})`, color: '#fff' }
+                          : { background: c.soft, color: c.ink }}
+                      >
+                        {j === jeuActif ? <span className="size-1.5 rounded-full bg-ok ring-2 ring-white/70" /> : null}
+                        <span className="hidden sm:inline">Stock fixe</span>
+                        <span className="sm:hidden">SF</span> {j}
+                      </button>
+                    </Th>
+                  )
+                })}
                 <Th className="px-1 text-left sm:px-3">Unité</Th>
                 <Th className="w-10 px-1 sm:px-3"><span className="sr-only">Modifier</span></Th>
               </tr>
             </thead>
             <tbody className="divide-y divide-[rgb(var(--glass-edge)/0.12)]">
               {visible.map((p, i) => {
-                const v = toNumber(values[p.id])
+                const v = toNumber(values[cleJeu(jeuVu, p.id)])
                 const changed = v !== p.quantity
                 const previous = i > 0 ? visible[i - 1] : null
                 const next = visible[i + 1] ?? null
@@ -399,7 +446,7 @@ export function StockFixeEditor({
                       return (
                         <tr>
                           <td
-                            colSpan={5}
+                            colSpan={7}
                             className="bg-ok/12 px-2 py-1 text-[0.72rem] font-bold uppercase tracking-[0.06em] text-ok sm:px-3 sm:text-[0.76rem]"
                           >
                             <span className="flex items-center gap-1.5">
@@ -488,32 +535,40 @@ export function StockFixeEditor({
                         ) : null}
                       </p>
                     </Td>
-                    <Td className="px-1 sm:px-3">
-                      <div className="flex items-center justify-end gap-1.5">
-                        <input
-                          inputMode="decimal"
-                          value={values[p.id] ?? ''}
-                          onChange={(e) => setValue(p.id, e.target.value)}
-                          onFocus={(e) => {
-                            // Un 0 qu'il faut effacer avant de taper est une
-                            // gêne sur 109 lignes : le champ se vide au clic
-                            // et retrouve son 0 si on le quitte sans saisir.
-                            if (toNumber(values[p.id]) === 0) {
-                              setValues((st) => ({ ...st, [p.id]: '' }))
-                            }
-                            e.currentTarget.select()
-                          }}
-                          onBlur={() => {
-                            if ((values[p.id] ?? '') === '') {
-                              setValues((st) => ({ ...st, [p.id]: String(p.quantity) }))
-                            }
-                          }}
-                          placeholder="0"
-                          aria-label={`Stock fixe pour ${p.name}`}
-                          className="field h-9 w-16 px-1.5 py-0 text-right text-[0.8rem] tabular-nums sm:w-24 sm:px-3 sm:text-[0.85rem]"
-                        />
-                      </div>
-                    </Td>
+                    {JEUX.map((j) => {
+                      const cle = cleJeu(j, p.id)
+                      const c = COULEURS_JEU[j]
+                      const enBase = String(p.sets?.[j] ?? (j === jeuVu ? p.quantity : 0))
+                      return (
+                        <Td key={j} className="px-0.5 sm:px-1.5" style={j === jeuVu ? { background: `${c.from}0d` } : undefined}>
+                          <div className="flex items-center justify-center">
+                            <input
+                              inputMode="decimal"
+                              value={values[cle] ?? ''}
+                              onChange={(e) => setValue(cle, e.target.value)}
+                              onFocus={(e) => {
+                                // Un 0 qu'il faut effacer avant de taper est une
+                                // gêne sur 109 lignes : le champ se vide au clic
+                                // et retrouve son 0 si on le quitte sans saisir.
+                                if (toNumber(values[cle]) === 0) {
+                                  setValues((st) => ({ ...st, [cle]: '' }))
+                                }
+                                e.currentTarget.select()
+                              }}
+                              onBlur={() => {
+                                if ((values[cle] ?? '') === '') {
+                                  setValues((st) => ({ ...st, [cle]: enBase }))
+                                }
+                              }}
+                              placeholder="0"
+                              aria-label={`Stock fixe ${j} pour ${p.name}`}
+                              className="field h-9 w-14 px-1 py-0 text-right text-[0.8rem] tabular-nums sm:w-20 sm:px-2.5 sm:text-[0.85rem]"
+                              style={j === jeuVu ? { borderColor: `${c.from}80`, fontWeight: 700, color: c.ink } : undefined}
+                            />
+                          </div>
+                        </Td>
+                      )
+                    })}
                     <Td className="whitespace-nowrap px-1 text-left sm:px-3">
                       {/* L'unité se choisit dans une liste : un champ libre
                           laisserait écrire « kgs » et créerait des doublons
@@ -557,7 +612,7 @@ export function StockFixeEditor({
                   {/* Sous la dernière ligne de la famille : l'ajout d'article. */}
                   {closesFamily ? (
                     <tr>
-                      <td colSpan={5} className="px-2 py-1.5 sm:px-3">
+                      <td colSpan={7} className="px-2 py-1.5 sm:px-3">
                         <button
                           type="button"
                           onClick={() => setAddingTo(p.category)}
@@ -794,12 +849,7 @@ function JeuxStockFixe({ departmentId, departmentName, actif, vu }: {
     } catch (e) { push('error', errorMessage(e)) } finally { setEnCours(false) }
   }
 
-  // Chaque jeu a sa couleur : on reconnaît d'un coup d'œil celui en service.
-  const COULEURS: Record<number, { from: string; to: string; ink: string; soft: string }> = {
-    1: { from: '#3b82f6', to: '#1d4ed8', ink: '#1d4ed8', soft: '#eff6ff' },
-    2: { from: '#8b5cf6', to: '#6d28d9', ink: '#6d28d9', soft: '#f5f3ff' },
-    3: { from: '#f59e0b', to: '#c2410c', ink: '#b45309', soft: '#fffbeb' },
-  }
+  const COULEURS = COULEURS_JEU
   const cv = COULEURS[vu]
 
   return (

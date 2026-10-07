@@ -48,7 +48,7 @@ export default async function StockFixePage({
   // Même règle que la feuille de l'employé : une liste explicite prime sur les
   // catégories. Sans cela l'écran réglait des articles que le département ne
   // voit pas — 128 lignes ici contre 107 sur la feuille.
-  const [sheet, pars, categories] = await Promise.all([
+  const [sheet, actifs, reserves, categories] = await Promise.all([
     prisma.departmentProduct.findMany({
       where: { departmentId: selected.id, product: { isActive: true } },
       orderBy: { sortOrder: 'asc' },
@@ -63,16 +63,16 @@ export default async function StockFixePage({
         },
       },
     }),
-    // Le jeu affiché : celui en service (stock_fixe), ou une réserve.
-    vue === selected.activeStockFixe
-      ? prisma.stockFixe.findMany({
-        where: { departmentId: selected.id },
-        select: { productId: true, quantity: true },
-      })
-      : prisma.stockFixeSet.findMany({
-        where: { departmentId: selected.id, slot: vue },
-        select: { productId: true, quantity: true },
-      }),
+    // Les trois jeux, côte à côte dans le tableau : celui en service vit
+    // dans stock_fixe, les deux autres dans leur réserve.
+    prisma.stockFixe.findMany({
+      where: { departmentId: selected.id },
+      select: { productId: true, quantity: true },
+    }),
+    prisma.stockFixeSet.findMany({
+      where: { departmentId: selected.id, slot: { not: selected.activeStockFixe } },
+      select: { slot: true, productId: true, quantity: true },
+    }),
     prisma.category.findMany({
       where: { isActive: true },
       orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
@@ -123,7 +123,11 @@ export default async function StockFixePage({
     select: { id: true, name: true, symbol: true },
   })
 
-  const parBy = new Map(pars.map((p) => [p.productId, Number(p.quantity)]))
+  // Par jeu (1, 2, 3), la quantité de chaque article.
+  const jeux = new Map<number, Map<number, number>>([[1, new Map()], [2, new Map()], [3, new Map()]])
+  for (const r of actifs) jeux.get(selected.activeStockFixe)!.set(r.productId, Number(r.quantity))
+  for (const r of reserves) jeux.get(r.slot)?.set(r.productId, Number(r.quantity))
+  const parBy = jeux.get(vue)!
 
   return (
     <>
@@ -159,6 +163,11 @@ export default async function StockFixePage({
           unitId: String(p.baseUnit.id),
           category: { id: String(p.category.id), name: p.category.name, icon: p.category.icon },
           quantity: parBy.get(p.id) ?? 0,
+          sets: {
+            1: jeux.get(1)!.get(p.id) ?? 0,
+            2: jeux.get(2)!.get(p.id) ?? 0,
+            3: jeux.get(3)!.get(p.id) ?? 0,
+          },
         }))}
       />
     </>

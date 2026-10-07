@@ -26,18 +26,20 @@ model Department {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  categories DepartmentCategory[]
-  products   DepartmentProduct[]
-  users      User[]
-  orders     Order[]
-  stockFixe  StockFixe[]
-  salesItems SalesItem[]
-  compositions PreparedComposition[]
+  categories     DepartmentCategory[]
+  products       DepartmentProduct[]
+  users          User[]
+  orders         Order[]
+  stockFixe      StockFixe[]
+  salesItems     SalesItem[]
+  compositions   PreparedComposition[]
+  recipes        Recipe[]
+  declaredSales  DeclaredSale[]
+  stockChecks    StockCheck[]
+  stockCheckLogs StockCheckLog[]
 
   @@index([isActive, sortOrder])
-  recipes      Recipe[]
   @@map("departments")
-  declaredSales DeclaredSale[]
 }
 
 model Category {
@@ -102,22 +104,28 @@ model Product {
   // acheté en gros (100 kg d'escalope → des escalopes pizza). `motherQuantity`
   // dit ce qu'une portion consomme de la mère, dans l'unité de la mère
   // (0,300 kg) ; le stock général, lui, ne compte que la mère.
-  kind           ProductKind @default(FINI)
+  kind           ProductKind  @default(FINI)
   parentId       Int?
-  motherQuantity Decimal? @db.Decimal(14, 4)
+  motherQuantity Decimal?     @db.Decimal(14, 4)
   // Quand l'article a rejoint sa famille : les fiches d'articles se rangent
   // dans l'ordre où on les a ajoutées, le premier en tête.
   linkedAt       DateTime?
-  parent       Product?  @relation("Portions", fields: [parentId], references: [id], onDelete: SetNull, onUpdate: Cascade)
-  portions     Product[] @relation("Portions")
-  stockEntries StockEntry[]
+  parent         Product?     @relation("Portions", fields: [parentId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  portions       Product[]    @relation("Portions")
+  stockEntries   StockEntry[]
 
-  category  Category    @relation(fields: [categoryId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  baseUnit  Unit        @relation(fields: [baseUnitId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  lines       OrderLine[]
-  stockFixe   StockFixe[]
-  compositions PreparedComposition[]
-  departments DepartmentProduct[]
+  category         Category              @relation(fields: [categoryId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  baseUnit         Unit                  @relation(fields: [baseUnitId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  lines            OrderLine[]
+  stockFixe        StockFixe[]
+  compositions     PreparedComposition[]
+  departments      DepartmentProduct[]
+  recipeLines      RecipeLine[]
+  declaredSales    DeclaredSale[]
+  preparationsFrom Preparation[]         @relation("PreparationSource")
+  preparationsMade Preparation[]         @relation("PreparationProduct")
+  stockChecks      StockCheck[]
+  stockCheckLogs   StockCheckLog[]
 
   // Chemin chaud : « tous les articles actifs d'une catégorie, triés ».
   @@index([categoryId, isActive, sortOrder])
@@ -126,11 +134,7 @@ model Product {
   @@index([baseUnitId])
   // Le dispatching : les portions d'une mère.
   @@index([parentId])
-  recipeLines  RecipeLine[]
   @@map("products")
-  declaredSales DeclaredSale[]
-  preparationsFrom Preparation[] @relation("PreparationSource")
-  preparationsMade Preparation[] @relation("PreparationProduct")
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -147,56 +151,58 @@ enum Role {
 }
 
 model User {
-  id           Int      @id @default(autoincrement())
-  username     String   @unique
-  fullName     String
-  passwordHash String
-  role         Role     @default(EMPLOYEE)
-  departmentId Int?
-  avatarColor  String   @default("#38bdf8")
-  isActive     Boolean  @default(true)
-  lastLoginAt  DateTime?
+  id            Int       @id @default(autoincrement())
+  username      String    @unique
+  fullName      String
+  passwordHash  String
+  role          Role      @default(EMPLOYEE)
+  departmentId  Int?
+  avatarColor   String    @default("#38bdf8")
+  isActive      Boolean   @default(true)
+  lastLoginAt   DateTime?
   /// L'horaire de commande propre à cet utilisateur, « HH:MM ». Nul : il suit
   /// l'horaire général.
   orderOpensAt  String?
   orderClosesAt String?
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
 
-  department  Department?  @relation(fields: [departmentId], references: [id], onDelete: SetNull, onUpdate: Cascade)
-  credentials Credential[]
-  faceProfile FaceProfile?
+  department   Department?        @relation(fields: [departmentId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  credentials  Credential[]
+  faceProfile  FaceProfile?
   faceAttempts FaceLoginAttempt[]
 
-  ordersCreated   Order[] @relation("OrderCreatedBy")
-  ordersProcessed Order[] @relation("OrderProcessedBy")
-  ordersReceived  Order[] @relation("OrderReceivedBy")
-  refillsCreated  OrderRefill[] @relation("RefillCreatedBy")
-  refillsReceived OrderRefill[] @relation("RefillReceivedBy")
-  salesReports    SalesReport[] @relation("SalesReportCreatedBy")
-  stockEntries StockEntry[] @relation("StockEntryCreatedBy")
-  stockEntriesModified StockEntry[] @relation("StockEntryModifiedBy")
-  stockEntriesLocked   StockEntry[] @relation("StockEntryLockedBy")
-  invoicePhotos InvoicePhoto[]
+  ordersCreated        Order[]         @relation("OrderCreatedBy")
+  ordersProcessed      Order[]         @relation("OrderProcessedBy")
+  ordersReceived       Order[]         @relation("OrderReceivedBy")
+  refillsCreated       OrderRefill[]   @relation("RefillCreatedBy")
+  refillsReceived      OrderRefill[]   @relation("RefillReceivedBy")
+  salesReports         SalesReport[]   @relation("SalesReportCreatedBy")
+  stockEntries         StockEntry[]    @relation("StockEntryCreatedBy")
+  stockEntriesModified StockEntry[]    @relation("StockEntryModifiedBy")
+  stockEntriesLocked   StockEntry[]    @relation("StockEntryLockedBy")
+  invoicePhotos        InvoicePhoto[]
+  declaredSales        DeclaredSale[]  @relation("DeclaredSaleCreatedBy")
+  preparations         Preparation[]   @relation("PreparationCreatedBy")
+  stockChecks          StockCheck[]    @relation("StockCheckUpdatedBy")
+  stockCheckLogs       StockCheckLog[] @relation("StockCheckLogBy")
 
   @@index([departmentId, isActive])
   @@index([role, isActive])
   @@map("users")
-  declaredSales DeclaredSale[] @relation("DeclaredSaleCreatedBy")
-  preparations Preparation[] @relation("PreparationCreatedBy")
 }
 
 /// Empreinte digitale / passkey (WebAuthn). Un utilisateur peut enrôler plusieurs appareils.
 model Credential {
-  id             Int      @id @default(autoincrement())
-  userId         Int
-  credentialId   String   @unique
-  publicKey      Bytes
-  counter        BigInt   @default(0)
-  transports     String?
-  deviceLabel    String?
-  createdAt      DateTime @default(now())
-  lastUsedAt     DateTime?
+  id           Int       @id @default(autoincrement())
+  userId       Int
+  credentialId String    @unique
+  publicKey    Bytes
+  counter      BigInt    @default(0)
+  transports   String?
+  deviceLabel  String?
+  createdAt    DateTime  @default(now())
+  lastUsedAt   DateTime?
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade)
 
@@ -231,49 +237,49 @@ enum ProductKind {
 }
 
 enum OrderStatus {
-  PENDING    // envoyée par l'employé, en attente chez l'économat
-  ACCEPTED   // ouverte / en cours de traitement par l'économat
-  DELIVERED  // bon de livraison émis, en route
-  RECEIVED   // l'employé a confirmé la réception — dossier clos
+  PENDING // envoyée par l'employé, en attente chez l'économat
+  ACCEPTED // ouverte / en cours de traitement par l'économat
+  DELIVERED // bon de livraison émis, en route
+  RECEIVED // l'employé a confirmé la réception — dossier clos
   CANCELLED
 }
 
 enum LineStatus {
   PENDING
-  VALIDATED  // servi tel que demandé
-  ADJUSTED   // servi en quantité différente
-  REJECTED   // rupture
+  VALIDATED // servi tel que demandé
+  ADJUSTED // servi en quantité différente
+  REJECTED // rupture
 }
 
 model Order {
-  id           Int         @id @default(autoincrement())
-  reference    String      @unique
-  ticketNumber Int
-  businessDay  DateTime    @db.Date
-  departmentId Int
-  createdById  Int
+  id            Int         @id @default(autoincrement())
+  reference     String      @unique
+  ticketNumber  Int
+  businessDay   DateTime    @db.Date
+  departmentId  Int
+  createdById   Int
   processedById Int?
   // Qui a confirmé la réception : n'importe quel employé du service peut le
   // faire, et l'auteur de la commande n'est pas toujours celui qui réceptionne.
-  receivedById Int?
-  status       OrderStatus @default(PENDING)
-  note         String?
+  receivedById  Int?
+  status        OrderStatus @default(PENDING)
+  note          String?
   // Passée par l'administration, hors du rythme des feuilles : elle se
   // signale partout en bordeaux, et se traite avant les autres.
-  isUrgent     Boolean     @default(false)
-  createdAt    DateTime    @default(now())
-  acceptedAt   DateTime?
-  deliveredAt  DateTime?
-  receivedAt   DateTime?
+  isUrgent      Boolean     @default(false)
+  createdAt     DateTime    @default(now())
+  acceptedAt    DateTime?
+  deliveredAt   DateTime?
+  receivedAt    DateTime?
   /// Remarque laissée par le département en confirmant la réception : ce
   /// qui n'allait pas, en une phrase, sans compter ligne par ligne.
   receptionNote String?
-  updatedAt    DateTime    @updatedAt
+  updatedAt     DateTime    @updatedAt
 
-  department  Department @relation(fields: [departmentId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  createdBy   User       @relation("OrderCreatedBy", fields: [createdById], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  processedBy User?      @relation("OrderProcessedBy", fields: [processedById], references: [id], onDelete: SetNull, onUpdate: Cascade)
-  receivedBy  User?      @relation("OrderReceivedBy", fields: [receivedById], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  department  Department    @relation(fields: [departmentId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  createdBy   User          @relation("OrderCreatedBy", fields: [createdById], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  processedBy User?         @relation("OrderProcessedBy", fields: [processedById], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  receivedBy  User?         @relation("OrderReceivedBy", fields: [receivedById], references: [id], onDelete: SetNull, onUpdate: Cascade)
   lines       OrderLine[]
   refills     OrderRefill[]
 
@@ -300,17 +306,17 @@ model Order {
 /// Le premier service reste porté par `OrderLine.quantityServed` ; ceux-ci
 /// s'y ajoutent sans le réécrire, pour que l'historique soit lisible.
 model OrderRefill {
-  id        Int      @id @default(autoincrement())
-  orderId   Int
+  id            Int       @id @default(autoincrement())
+  orderId       Int
   /// 2 pour le deuxième service, 3 pour le troisième, etc.
-  rank      Int
-  createdAt DateTime @default(now())
-  createdById Int?
+  rank          Int
+  createdAt     DateTime  @default(now())
+  createdById   Int?
   /// Réception du passage, indépendante de celle de la commande : la marchandise
   /// arrive plus tard, et la commande d'origine a pu être reçue depuis longtemps.
   /// Une fois ce champ posé, le passage ne peut plus être supprimé.
-  receivedAt   DateTime?
-  receivedById Int?
+  receivedAt    DateTime?
+  receivedById  Int?
   /// Remarque du département à la réception de ce passage.
   receptionNote String?
   /// Quand le bon de livraison de ce passage a été émis.
@@ -320,10 +326,10 @@ model OrderRefill {
   /// n'a été qu'enregistré.
   deliveredAt   DateTime?
 
-  order     Order     @relation(fields: [orderId], references: [id], onDelete: Cascade, onUpdate: Cascade)
-  createdBy User?     @relation("RefillCreatedBy", fields: [createdById], references: [id], onDelete: SetNull, onUpdate: Cascade)
-  receivedBy User?    @relation("RefillReceivedBy", fields: [receivedById], references: [id], onDelete: SetNull, onUpdate: Cascade)
-  lines     OrderRefillLine[]
+  order      Order             @relation(fields: [orderId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  createdBy  User?             @relation("RefillCreatedBy", fields: [createdById], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  receivedBy User?             @relation("RefillReceivedBy", fields: [receivedById], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  lines      OrderRefillLine[]
 
   @@unique([orderId, rank])
   @@index([deliveredAt])
@@ -350,30 +356,30 @@ model OrderRefillLine {
 }
 
 model OrderLine {
-  id              Int        @id @default(autoincrement())
-  orderId         Int
-  productId       Int
-  unitId          Int
-  productName     String     // figé à la commande, pour que le bon reste lisible
-  productRef      String
-  categoryName    String
+  id               Int        @id @default(autoincrement())
+  orderId          Int
+  productId        Int
+  unitId           Int
+  productName      String // figé à la commande, pour que le bon reste lisible
+  productRef       String
+  categoryName     String
   // Figés au moment de l'envoi : le stock fixe et le stock compté qui ont
   // produit la quantité. Un réglage ultérieur du stock fixe ne doit pas
   // réécrire l'histoire d'une commande déjà passée.
-  stockFixe       Decimal    @default(0) @db.Decimal(14, 3)
-  quantityOnHand  Decimal    @default(0) @db.Decimal(14, 3)
-  quantityAsked   Decimal    @db.Decimal(14, 3)
-  quantityServed  Decimal?   @db.Decimal(14, 3)
+  stockFixe        Decimal    @default(0) @db.Decimal(14, 3)
+  quantityOnHand   Decimal    @default(0) @db.Decimal(14, 3)
+  quantityAsked    Decimal    @db.Decimal(14, 3)
+  quantityServed   Decimal?   @db.Decimal(14, 3)
   /// Ce que l'employé a réellement compté à la réception. Nul tant qu'il n'a
   /// pas vérifié ; un écart avec quantityServed est conservé comme trace.
-  quantityReceived Decimal?  @db.Decimal(14, 3)
-  status          LineStatus @default(PENDING)
-  rejectReason    String?
-  sortOrder       Int        @default(0)
+  quantityReceived Decimal?   @db.Decimal(14, 3)
+  status           LineStatus @default(PENDING)
+  rejectReason     String?
+  sortOrder        Int        @default(0)
 
-  order   Order   @relation(fields: [orderId], references: [id], onDelete: Cascade, onUpdate: Cascade)
-  product Product @relation(fields: [productId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  unit    Unit    @relation(fields: [unitId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  order   Order             @relation(fields: [orderId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  product Product           @relation(fields: [productId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  unit    Unit              @relation(fields: [unitId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   refills OrderRefillLine[]
 
   // Une ligne par article et par commande.
@@ -440,30 +446,30 @@ enum StockEntryType {
 /// plus les arrivages venus après, moins ce qui est parti vers les
 /// départements depuis ; sa valeur suit le coût moyen ainsi obtenu.
 model StockEntry {
-  id          Int      @id @default(autoincrement())
-  productId   Int
-  type        StockEntryType @default(ARRIVAGE)
-  quantity    Decimal  @db.Decimal(14, 3)
+  id           Int            @id @default(autoincrement())
+  productId    Int
+  type         StockEntryType @default(ARRIVAGE)
+  quantity     Decimal        @db.Decimal(14, 3)
   /// Prix unitaire en dinars, tel que facturé.
-  unitPrice   Decimal  @db.Decimal(14, 3)
+  unitPrice    Decimal        @db.Decimal(14, 3)
   /// Numéro de facture ou de bon de livraison fournisseur.
-  reference   String?
+  reference    String?
   /// Numéro du bon de livraison, quand la facture en cite un.
   deliveryNote String?
   /// Le prix unitaire hors taxes avant remise, tel qu'imprimé sur la
   /// facture. `unitPrice` reste le prix net, celui que le stock valorise.
-  listPrice   Decimal? @db.Decimal(14, 3)
+  listPrice    Decimal?       @db.Decimal(14, 3)
   /// Remise de la ligne, en pour cent.
-  discountPct Decimal  @default(0) @db.Decimal(6, 3)
+  discountPct  Decimal        @default(0) @db.Decimal(6, 3)
   /// Taux de TVA de la ligne, en pour cent. Le stock se valorise hors taxes.
-  vatPct      Decimal  @default(0) @db.Decimal(6, 3)
-  note        String?
+  vatPct       Decimal        @default(0) @db.Decimal(6, 3)
+  note         String?
   /// Journée de service de l'arrivage.
-  businessDay DateTime @db.Date
+  businessDay  DateTime       @db.Date
   /// Le fournisseur qui a livré, quand l'arrivage en a un.
-  supplierId  Int?
-  createdById Int
-  createdAt   DateTime @default(now())
+  supplierId   Int?
+  createdById  Int
+  createdAt    DateTime       @default(now())
   /// Dernière correction de l'écriture, et qui l'a faite. Nul tant qu'elle
   /// est telle qu'on l'a saisie.
   modifiedAt   DateTime?
@@ -474,11 +480,11 @@ model StockEntry {
   lockedAt     DateTime?
   lockedById   Int?
 
-  product   Product   @relation(fields: [productId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  supplier  Supplier? @relation(fields: [supplierId], references: [id], onDelete: SetNull, onUpdate: Cascade)
-  createdBy User      @relation("StockEntryCreatedBy", fields: [createdById], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  modifiedBy User?    @relation("StockEntryModifiedBy", fields: [modifiedById], references: [id], onDelete: SetNull, onUpdate: Cascade)
-  lockedBy   User?    @relation("StockEntryLockedBy", fields: [lockedById], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  product    Product   @relation(fields: [productId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  supplier   Supplier? @relation(fields: [supplierId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  createdBy  User      @relation("StockEntryCreatedBy", fields: [createdById], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  modifiedBy User?     @relation("StockEntryModifiedBy", fields: [modifiedById], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  lockedBy   User?     @relation("StockEntryLockedBy", fields: [lockedById], references: [id], onDelete: SetNull, onUpdate: Cascade)
 
   @@index([supplierId])
   @@index([productId, businessDay])
@@ -494,12 +500,12 @@ model StockEntry {
 /// retrouve à la frappe sur une nouvelle entrée ; téléphone et matricule
 /// fiscal reviennent avec lui.
 model Supplier {
-  id        Int      @id @default(autoincrement())
-  name      String   @unique
-  phone     String?
+  id               Int      @id @default(autoincrement())
+  name             String   @unique
+  phone            String?
   /// Matricule fiscal.
-  taxId     String?
-  address   String?
+  taxId            String?
+  address          String?
   /// La personne à joindre chez le fournisseur.
   contactName      String?
   email            String?
@@ -511,8 +517,8 @@ model Supplier {
   /// Un fournisseur masqué ne se propose plus sur les factures ; ses
   /// factures passées le gardent.
   isActive         Boolean  @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
 
   entries StockEntry[]
   photos  InvoicePhoto[]
@@ -571,8 +577,8 @@ model Recipe {
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
 
-  department Department  @relation(fields: [departmentId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  salesItem  SalesItem?  @relation(fields: [salesItemId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  department Department   @relation(fields: [departmentId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  salesItem  SalesItem?   @relation(fields: [salesItemId], references: [id], onDelete: SetNull, onUpdate: Cascade)
   lines      RecipeLine[]
   usedIn     RecipeLine[] @relation("SubRecipe")
 
@@ -650,31 +656,31 @@ model SalesFamily {
 
 /// Un article de la carte, tel qu'il sort sur le Z de la caisse.
 model SalesItem {
-  id        Int      @id @default(autoincrement())
-  familyId  Int
+  id           Int      @id @default(autoincrement())
+  familyId     Int
   /// Le service qui vend cet article : la cuisine sort les pizzas, le bar
   /// les cafés. Facultatif — un article peut n'être rattaché à personne.
   departmentId Int?
-  name      String
+  name         String
   /// Code de caisse, quand il y en a un : c'est par lui que la lecture d'un
   /// Z retrouvera la ligne, le libellé pouvant varier d'un ticket à l'autre.
-  code      String?
+  code         String?
   /// Prix de vente indicatif, pour rapprocher quantités et chiffre d'affaires.
-  price     Decimal? @db.Decimal(12, 3)
-  sortOrder Int      @default(0)
-  isActive  Boolean  @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  price        Decimal? @db.Decimal(12, 3)
+  sortOrder    Int      @default(0)
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
-  family     SalesFamily @relation(fields: [familyId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  department Department? @relation(fields: [departmentId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  family     SalesFamily       @relation(fields: [familyId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  department Department?       @relation(fields: [departmentId], references: [id], onDelete: SetNull, onUpdate: Cascade)
   lines      SalesReportLine[]
+  recipe     Recipe?
 
   @@unique([familyId, name])
   @@index([isActive, sortOrder])
   @@index([code])
   @@index([departmentId])
-  recipe     Recipe?
   @@map("sales_items")
 }
 
@@ -702,10 +708,10 @@ model SalesReport {
 
 /// Ce qu'un article a fait sur une journée.
 model SalesReportLine {
-  id       Int     @id @default(autoincrement())
+  id       Int      @id @default(autoincrement())
   reportId Int
   itemId   Int
-  quantity Decimal @db.Decimal(14, 3)
+  quantity Decimal  @db.Decimal(14, 3)
   /// Chiffre d'affaires de la ligne, si le Z le donne.
   amount   Decimal? @db.Decimal(14, 3)
 
@@ -819,7 +825,7 @@ model FaceProfile {
   /// Chaque prise, sous plusieurs angles (face, gauche, droite, haut, bas),
   /// mises bout à bout : 128 nombres par prise. La connexion retient la plus
   /// proche — un visage tourné se reconnaît mieux.
-  sampleData Float[] @default([])
+  sampleData Float[]  @default([])
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
@@ -841,4 +847,53 @@ model FaceLoginAttempt {
 
   @@index([userId, createdAt])
   @@map("face_login_attempts")
+}
+
+/// Le contrôle d'un article, une journée, dans un département : le stock
+/// réellement trouvé (il remplace le comptage de la commande) et une remarque.
+model StockCheck {
+  id           Int      @id @default(autoincrement())
+  departmentId Int
+  productId    Int
+  businessDay  DateTime @db.Date
+  /// Nul : on garde le comptage de la commande du service.
+  realStock    Decimal? @db.Decimal(14, 3)
+  note         String?
+  updatedById  Int?
+  updatedAt    DateTime @updatedAt
+
+  department Department @relation(fields: [departmentId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  product    Product    @relation(fields: [productId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  updatedBy  User?      @relation("StockCheckUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  @@unique([departmentId, productId, businessDay])
+  @@index([departmentId, businessDay])
+  @@index([productId])
+  @@index([updatedById])
+  @@map("stock_checks")
+}
+
+/// Chaque modification du contrôle : qui, quoi, avant, après, quand. Lu par l'administration.
+model StockCheckLog {
+  id           Int      @id @default(autoincrement())
+  departmentId Int
+  productId    Int
+  businessDay  DateTime @db.Date
+  /// REEL (stock réel) ou REMARQUE.
+  field        String
+  oldValue     String?
+  newValue     String?
+  userId       Int?
+  /// Le nom au moment du geste : il reste lisible si le compte disparaît.
+  userName     String
+  createdAt    DateTime @default(now())
+
+  department Department @relation(fields: [departmentId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  product    Product    @relation(fields: [productId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  user       User?      @relation("StockCheckLogBy", fields: [userId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  @@index([departmentId, businessDay, productId, createdAt])
+  @@index([productId])
+  @@index([userId])
+  @@map("stock_check_logs")
 }

@@ -38,6 +38,10 @@ const QUERY = /* GraphQL */ `
         expected
         variance
         dishes { recipeId name perPortion }
+        orderCount
+        realStock
+        note
+        logCount
       }
     }
   }
@@ -58,7 +62,7 @@ export async function ControlPage({
   base: '/controle' | '/admin/controle'
 }) {
   const { jour, dep } = await searchParams
-  const [, allDepartments] = await Promise.all([
+  const [moi, allDepartments] = await Promise.all([
     requireRole(['CONTROLEUR', 'ADMIN'], base === '/controle' ? '/controle/login' : '/admin/login'),
     prisma.department.findMany({
       where: { isActive: true },
@@ -123,7 +127,7 @@ export async function ControlPage({
       ) : (
         <div className="space-y-5">
           {stockControl.map((g) => (
-            <ControlTable key={g.department.id} group={g} day={day} zPath={base === '/controle' ? '/controle/z' : null} fichesPath={base === '/controle' ? '/controle/fiches' : '/admin/fiches'} />
+            <ControlTable key={g.department.id} group={g} day={day} admin={moi.role === 'ADMIN'} zPath={base === '/controle' ? '/controle/z' : null} fichesPath={base === '/controle' ? '/controle/fiches' : '/admin/fiches'} />
           ))}
         </div>
       )}

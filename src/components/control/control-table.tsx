@@ -13,6 +13,7 @@ import { useToast } from '@/components/ui/toast'
 import { gql, errorMessage } from '@/lib/graphql-client'
 import { cn, formatQty, formatShortDay } from '@/lib/utils'
 import { correspond } from '@/lib/search'
+import { StockCheckLogButton } from './stock-check-log'
 
 export type ControlLine = {
   productId: string
@@ -35,6 +36,14 @@ export type ControlLine = {
   variance: number | null
   /** Les plats de la carte qui consomment cet article, et combien par portion. */
   dishes: { recipeId: string; name: string; perPortion: number }[]
+  /** Le comptage déclaré par le service à sa commande. */
+  orderCount?: number | null
+  /** Le stock réel saisi par le contrôle : il remplace le comptage. */
+  realStock?: number | null
+  /** La remarque du contrôle. */
+  note?: string | null
+  /** Modifications au journal. */
+  logCount?: number
 }
 
 export type ControlGroup = {
@@ -54,6 +63,17 @@ export type ControlGroup = {
   lines: ControlLine[]
 }
 
+const SET_REAL = /* GraphQL */ `
+  mutation SetStockReal($departmentId: ID!, $productId: ID!, $day: Date!, $quantity: Float) {
+    setStockReal(departmentId: $departmentId, productId: $productId, day: $day, quantity: $quantity)
+  }
+`
+const SET_NOTE = /* GraphQL */ `
+  mutation SetStockNote($departmentId: ID!, $productId: ID!, $day: Date!, $note: String!) {
+    setStockNote(departmentId: $departmentId, productId: $productId, day: $day, note: $note)
+  }
+`
+
 const SET_SALE = /* GraphQL */ `
   mutation SetDeclaredSale($departmentId: ID!, $productId: ID!, $day: Date!, $quantity: Float!) {
     setDeclaredSale(departmentId: $departmentId, productId: $productId, day: $day, quantity: $quantity)
@@ -66,8 +86,10 @@ const SET_SALE = /* GraphQL */ `
  * Mêmes colonnes et mêmes familles que l'écran de l'économat : le contrôle
  * doit pouvoir lire la même ligne que le magasin sans la retrouver ailleurs.
  */
-export function ControlTable({ group, day, zPath, fichesPath }: {
+export function ControlTable({ group, day, zPath, fichesPath, admin = false }: {
   group: ControlGroup
+  /** L'administration lit le journal des modifications (bouton LOG). */
+  admin?: boolean
   /** La journée contrôlée, pour recharger après une saisie. */
   day: string
   /** L'écran de saisie du Z, quand l'espace en a un : le contrôle, pas l'administration. */
@@ -99,7 +121,25 @@ export function ControlTable({ group, day, zPath, fichesPath }: {
       return errorMessage(e)
     }
   }
-  void day
+  // Le stock réel et la remarque se saisissent dans leur colonne, par le
+  // contrôle comme par l'administration ; chaque geste va au journal.
+  const ecrireReel = async (l: ControlLine, brut: string) => {
+    const v = brut.trim().replace(',', '.')
+    const q = v === '' ? null : Number(v)
+    if (q !== null && (!Number.isFinite(q) || q < 0)) return 'Un nombre positif, ou vide pour reprendre le comptage de la commande.'
+    try {
+      await gql(SET_REAL, { departmentId: group.department.id, productId: l.productId, day, quantity: q })
+      push('success', q === null ? `${l.productName} : stock réel effacé.` : `${l.productName} : stock réel ${formatQty(q)} ${l.unitSymbol}.`)
+      router.refresh()
+    } catch (e) { return errorMessage(e) }
+  }
+  const ecrireNote = async (l: ControlLine, note: string) => {
+    try {
+      await gql(SET_NOTE, { departmentId: group.department.id, productId: l.productId, day, note })
+      push('success', note.trim() ? `${l.productName} : remarque enregistrée.` : `${l.productName} : remarque effacée.`)
+      router.refresh()
+    } catch (e) { return errorMessage(e) }
+  }
   const [etat, setEtat] = React.useState<'ECART' | 'NON_COMPTE' | null>(null)
 
   // L'écart qui compte est celui de la formule : compté ≠ théorique.
@@ -277,7 +317,7 @@ export function ControlTable({ group, day, zPath, fichesPath }: {
           ) : null}
         </div>
       ) : null}
-      <TableWrap minWidth="62rem">
+      <TableWrap minWidth={admin ? '80rem' : '74rem'}>
         <thead>
           <tr>
             <Th className="w-10 text-right">#</Th>
@@ -297,6 +337,8 @@ export function ControlTable({ group, day, zPath, fichesPath }: {
             <Th className="text-center">Théorique <span className="normal-case tracking-normal text-fg-subtle">(reste)</span></Th>
             <Th className="text-center">Son stock réel</Th>
             <Th className="text-center">Écart</Th>
+            <Th className="min-w-[11rem]">Remarque</Th>
+            {admin ? <Th className="text-center">Log</Th> : null}
           </tr>
         </thead>
         <tbody className="divide-y divide-[rgb(var(--glass-edge)/0.12)]">
@@ -309,7 +351,7 @@ export function ControlTable({ group, day, zPath, fichesPath }: {
                   <FamilyBand
                     name={l.categoryName}
                     count={parFamille.get(l.categoryName) ?? 0}
-                    colSpan={9}
+                    colSpan={admin ? 11 : 10}
                   />
                 ) : null}
                 <tr className={cn(enEcart(l) && (l.variance! < 0 ? 'bg-danger/[0.07]' : 'bg-warn/[0.08]'))}>
@@ -369,13 +411,28 @@ export function ControlTable({ group, day, zPath, fichesPath }: {
                     )}
                   </Td>
                   <Td className="whitespace-nowrap text-center font-medium tabular-nums">
-                    {/* Sans commande ce jour-là, le rayon n'a pas été déclaré :
-                        un zéro laisserait croire à un rayon vide. */}
-                    {nonCompte ? (
-                      <span className="text-fg-subtle">—</span>
-                    ) : (
-                      <span className="font-bold text-fg">{formatQty(l.countedStock!)} {l.unitSymbol}</span>
-                    )}
+                    {/* Double-clic pour saisir ce que le rayon a réellement : la
+                        valeur remplace le comptage de la commande, qu'on garde
+                        en petit pour comparaison. Sans rien, « — » : un zéro
+                        laisserait croire à un rayon vide. */}
+                    <span className="inline-flex flex-col items-center leading-tight">
+                      <InlineEdit
+                        value={l.realStock === null || l.realStock === undefined ? '' : String(l.realStock)}
+                        display={nonCompte ? '—' : `${formatQty(l.countedStock!)} ${l.unitSymbol}`}
+                        onSave={(v) => ecrireReel(l, v)}
+                        ariaLabel={`Stock réel — ${l.productName}`}
+                        title="Double-cliquez pour saisir le stock réel (vide : reprendre le comptage de la commande)"
+                        align="right"
+                        className={cn('min-w-[4.5rem] rounded-lg border border-dashed px-2 py-0.5',
+                          l.realStock !== null && l.realStock !== undefined ? 'border-accent/50 bg-accent/[0.07] font-bold text-accent'
+                            : nonCompte ? 'border-[rgb(var(--glass-edge)/0.4)] text-fg-subtle' : 'border-[rgb(var(--glass-edge)/0.4)] font-bold text-fg')}
+                        inputClassName="w-20 text-center"
+                        validate={(v) => (v === '' || /^\d+([.,]\d+)?$/.test(v.trim()) ? null : 'Nombre attendu.')}
+                      />
+                      {l.realStock !== null && l.realStock !== undefined && l.orderCount !== null && l.orderCount !== undefined && l.orderCount !== l.realStock ? (
+                        <span className="text-[0.66rem] font-normal text-fg-subtle" title="Comptage déclaré à la commande">commande {formatQty(l.orderCount)}</span>
+                      ) : null}
+                    </span>
                   </Td>
                   <Td className="whitespace-nowrap text-center font-bold tabular-nums">
                     {l.variance === null ? (
@@ -386,6 +443,30 @@ export function ControlTable({ group, day, zPath, fichesPath }: {
                       <span className={l.variance < 0 ? 'text-danger' : 'text-warn'}>{l.variance > 0 ? '+' : '−'}{formatQty(Math.abs(l.variance))} {l.unitSymbol}</span>
                     )}
                   </Td>
+                  <Td className="max-w-[16rem] text-[0.8rem]">
+                    <InlineEdit
+                      value={l.note ?? ''}
+                      display={l.note ? l.note : 'Ajouter…'}
+                      onSave={(v) => ecrireNote(l, v)}
+                      ariaLabel={`Remarque — ${l.productName}`}
+                      title="Double-cliquez pour écrire une remarque"
+                      className={cn('block w-full truncate rounded-lg px-2 py-1',
+                        l.note ? 'font-medium italic text-fg' : 'border border-dashed border-[rgb(var(--glass-edge)/0.35)] text-fg-subtle')}
+                      inputClassName="w-full"
+                    />
+                  </Td>
+                  {admin ? (
+                    <Td className="text-center">
+                      <StockCheckLogButton
+                        departmentId={group.department.id}
+                        productId={l.productId}
+                        productName={l.productName}
+                        unitSymbol={l.unitSymbol}
+                        day={day}
+                        count={l.logCount ?? 0}
+                      />
+                    </Td>
+                  ) : null}
                 </tr>
               </React.Fragment>
             )

@@ -387,6 +387,25 @@ const typeDefs = /* GraphQL */ `
     variance: Float
     "Les plats de la carte qui consomment cet article, et combien par portion (en unités de l'article)."
     dishes: [ControlDish!]!
+    "Le comptage déclaré par le service à sa commande, avant toute correction du contrôle."
+    orderCount: Float
+    "Le stock réel saisi par le contrôle ou l'administration : il remplace le comptage de la commande."
+    realStock: Float
+    "La remarque du contrôle sur cette ligne."
+    note: String
+    "Nombre de modifications enregistrées sur cette ligne (journal)."
+    logCount: Int!
+  }
+
+  "Une modification du contrôle : qui, quoi, avant, après, quand."
+  type StockCheckLog {
+    id: ID!
+    "REEL (stock réel) ou REMARQUE."
+    field: String!
+    oldValue: String
+    newValue: String
+    userName: String!
+    createdAt: String!
   }
   "Un plat de la carte, vu d'un article : ce qu'une portion en consomme."
   type ControlDish {
@@ -781,6 +800,8 @@ const typeDefs = /* GraphQL */ `
     salesReports(limit: Int = 60, from: Date, to: Date): [SalesReport!]!
     "Contrôle des stocks : ce que chaque service détient et vise, sur une journée."
     stockControl(day: Date, departmentId: ID): [ControlDepartment!]!
+    "Le journal d'une ligne du contrôle (administration seulement)."
+    stockCheckLogs(departmentId: ID!, productId: ID!, day: Date!): [StockCheckLog!]!
     "Les fiches techniques, par service : plats reliés à la carte et préparations."
     recipes(departmentId: ID): [Recipe!]!
   }
@@ -873,6 +894,10 @@ const typeDefs = /* GraphQL */ `
     deleteOrderRefills(orderId: ID!): Int!
     "Déclarer ce qu'un rayon a vendu d'un article une journée donnée (contrôle). 0 efface."
     setDeclaredSale(departmentId: ID!, productId: ID!, day: Date!, quantity: Float!): Boolean!
+    "Le stock réel d'une ligne du contrôle ; null rend la main au comptage de la commande."
+    setStockReal(departmentId: ID!, productId: ID!, day: Date!, quantity: Float): Boolean!
+    "La remarque d'une ligne du contrôle ; vide l'efface."
+    setStockNote(departmentId: ID!, productId: ID!, day: Date!, note: String!): Boolean!
     acceptOrder(id: ID!): Order!
     "Rend une commande acceptée au département : elle repasse en attente et redevient modifiable."
     cancelAcceptance(id: ID!): Order!
@@ -960,6 +985,38 @@ function requireControl(ctx: Ctx) {
     })
   }
   return u
+}
+
+/**
+ * Écrit le stock réel ou la remarque d'une ligne du contrôle, et le note au
+ * journal — avant, après, qui, quand — quand la valeur change vraiment.
+ */
+async function ecrireControle(
+  u: SessionUser,
+  a: { departmentId: string; productId: string; day: string },
+  champ: 'REEL' | 'REMARQUE',
+  valeur: string | null,
+) {
+  const cle = { departmentId: Number(a.departmentId), productId: Number(a.productId), businessDay: toDate(a.day) }
+  await prisma.$transaction(async (tx) => {
+    // Une écriture à la fois par ligne : deux envois simultanés lisaient tous
+    // deux l'ancienne valeur et notaient deux fois la même modification.
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(${cle.departmentId}::int, ${cle.productId}::int)`
+    const avant = await tx.stockCheck.findUnique({ where: { departmentId_productId_businessDay: cle } })
+    const ancien = champ === 'REEL'
+      ? (avant?.realStock === null || avant?.realStock === undefined ? null : String(Number(avant.realStock)))
+      : (avant?.note ?? null)
+    if (ancien === valeur) return
+    const data = champ === 'REEL' ? { realStock: valeur === null ? null : Number(valeur) } : { note: valeur }
+    await tx.stockCheck.upsert({
+      where: { departmentId_productId_businessDay: cle },
+      create: { ...cle, ...data, updatedById: u.id },
+      update: { ...data, updatedById: u.id },
+    })
+    await tx.stockCheckLog.create({
+      data: { ...cle, field: champ, oldValue: ancien, newValue: valeur, userId: u.id, userName: u.fullName || u.username },
+    })
+  })
 }
 
 function requireAdmin(ctx: Ctx) {
@@ -1866,6 +1923,15 @@ const resolvers = {
      * déclare ce qu'il a en rayon. Un article sans ligne n'a pas été compté,
      * et sa case reste vide plutôt que d'afficher un zéro trompeur.
      */
+    stockCheckLogs: async (_p: unknown, a: { departmentId: string; productId: string; day: string }, ctx: Ctx) => {
+      requireAdmin(ctx)
+      const rows = await prisma.stockCheckLog.findMany({
+        where: { departmentId: Number(a.departmentId), productId: Number(a.productId), businessDay: toDate(a.day) },
+        orderBy: { createdAt: 'desc' },
+      })
+      return rows.map((r) => ({ ...r, id: String(r.id), createdAt: r.createdAt.toISOString() }))
+    },
+
     stockControl: async (_p: unknown, a: { day?: string; departmentId?: string }, ctx: Ctx) => {
       requireControl(ctx)
       const day = a.day ? toDate(a.day) : businessDay()
@@ -1945,6 +2011,16 @@ const resolvers = {
           : [new Map<number, number>(), new Map<number, number>(), new Map<number, number>(), 0]
         const compteVeille = new Map<number, number>()
         for (const o of precedentes) for (const l of o.lines) compteVeille.set(l.productId, Number(l.quantityOnHand))
+        // Le stock réel saisi par le contrôle passe devant le comptage de la
+        // commande, le jour même comme la veille (d'où part le théorique).
+        const [controles, controlesVeille, journaux] = await Promise.all([
+          prisma.stockCheck.findMany({ where: { departmentId: department.id, businessDay: day }, select: { productId: true, realStock: true, note: true } }),
+          veille ? prisma.stockCheck.findMany({ where: { departmentId: department.id, businessDay: veille, realStock: { not: null } }, select: { productId: true, realStock: true } }) : Promise.resolve([]),
+          prisma.stockCheckLog.groupBy({ by: ['productId'], where: { departmentId: department.id, businessDay: day }, _count: true }),
+        ])
+        for (const c of controlesVeille) compteVeille.set(c.productId, Number(c.realStock))
+        const controleBy = new Map(controles.map((c) => [c.productId, c]))
+        const journalBy = new Map(journaux.map((j) => [j.productId, j._count]))
 
         // Les plats du service et ce qu'une portion de chacun consomme,
         // article par article : c'est l'index « menu » de la feuille.
@@ -2032,7 +2108,10 @@ const resolvers = {
         const out = products.map((prod) => {
           const l = lineBy.get(prod.id)
           const cible = parBy.get(prod.id) ?? 0
-          const compte = l ? Number(l.quantityOnHand) : null
+          const ctl = controleBy.get(prod.id)
+          const compteCommande = l ? Number(l.quantityOnHand) : null
+          const reel = ctl?.realStock === null || ctl?.realStock === undefined ? null : Number(ctl.realStock)
+          const compte = reel ?? compteCommande
           const servi = l
             ? Number(l.quantityServed ?? 0) + l.refills.reduce((n, r) => n + Number(r.quantity), 0)
             : null
@@ -2065,6 +2144,10 @@ const resolvers = {
             expected,
             variance: compte === null || expected === null ? null : compte - expected,
             dishes: (platsParArticle.get(prod.id) ?? []).sort((a, b) => b.perPortion - a.perPortion),
+            orderCount: compteCommande,
+            realStock: reel,
+            note: ctl?.note ?? null,
+            logCount: journalBy.get(prod.id) ?? 0,
           }
         })
 
@@ -2757,6 +2840,23 @@ const resolvers = {
         create: { ...cle, quantity: a.quantity, createdById: u.id },
         update: { quantity: a.quantity, createdById: u.id },
       })
+      return true
+    },
+
+    setStockReal: async (_p: unknown, a: { departmentId: string; productId: string; day: string; quantity?: number | null }, ctx: Ctx) => {
+      const u = requireControl(ctx)
+      const q = a.quantity ?? null
+      if (q !== null && (!Number.isFinite(q) || q < 0)) {
+        throw new GraphQLError('Le stock réel doit être un nombre positif.', { extensions: { code: 'BAD_USER_INPUT' } })
+      }
+      await ecrireControle(u, a, 'REEL', q === null ? null : String(Math.round(q * 1000) / 1000))
+      return true
+    },
+
+    setStockNote: async (_p: unknown, a: { departmentId: string; productId: string; day: string; note: string }, ctx: Ctx) => {
+      const u = requireControl(ctx)
+      const note = a.note.trim().slice(0, 500)
+      await ecrireControle(u, a, 'REMARQUE', note === '' ? null : note)
       return true
     },
 

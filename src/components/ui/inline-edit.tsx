@@ -54,7 +54,12 @@ export function InlineEdit({
     setDraft(value)
   }
 
+  // Un seul enregistrement à la fois. Entrée désactive le champ pendant
+  // l'envoi, ce qui le fait sortir du focus — et la sortie relançait un
+  // second enregistrement : chaque saisie partait deux fois.
+  const enCours = React.useRef(false)
   const commit = async () => {
+    if (enCours.current) return
     const next = draft.trim()
     if (next === value.trim()) return close()
 
@@ -65,9 +70,15 @@ export function InlineEdit({
       return
     }
 
+    enCours.current = true
     setBusy(true)
-    const message = await onSave(next)
-    setBusy(false)
+    let message: Awaited<ReturnType<typeof onSave>>
+    try {
+      message = await onSave(next)
+    } finally {
+      enCours.current = false
+      setBusy(false)
+    }
 
     if (typeof message === 'string' && message) {
       // On garde le champ ouvert : l'utilisateur doit pouvoir corriger sans

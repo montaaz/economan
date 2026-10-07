@@ -630,6 +630,21 @@ export function RefillForm({
   const voirSoldees = vue === 'toutes'
 
   /**
+   * Une pastille du haut de page (ajustées, ruptures, tout afficher) quitte
+   * la relecture. La relecture montre ce qui a été servi, sans filtre : rester
+   * dedans faisait croire que la pastille ne marchait pas — l'adresse changeait,
+   * le tableau non. On revient à la vue de travail, filtrée.
+   */
+  const [etatVu, setEtatVu] = React.useState(etat)
+  if (etat !== etatVu) {
+    setEtatVu(etat)
+    // Rien de cette nature n'attend plus : on montre tout, soldées comprises,
+    // plutôt qu'un tableau vide.
+    const attend = service.lignes.some((l) => reste(l) > 0 && (etat === null || l.status === etat))
+    setVue(attend ? 'attente' : 'toutes')
+  }
+
+  /**
    * La barre des services disparaît pendant la relecture.
    *
    * Elle vit sur la page, au-dessus de ce formulaire : impossible de la

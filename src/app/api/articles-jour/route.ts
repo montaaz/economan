@@ -19,12 +19,16 @@ export async function GET(request: Request) {
   if (!user) return new NextResponse('Non authentifié', { status: 401 })
   if (user.role !== 'ECONOMAN' && user.role !== 'ADMIN') return new NextResponse('Accès refusé', { status: 403 })
 
-  const dep = entier(url.searchParams.get('dep'))
-  if (!dep) return new NextResponse('Département manquant', { status: 400 })
-  const departement = await prisma.department.findUnique({ where: { id: dep }, select: { code: true } })
+  // « tous » : tous les départements de la journée, dans un seul PDF.
+  const tous = url.searchParams.get('dep') === 'tous'
+  const dep = tous ? null : entier(url.searchParams.get('dep'))
+  if (!tous && !dep) return new NextResponse('Département manquant', { status: 400 })
+  const departement = tous
+    ? { code: 'TOUS' }
+    : await prisma.department.findUnique({ where: { id: dep! }, select: { code: true } })
   if (!departement) return new NextResponse('Département introuvable', { status: 404 })
 
-  const p = new URLSearchParams({ dep: String(dep) })
+  const p = new URLSearchParams({ dep: tous ? 'tous' : String(dep) })
   for (const cle of ['jour', 'jusquau', 'etat', 'rang', 'q']) {
     const v = url.searchParams.get(cle)
     if (v) p.set(cle, v.slice(0, 80))
@@ -43,7 +47,7 @@ export async function GET(request: Request) {
     const page = await context.newPage()
     await chargerFeuille(page, `${base}/economat/articles/imprimer?${p}`)
     const jour = url.searchParams.get('jour') ?? ''
-    const pdf = await rendrePdf(page, `Articles de toute la journée — ${departement.code} — ${jour}`.trim())
+    const pdf = await rendrePdf(page, `Articles de toute la journée — ${tous ? 'tous les départements' : departement.code} — ${jour}`.trim())
     return new NextResponse(new Uint8Array(pdf), {
       headers: {
         'content-type': 'application/pdf',

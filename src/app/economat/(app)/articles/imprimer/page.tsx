@@ -44,23 +44,69 @@ export default async function ArticlesCumulesImprimerPage({
 }) {
   await requireRole(['ECONOMAN', 'ADMIN'], '/economat/login')
   const { dep, jour, jusquau, etat, rang, q } = await searchParams
+  const filtres = { etat, rang, q }
+
+  // Tous les départements dans un seul document : une feuille par rayon,
+  // chacune sur sa page, dans l'ordre des départements.
+  if (dep === 'tous') {
+    const { dayBoard: board } = await executeGraphQL<{ dayBoard: Journee }>(BOARD, { day: jour ?? null, dayTo: jusquau ?? null })
+    const rayons = board.departments.filter((d) => d.orderCount > 0)
+    const departements = await prisma.department.findMany({
+      where: { id: { in: rayons.map((r) => Number(r.department.id)) } },
+      orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
+      select: { id: true, name: true },
+    })
+    const articles = await Promise.all(departements.map((d) => executeGraphQL<{ dayArticles: CumulLine[] }>(QUERY, {
+      departmentId: String(d.id), day: board.day, dayTo: board.isRange ? board.dayTo : null,
+    }).then((r) => r.dayArticles)))
+    return (
+      <>
+        {departements.map((d, i) => (
+          <FeuilleRayon key={d.id} nom={d.name} board={board} articles={articles[i]} sautDePage={i > 0} {...filtres}
+            tickets={rayons.find((r) => r.department.id === String(d.id))?.orderCount ?? 0} />
+        ))}
+      </>
+    )
+  }
+
   const departmentId = Number(dep)
   if (!Number.isInteger(departmentId)) notFound()
-
   const [department, data] = await Promise.all([
     prisma.department.findUnique({ where: { id: departmentId }, select: { name: true } }),
-    executeGraphQL<{ dayArticles: CumulLine[]; dayBoard: { day: string; dayTo: string; isRange: boolean; departments: { department: { id: string }; orderCount: number }[] } }>(
+    executeGraphQL<{ dayArticles: CumulLine[]; dayBoard: Journee }>(
       QUERY, { departmentId: String(departmentId), day: jour ?? null, dayTo: jusquau ?? null },
     ),
   ])
   if (!department) notFound()
-
   const board = data.dayBoard
   const tickets = board.departments.find((d) => d.department.id === String(departmentId))?.orderCount ?? 0
+  return <FeuilleRayon nom={department.name} board={board} articles={data.dayArticles} tickets={tickets} {...filtres} />
+}
+
+type Journee = { day: string; dayTo: string; isRange: boolean; departments: { department: { id: string }; orderCount: number }[] }
+
+const BOARD = /* GraphQL */ `
+  query JourneePapier($day: Date, $dayTo: Date) {
+    dayBoard(day: $day, dayTo: $dayTo) { day dayTo isRange departments { department { id } orderCount } }
+  }
+`
+
+/** La feuille d'un département : ses articles de la journée, ses totaux. */
+function FeuilleRayon({ nom, board, articles, tickets, etat, rang, q, sautDePage = false }: {
+  nom: string
+  board: Journee
+  articles: CumulLine[]
+  tickets: number
+  etat?: string
+  rang?: string
+  q?: string
+  /** Commence sur une nouvelle page (document de tous les départements). */
+  sautDePage?: boolean
+}) {
   // Le papier suit le filtre de l'écran, s'il y en a un.
   const mot = (q ?? '').trim().toLowerCase()
   const rangVoulu = rang ? Number(rang) : null
-  const lignes = data.dayArticles.filter((l) =>
+  const lignes = articles.filter((l) =>
     (!etat || l.status === etat)
     && (rangVoulu === null || (l.status === 'VALIDATED' && l.servedRank === rangVoulu))
     && (!mot || l.productName.toLowerCase().includes(mot) || l.productRef.toLowerCase().includes(mot)))
@@ -82,10 +128,10 @@ export default async function ArticlesCumulesImprimerPage({
   const filtre = [etat ? ETATS[etat as CumulLine['status']]?.libelle : null, rangVoulu ? `Servi ${rangVoulu}` : null, mot ? `« ${q} »` : null].filter(Boolean).join(' · ')
 
   return (
-    <div className="bg-white px-1 py-1 text-[0.74rem] leading-tight text-[#0f1e33]">
+    <div className="bg-white px-1 py-1 text-[0.74rem] leading-tight text-[#0f1e33]" style={sautDePage ? { breakBefore: 'page' } : undefined}>
       <header className="flex items-end justify-between gap-4 border-b-2 border-[#0f1e33] pb-1">
         <div>
-          <h1 className="text-[1.05rem] font-bold leading-tight">Articles de toute la journée — {department.name}</h1>
+          <h1 className="text-[1.05rem] font-bold leading-tight">Articles de toute la journée — {nom}</h1>
           <p className="text-[0.76rem] capitalize">{formatPeriod(board.day, board.isRange ? board.dayTo : null)}</p>
         </div>
         <div className="text-right">

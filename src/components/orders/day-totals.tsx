@@ -1,70 +1,20 @@
-'use client'
-
-import * as React from 'react'
-import { ChevronRight, Loader2, PackageSearch } from 'lucide-react'
-import { Badge, EmptyState, TableWrap, Th, Td } from '@/components/ui/glass'
-import { FamilyBand, countByFamily } from '@/components/ui/family-band'
-import { Icon } from '@/components/ui/icon'
-import { Modal } from '@/components/ui/modal'
-import { gql, errorMessage } from '@/lib/graphql-client'
-import { cn, countDays, formatPeriod, formatQty } from '@/lib/utils'
+import Link from 'next/link'
+import { ChevronRight } from 'lucide-react'
+import { countDays } from '@/lib/utils'
 import type { Board } from './day-board'
-import { correspond, normaliser } from '@/lib/search'
-import { SearchField } from '@/components/ui/search-field'
-
-const BY_DEPARTMENT = /* GraphQL */ `
-  query DayArticlesByDepartment($day: Date, $dayTo: Date) {
-    dayArticlesByDepartment(day: $day, dayTo: $dayTo) {
-      department { id name color icon }
-      articleCount
-      orderCount
-      totalAsked
-      totalServed
-      lines {
-        productId
-        productName
-        productRef
-        categoryName
-        unitSymbol
-        quantityAsked
-        quantityServed
-        ticketCount
-      }
-    }
-  }
-`
-
-type Line = {
-  productId: string
-  productName: string
-  productRef: string
-  categoryName: string
-  unitSymbol: string
-  quantityAsked: number
-  quantityServed: number
-  ticketCount: number
-}
-
-type Group = {
-  department: { id: string; name: string; color: string; icon: string | null }
-  articleCount: number
-  orderCount: number
-  totalAsked: number
-  totalServed: number
-  lines: Line[]
-}
 
 /** Total de la journée, toutes commandes confondues. Cliquable. */
 export function DayTotals({ board }: { board: Board }) {
-  const [open, setOpen] = React.useState(false)
+  // Tous les départements sur une seule page, chacun avec son tableau —
+  // comme « Voir toute la journée » d'un département, mais pour tous.
+  const href = `/economat/articles/tous?jour=${board.day}${board.isRange ? `&jusquau=${board.dayTo}` : ''}`
 
   return (
     <>
       {/* Le total ferme la page avec le même poids que le bandeau de tête :
           la journée s'ouvre et se referme sur le même fond sombre. */}
-      <button
-        type="button"
-        onClick={() => setOpen(true)}
+      <Link
+        href={href}
         className="group relative mt-6 block w-full overflow-hidden rounded-[calc(var(--radius)+6px)] border border-white/12 p-4 text-left text-white shadow-[0_24px_60px_-22px_rgb(var(--shadow-ambient)/0.5)] transition-transform duration-200 hover:-translate-y-0.5 sm:p-5"
         style={{ background: 'linear-gradient(150deg, #16305c 0%, #0f2247 60%, #0b1830 100%)' }}
       >
@@ -104,174 +54,7 @@ export function DayTotals({ board }: { board: Board }) {
             </p>
           </div>
         </div>
-      </button>
-
-      {open ? <AllDepartments board={board} onClose={() => setOpen(false)} /> : null}
+      </Link>
     </>
-  )
-}
-
-function AllDepartments({ board, onClose }: { board: Board; onClose: () => void }) {
-  const [groups, setGroups] = React.useState<Group[] | null>(null)
-  const [error, setError] = React.useState<string | null>(null)
-  // La recherche traverse tous les départements : un article se cherche par
-  // son nom, pas par le rayon où l'on croit qu'il est.
-  const [recherche, setRecherche] = React.useState('')
-  const mot = normaliser(recherche)
-  const visibles = (groups ?? [])
-    .map((g) => ({ ...g, lines: g.lines.filter((l) => correspond(mot, l.productName, l.productRef, l.categoryName)) }))
-    .filter((g) => g.lines.length > 0)
-
-  React.useEffect(() => {
-    let vivant = true
-    gql<{ dayArticlesByDepartment: Group[] }>(BY_DEPARTMENT, {
-      day: board.day, dayTo: board.isRange ? board.dayTo : null,
-    })
-      .then((d) => {
-        if (vivant) setGroups(d.dayArticlesByDepartment)
-      })
-      .catch((e) => {
-        if (vivant) setError(errorMessage(e))
-      })
-    return () => {
-      vivant = false
-    }
-  }, [board.day, board.dayTo, board.isRange])
-
-  return (
-    <Modal
-      title={board.isRange
-        ? `Période ${formatPeriod(board.day, board.dayTo)}`
-        : `Journée du ${formatPeriod(board.day, board.day)}`}
-      onClose={onClose}
-      wide
-    >
-      {error ? (
-        <p role="alert" className="text-[0.85rem] font-medium text-danger">{error}</p>
-      ) : groups === null ? (
-        <p className="flex items-center gap-2 py-6 text-[0.85rem] text-fg-muted">
-          <Loader2 className="size-4 animate-spin" />
-          Chargement…
-        </p>
-      ) : groups.length === 0 ? (
-        <EmptyState
-          icon={<PackageSearch className="size-6" />}
-          title="Aucune commande"
-          description="Aucun département n’a commandé ce jour-là."
-        />
-      ) : (
-        <div className="space-y-4">
-          <div className="flex flex-wrap items-center gap-1.5">
-            <Badge tone="neutral">
-              {groups.length} département{groups.length > 1 ? 's' : ''}
-            </Badge>
-            <Badge tone="neutral">
-              {board.orderCount} ticket{board.orderCount > 1 ? 's' : ''}
-            </Badge>
-            <SearchField value={recherche} onChange={setRecherche} className="ml-auto w-full sm:w-64" />
-          </div>
-
-          {visibles.length === 0 ? (
-            <p className="py-4 text-center text-[0.85rem] text-fg-muted">
-              Aucun article ne correspond à « {recherche} ».
-            </p>
-          ) : null}
-
-          <div className="max-h-[26rem] space-y-5 overflow-y-auto pr-1">
-            {visibles.map((g) => {
-              // Un compte par département : les familles se répètent d'un
-              // bloc à l'autre, avec des articles différents.
-              const parFamille = countByFamily(g.lines)
-              return (
-              <section key={g.department.id}>
-                {/* Le département ouvre son bloc, puis viennent ses articles. */}
-                <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2">
-                  <p className="flex min-w-0 items-center gap-2">
-                    <span
-                      className="grid size-7 shrink-0 place-items-center rounded-lg text-white"
-                      style={{ background: g.department.color }}
-                    >
-                      <Icon name={g.department.icon ?? 'Building2'} className="size-4" />
-                    </span>
-                    <span className="min-w-0">
-                      <span className="block truncate text-[0.92rem] font-bold leading-tight text-fg">
-                        {g.department.name}
-                      </span>
-                      <span className="block text-[0.72rem] tabular-nums text-fg-subtle">
-                        {g.articleCount} article{g.articleCount > 1 ? 's' : ''} ·{' '}
-                        {g.orderCount} ticket{g.orderCount > 1 ? 's' : ''}
-                      </span>
-                    </span>
-                  </p>
-                  <span className="flex shrink-0 items-center gap-1.5">
-
-                  </span>
-                </div>
-
-                <TableWrap minWidth="32rem">
-                  <thead>
-                    <tr>
-                      <Th className="w-10 text-right">#</Th>
-                      <Th className="w-full">Article</Th>
-                      <Th className="text-right">Tickets</Th>
-                      <Th className="text-right">Commande</Th>
-                      <Th className="text-right">Servi</Th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-[rgb(var(--glass-edge)/0.12)]">
-                    {g.lines.map((l, i) => {
-                      const previous = i > 0 ? g.lines[i - 1] : null
-                      const ouvre = previous?.categoryName !== l.categoryName
-                      return (
-                        <React.Fragment key={l.productId}>
-                          {ouvre ? (
-                            <FamilyBand
-                    name={l.categoryName}
-                    count={parFamille.get(l.categoryName) ?? 0}
-                    colSpan={5}
-                  />
-                          ) : null}
-                          <tr>
-                            <Td className="text-right text-[0.74rem] tabular-nums text-fg-subtle">
-                              {i + 1}
-                            </Td>
-                            <Td className="max-w-0">
-                              <p className="truncate text-[0.82rem] font-medium text-fg">
-                                {l.productName}
-                              </p>
-                              <p className="truncate font-mono text-[0.66rem] text-fg-subtle">
-                                {l.productRef}
-                              </p>
-                            </Td>
-                            <Td className="text-right tabular-nums text-fg-muted">
-                              <span className={cn(l.ticketCount > 1 && 'font-bold text-warn')}>
-                                {l.ticketCount}
-                              </span>
-                            </Td>
-                            <Td className="whitespace-nowrap text-right font-medium tabular-nums text-fg">
-                              {formatQty(l.quantityAsked)} {l.unitSymbol}
-                            </Td>
-                            <Td className="whitespace-nowrap text-right tabular-nums text-fg-muted">
-                              {l.quantityServed > 0 ? (
-                                <>
-                                  {formatQty(l.quantityServed)} {l.unitSymbol}
-                                </>
-                              ) : (
-                                '—'
-                              )}
-                            </Td>
-                          </tr>
-                        </React.Fragment>
-                      )
-                    })}
-                  </tbody>
-                </TableWrap>
-              </section>
-              )
-            })}
-          </div>
-        </div>
-      )}
-    </Modal>
   )
 }

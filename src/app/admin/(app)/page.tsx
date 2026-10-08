@@ -5,7 +5,7 @@ import { prisma } from '@/server/db'
 import { executeGraphQL } from '@/server/graphql/execute'
 import { PageHeader } from '@/components/ui/stat'
 import { Badge, Button } from '@/components/ui/glass'
-import { formatLongDate } from '@/lib/utils'
+import { formatJourneeTravail } from '@/lib/utils'
 import { DayBoard, DayTotals, type Board } from '@/components/orders/day-board'
 import { DaySummary } from '@/components/orders/day-summary'
 import { DayPicker } from '@/components/orders/day-picker'
@@ -119,7 +119,7 @@ export default async function AdminPage({
             corrige les écarts elle aussi, depuis son espace. */}
         <div className="mt-2 flex flex-wrap items-center gap-2">
           <span className="text-[0.9rem] font-semibold capitalize text-fg">
-            {formatLongDate(b.day)}
+            {formatJourneeTravail(b.day)}
           </span>
           {b.pendingCount > 0 ? (
             <Badge tone="warn">{b.pendingCount} en attente de traitement</Badge>

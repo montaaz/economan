@@ -23,7 +23,7 @@ export function DayStartCard({ initial, journee }: { initial: string; journee: s
     try {
       const r = await enregistrerDebutJournee(heure)
       if (!r.ok) { push('error', r.error ?? 'Enregistrement impossible.'); return }
-      push('success', `La journée de travail commence maintenant à ${heure}.`)
+      push('success', `La journée de travail commence maintenant à ${heure}.${r.deplacees ? ` ${r.deplacees} commande(s) de la nuit rangée(s) dans leur journée.` : ''}`)
       router.refresh()
     } finally { setEnCours(false) }
   }

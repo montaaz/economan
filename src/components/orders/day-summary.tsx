@@ -1,5 +1,5 @@
 import { AlertTriangle, CalendarRange, CheckCircle2, Clock, Inbox, Building2, Layers, TrendingUp } from 'lucide-react'
-import { cn, countDays, formatPeriod } from '@/lib/utils'
+import { cn, countDays, formatJourneeTravail, formatPeriod } from '@/lib/utils'
 import type { Board } from './day-board'
 
 /**
@@ -113,7 +113,7 @@ export function DaySummary({ board }: { board: Board }) {
             {/* `capitalize` met une majuscule à chaque mot : « Du 12 Au 14 ».
                 On ne capitalise que la première lettre. */}
             <h2 className="mt-1 text-[1.55rem] font-bold leading-tight tracking-tight first-letter:uppercase sm:text-[1.7rem]">
-              {formatPeriod(board.day, board.dayTo)}
+              {board.isRange ? formatPeriod(board.day, board.dayTo) : formatJourneeTravail(board.day)}
             </h2>
 
             <div

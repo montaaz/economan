@@ -9,7 +9,7 @@ import Link from 'next/link'
 import { Ban, Layers, Pencil } from 'lucide-react'
 import { Badge, Button } from '@/components/ui/glass'
 import { DAY_BOARD_QUERY } from '@/lib/queries'
-import { formatLongDate } from '@/lib/utils'
+import { formatJourneeTravail } from '@/lib/utils'
 
 export const metadata: Metadata = { title: 'Commandes du jour' }
 export const dynamic = 'force-dynamic'
@@ -102,7 +102,7 @@ export default async function EconomatPage({
             invalide — React refusait l'hydratation. */}
         <div className="mt-2 flex flex-wrap items-center gap-2">
           <span className="text-[0.9rem] font-semibold capitalize text-fg">
-            {formatLongDate(b.day)}
+            {formatJourneeTravail(b.day)}
           </span>
           {b.pendingCount > 0 ? (
             <Badge tone="warn">

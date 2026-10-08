@@ -9,7 +9,7 @@ import { RefillForm, type RefillService } from '@/components/orders/refill-form'
 import { DepartmentFilter } from '@/components/orders/department-filter'
 import type { ProcessOrder } from '@/lib/order-types'
 import type { Board } from '@/components/orders/day-board'
-import { cn, formatLongDate } from '@/lib/utils'
+import { cn, formatJourneeTravail } from '@/lib/utils'
 import { BackLink } from '@/components/ui/back-link'
 
 /**
@@ -179,7 +179,7 @@ export async function EcartsPage({
       >
         <div className="mt-2 flex flex-wrap items-center gap-2">
           <span className="text-[0.9rem] font-semibold capitalize text-fg">
-            {formatLongDate(board.day)}
+            {formatJourneeTravail(board.day)}
           </span>
           {/* Les deux natures, et le moyen de n'en voir qu'une : le compte
               annonçait « 78 ajustées » sans y conduire, alors que c'est

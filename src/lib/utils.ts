@@ -47,6 +47,22 @@ export function formatLongDate(value: Date | string | null | undefined): string 
   }).format(d)
 }
 
+/**
+ * Une journée de travail, avec sa plage quand elle ne commence pas à minuit :
+ * « mercredi 7 octobre 05:00 → jeudi 8 octobre 05:00 ». Sans heure de début
+ * réglée, la date seule, comme `formatLongDate`.
+ */
+export function formatJourneeTravail(value: Date | string | null | undefined): string {
+  if (!value) return '—'
+  const debut = debutJourneeMinutes()
+  if (debut === 0) return formatLongDate(value)
+  const d = typeof value === 'string' ? new Date(value) : value
+  const lendemain = new Date(d); lendemain.setUTCDate(lendemain.getUTCDate() + 1)
+  const jour = (x: Date) => new Intl.DateTimeFormat('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'UTC' }).format(x)
+  const h = `${String(Math.floor(debut / 60)).padStart(2, '0')}:${String(debut % 60).padStart(2, '0')}`
+  return `${jour(d)} ${h} → ${jour(lendemain)} ${h}`
+}
+
 /** « lun. 14 sept. » — pour dater un ticket dans une liste sur plusieurs jours. */
 export function formatShortDay(value: Date | string | null | undefined): string {
   if (!value) return '—'

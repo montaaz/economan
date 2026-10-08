@@ -2616,6 +2616,10 @@ const resolvers = {
         throw new GraphQLError('Heure invalide : attendue au format HH:MM.', { extensions: { code: 'BAD_USER_INPUT' } })
       }
       await reglerHoraireGeneral(a)
+      // Un horaire sur vingt-quatre heures fixe aussi le début de la journée : on suit, et l'on range les commandes de la nuit.
+      const { chargerDebutJournee, redaterCommandes } = await import('@/server/day-start')
+      await chargerDebutJournee()
+      await redaterCommandes()
       return true
     },
 

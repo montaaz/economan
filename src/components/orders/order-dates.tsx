@@ -6,6 +6,10 @@ export type OrderDates = {
   acceptedAt?: string | null
   deliveredAt?: string | null
   receivedAt?: string | null
+  /** Qui a commandé, et qui a accepté (l'économat ou l'administration). */
+  createdBy?: { fullName: string } | null
+  processedBy?: { fullName: string } | null
+  receivedBy?: { fullName: string } | null
 }
 
 /**
@@ -21,10 +25,10 @@ export type OrderDates = {
 const HEURE = 'text-accent'
 
 const ETAPES = [
-  { cle: 'createdAt', label: 'Commande', Icon: Clock },
-  { cle: 'acceptedAt', label: 'Acceptation', Icon: PackageOpen },
+  { cle: 'createdAt', label: 'Commande', Icon: Clock, qui: 'createdBy' },
+  { cle: 'acceptedAt', label: 'Acceptation', Icon: PackageOpen, qui: 'processedBy' },
   { cle: 'deliveredAt', label: 'Livraison', Icon: Truck },
-  { cle: 'receivedAt', label: 'Réception', Icon: CheckCircle2 },
+  { cle: 'receivedAt', label: 'Réception', Icon: CheckCircle2, qui: 'receivedBy' },
 ] as const
 
 export function OrderDates({
@@ -67,6 +71,11 @@ export function OrderDates({
           <span className={cn('text-[0.85rem] font-bold tabular-nums', HEURE)}>
             {formatTime(order[e.cle])}
           </span>
+          {/* Qui a fait le geste : l'acceptation porte le nom de l'économe ou
+              de l'administrateur qui l'a faite. */}
+          {'qui' in e && order[e.qui]?.fullName ? (
+            <span className="text-[0.78rem] text-fg-muted">par <strong className="font-semibold text-fg">{order[e.qui]!.fullName}</strong></span>
+          ) : null}
         </span>
       ))}
     </div>

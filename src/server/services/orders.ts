@@ -1037,7 +1037,8 @@ export async function receiveOrder(orderId: number, actor: SessionUser, note?: s
       select: { status: true, departmentId: true },
     })
     if (!order) throw new WorkflowError('Commande introuvable.')
-    if (order.departmentId !== actor.departmentId) {
+    // L'administration réceptionne pour n'importe quel département, sous son nom.
+    if (actor.role !== 'ADMIN' && order.departmentId !== actor.departmentId) {
       throw new WorkflowError('Cette commande ne concerne pas votre département.')
     }
     if (order.status !== 'DELIVERED') {

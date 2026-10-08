@@ -2982,7 +2982,8 @@ const resolvers = {
     },
 
     receiveOrder: async (_p: unknown, a: { id: string; note?: string | null }, ctx: Ctx) => {
-      const u = requireEmployee(ctx)
+      // Le département, ou l'administration à sa place (la réception porte alors son nom).
+      const u = ctx.user?.role === 'ADMIN' ? requireAdmin(ctx) : requireEmployee(ctx)
       await run(() => receiveOrder(Number(a.id), u, a.note))
       return prisma.order.findUniqueOrThrow({ where: { id: Number(a.id) }, include: ORDER_INCLUDE })
     },

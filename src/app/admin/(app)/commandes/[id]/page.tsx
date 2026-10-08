@@ -60,7 +60,7 @@ export default async function AdminOrderPage({ params, searchParams }: { params:
       </div>
 
       <div className="no-print">
-        <OrderProcessor order={premierServi} />
+        <OrderProcessor order={premierServi} admin />
       </div>
 
       {/* Sortie papier : ticket tant que rien n'est servi, bon de livraison ensuite. */}

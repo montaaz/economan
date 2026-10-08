@@ -3,7 +3,7 @@
 import * as React from 'react'
 import { useRouter } from 'next/navigation'
 import {
-  Check, Ban, Pencil, Printer, Truck, PackageOpen, RotateCcw, Undo2,
+  Check, Ban, Pencil, Printer, Truck, PackageOpen, RotateCcw, Undo2, PackageCheck,
   MessageSquareWarning, Siren,
 } from 'lucide-react'
 import { GlassCard, Button, Badge, TableWrap, Th, Td } from '@/components/ui/glass'
@@ -25,6 +25,7 @@ import type { LineStatus, ProcessOrder } from '@/lib/order-types'
 export type { ProcessLine, ProcessOrder } from '@/lib/order-types'
 
 const ACCEPT = /* GraphQL */ `mutation Accept($id: ID!) { acceptOrder(id: $id) { id status } }`
+const RECEIVE = /* GraphQL */ `mutation Receive($id: ID!) { receiveOrder(id: $id) { id status } }`
 const CANCEL_ACCEPT = /* GraphQL */ `
   mutation CancelAccept($id: ID!) { cancelAcceptance(id: $id) { id status } }
 `
@@ -45,7 +46,11 @@ type Draft = { status: LineStatus; served: string; reason: string }
 /** La forme commune des gros boutons de la barre d'actions. */
 const GROS = '!h-12 !rounded-2xl !px-4 !text-[1rem] !font-bold'
 
-export function OrderProcessor({ order }: { order: ProcessOrder }) {
+export function OrderProcessor({ order, admin = false }: {
+  order: ProcessOrder
+  /** L'administration : elle réceptionne aussi à la place du département. */
+  admin?: boolean
+}) {
   const router = useRouter()
   const { push } = useToast()
   const confirmer = useConfirm()
@@ -244,6 +249,19 @@ export function OrderProcessor({ order }: { order: ProcessOrder }) {
   // Accepter engage l'économat : la commande passe en préparation et le
   // département ne peut plus la modifier. On le demande avant. La croix et
   // « Annuler » ferment la question sans rien faire.
+  // La réception, faite par l'administration à la place du département : la
+  // commande passe « réceptionnée », sous le nom de l'administrateur et à l'heure du geste.
+  const receive = async () => {
+    const ok = await confirmer({
+      title: 'Réceptionner cette commande ?',
+      message: `${order.reference} sera marquée réceptionnée pour ${order.department.name}, à votre nom et à l’heure actuelle — comme si le département l’avait confirmée.`,
+      confirmLabel: 'Réceptionner',
+      tone: 'info',
+    })
+    if (!ok) return
+    await call('receive', () => gql(RECEIVE, { id: order.id }), 'Commande réceptionnée à votre nom.')
+  }
+
   const accept = async () => {
     const ok = await confirmer({
       title: 'Accepter cette commande ?',
@@ -558,6 +576,18 @@ export function OrderProcessor({ order }: { order: ProcessOrder }) {
               <Printer className="size-5" />
               {{ ticket: 'Imprimer le ticket', commande: 'Imprimer le bon de commande', livraison: 'Imprimer le bon de livraison' }[ticketVariant(order.status)]}
             </PrintButton>
+          ) : null}
+
+          {admin && order.status === 'DELIVERED' ? (
+            <button
+              type="button"
+              onClick={() => void receive()}
+              disabled={busy !== null}
+              className="inline-flex h-12 items-center gap-2 rounded-xl bg-ok px-5 text-[1rem] font-bold text-white shadow-[0_8px_20px_-8px_var(--ok)] transition-[filter,transform] hover:brightness-110 active:scale-[0.98] disabled:opacity-60"
+            >
+              {busy === 'receive' ? <RotateCcw className="size-5 animate-spin" /> : <PackageCheck className="size-5" />}
+              Réceptionner la commande
+            </button>
           ) : null}
 
           {order.status === 'PENDING' ? (

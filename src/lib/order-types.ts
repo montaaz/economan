@@ -68,5 +68,7 @@ export type ProcessOrder = {
   department: { id: string; name: string; code: string; color: string; icon: string | null }
   createdBy: { fullName: string }
   processedBy: { fullName: string } | null
+  /** Qui a réceptionné : le département, ou l'administration à sa place. */
+  receivedBy?: { fullName: string } | null
   lines: ProcessLine[]
 }

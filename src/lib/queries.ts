@@ -78,6 +78,7 @@ export const ORDER_QUERY = /* GraphQL */ `
       department { id name code color icon }
       createdBy { fullName }
       processedBy { fullName }
+      receivedBy { fullName }
       lines {
         id
         productId
@@ -125,6 +126,7 @@ export const ORDERS_QUERY = /* GraphQL */ `
       department { id name code color icon }
       createdBy { fullName }
       processedBy { fullName }
+      receivedBy { fullName }
       lines {
         id
         productId

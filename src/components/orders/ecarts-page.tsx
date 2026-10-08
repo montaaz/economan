@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import { Ban, PackageCheck, Pencil, X } from 'lucide-react'
+import { Ban, PackageCheck, Pencil, Printer, X } from 'lucide-react'
 import { prisma } from '@/server/db'
 import { executeGraphQL } from '@/server/graphql/execute'
 import { PageHeader } from '@/components/ui/stat'
@@ -225,6 +225,20 @@ export async function EcartsPage({
                 Tout afficher
               </Badge>
             </Link>
+          ) : null}
+          {/* Le papier de ce qu'on voit : ruptures, ajustées ou les deux, tous
+              les départements (chacun sur sa page) ou celui choisi. Un PDF. */}
+          {ruptures + ajustees > 0 ? (
+            <a
+              href={`/api/ecarts-jour?${lienVue(vue)}`}
+              target="_blank"
+              rel="noopener"
+              className="no-print inline-flex h-9 items-center gap-1.5 rounded-xl bg-gradient-to-b from-[#4f6ef7] to-[#3b4fd8] px-3.5 text-[0.84rem] font-bold text-white shadow-[0_8px_18px_-8px_rgb(59_79_216/0.8)] transition-[filter] hover:brightness-110"
+            >
+              <Printer className="size-4" />
+              {vue === 'rupture' ? `Imprimer les ${ruptures} ruptures` : vue === 'ajuste' ? `Imprimer les ${ajustees} ajustées` : `Imprimer les ${ruptures + ajustees} écarts`}
+              {dep ? '' : ' · tous les départements'}
+            </a>
           ) : null}
         </div>
       </PageHeader>

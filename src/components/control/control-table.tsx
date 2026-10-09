@@ -317,7 +317,9 @@ export function ControlTable({ group, day, zPath, fichesPath, admin = false }: {
           ) : null}
         </div>
       ) : null}
-      <TableWrap minWidth={admin ? '80rem' : '74rem'}>
+      {/* Le tableau défile dans son cadre, à la hauteur de l'écran : les titres
+          des colonnes (stock fixe, livré, vente…) restent sous les yeux. */}
+      <TableWrap minWidth={admin ? '80rem' : '74rem'} hauteur="calc(100dvh - 8.5rem)">
         <thead>
           <tr>
             <Th className="w-10 text-right">#</Th>

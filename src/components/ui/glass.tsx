@@ -182,12 +182,27 @@ export function Field({
  * jamais dans la page. `minWidth` doit croître avec le nombre de colonnes.
  */
 export function TableWrap({
-  children, className, minWidth = '42rem',
+  children, className, minWidth = '42rem', hauteur,
 }: {
   children: React.ReactNode
   className?: string
   minWidth?: string
+  /**
+   * Un tableau large qui défile aussi en hauteur, dans son propre cadre : les
+   * titres de colonnes restent alors visibles tout du long. Sans cela, un
+   * tableau plus large que l'écran défile de côté et l'en-tête ne colle pas.
+   */
+  hauteur?: string
 }) {
+  if (hauteur) {
+    return (
+      <div className={cn('w-full overflow-auto overscroll-contain', className)} style={{ maxHeight: hauteur }}>
+        <table className="w-full border-collapse text-left text-[0.86rem]" style={{ minWidth }}>
+          {children}
+        </table>
+      </div>
+    )
+  }
   return (
     // `scroll-x-sticky` plutôt que `scroll-x` : il découpe l'axe vertical sans
     // créer de conteneur de défilement, ce qui laisse l'en-tête coller.

@@ -4,14 +4,10 @@ import { businessDay, fixerDebutJournee, toDateKey } from '@/lib/utils'
 
 /** L'heure de début de la journée de travail, lue en base et posée pour tout le serveur. */
 export async function chargerDebutJournee(): Promise<string> {
-  const rows = await prisma.$queryRaw<{ dayStartsAt: string; enabled: boolean; opensAt: string; closesAt: string }[]>`
-    SELECT "dayStartsAt", "enabled", "opensAt", "closesAt" FROM "order_schedule" WHERE "id" = 1`
-  const r = rows[0]
-  // Une heure réglée exprès fait foi. À défaut, un horaire de commande sur
-  // vingt-quatre heures (05:00 → 05:00) dit déjà où commence la journée.
-  const h = r && r.dayStartsAt !== '00:00' ? r.dayStartsAt
-    : r?.enabled && r.opensAt === r.closesAt ? r.opensAt
-      : '00:00'
+  // Seule l'heure réglée dans « Journée de travail » fait foi : l'horaire des
+  // commandes dit quand on commande, pas quand la journée change.
+  const rows = await prisma.$queryRaw<{ dayStartsAt: string }[]>`SELECT "dayStartsAt" FROM "order_schedule" WHERE "id" = 1`
+  const h = rows[0]?.dayStartsAt ?? '00:00'
   fixerDebutJournee(h)
   return h
 }

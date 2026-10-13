@@ -330,13 +330,11 @@ export function ControlTable({ group, day, zPath, fichesPath, admin = false }: {
                 d'hier soir, ce qui est arrivé, ce qui s'est vendu, ce qu'il
                 devrait rester (théorique) ; puis ce que le rayon a réellement
                 compté, et l'écart entre les deux. */}
-            <Th className="text-center">Stock fixe</Th>
-            <Th className="text-center">
-              Stock lberah <span className="normal-case tracking-normal text-fg-subtle">{veilleLabel ? `(${veilleLabel})` : '(la veille)'}</span>
-            </Th>
-            <Th className="text-center">Livré</Th>
+            <Th className="text-center">Fixe</Th>
+            <Th className="text-center" title={veilleLabel ? `Stock compté le ${veilleLabel}` : 'Stock compté la veille'}>Restant</Th>
+            <Th className="text-center">Servi</Th>
             <Th className="text-center">Vente</Th>
-            <Th className="text-center">Théorique <span className="normal-case tracking-normal text-fg-subtle">(reste)</span></Th>
+            <Th className="text-center">Théorique</Th>
             <Th className="text-center">Son stock réel</Th>
             <Th className="text-center">Écart</Th>
             <Th className="min-w-[11rem]">Remarque</Th>

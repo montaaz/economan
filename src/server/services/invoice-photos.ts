@@ -19,7 +19,9 @@ import { factureVerrouillee, FACTURE_VERROUILLEE } from './stock'
  * le serveur n'a qu'à écrire deux fichiers.
  */
 
-const RACINE = path.resolve(process.env.STORAGE_DIR || path.join(process.cwd(), 'storage'))
+// Le dossier des photos se lit à l'exécution : le compilateur n'a pas à
+// l'embarquer (sans ces marques, il incluait tout le projet dans le serveur).
+const RACINE = path.resolve(/*turbopackIgnore: true*/ process.env.STORAGE_DIR || path.join(/*turbopackIgnore: true*/ process.cwd(), 'storage'))
 const TYPES: Record<string, string> = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' }
 /** Une photo compressée pèse quelques centaines de Ko ; au-delà, c'est qu'elle ne l'a pas été. */
 export const TAILLE_MAX = 8 * 1024 * 1024
@@ -97,7 +99,7 @@ export async function fichierPhoto(id: number, mini: boolean) {
   const p = await prisma.invoicePhoto.findUnique({ where: { id }, select: { path: true, thumbPath: true, mime: true } })
   if (!p) return null
   const chemin = absolu(mini ? p.thumbPath : p.path)
-  const [donnees, infos] = await Promise.all([readFile(chemin), stat(chemin)])
+  const [donnees, infos] = await Promise.all([readFile(/*turbopackIgnore: true*/ chemin), stat(/*turbopackIgnore: true*/ chemin)])
   return { donnees, type: mini ? (p.thumbPath.endsWith('.webp') ? 'image/webp' : p.thumbPath.endsWith('.png') ? 'image/png' : 'image/jpeg') : p.mime, taille: infos.size }
 }
 

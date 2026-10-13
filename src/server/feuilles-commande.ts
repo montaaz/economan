@@ -11,35 +11,47 @@ export async function feuillesCommandeHtml(departmentIds: number[] | 'tous'): Pr
   const deps = await prisma.department.findMany({
     where: { isActive: true, ...(departmentIds === 'tous' ? {} : { id: { in: departmentIds } }) },
     orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
-    select: { id: true, name: true, color: true },
+    select: { id: true, name: true, color: true, activeStockFixe: true },
   })
   const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!)
 
   const pages: string[] = []
   for (const d of deps) {
-    const lignes = (await prisma.departmentProduct.findMany({
-      where: { departmentId: d.id, product: { isActive: true, kind: { not: 'MERE' } } },
-      orderBy: { sortOrder: 'asc' },
-      select: { displayName: true, product: { select: { name: true, category: { select: { name: true } } } } },
-    })).map((r) => ({ nom: r.displayName ?? r.product.name, famille: r.product.category.name }))
+    // Le stock fixe en service : la table stock_fixe porte toujours le jeu actif.
+    const [feuille, fixes] = await Promise.all([
+      prisma.departmentProduct.findMany({
+        where: { departmentId: d.id, product: { isActive: true, kind: { not: 'MERE' } } },
+        orderBy: { sortOrder: 'asc' },
+        select: { productId: true, displayName: true, product: { select: { name: true, category: { select: { name: true } }, baseUnit: { select: { symbol: true } } } } },
+      }),
+      prisma.stockFixe.findMany({ where: { departmentId: d.id }, select: { productId: true, quantity: true } }),
+    ])
+    const fixeDe = new Map(fixes.map((f) => [f.productId, Number(f.quantity)]))
+    const lignes = feuille.map((r) => ({
+      nom: r.displayName ?? r.product.name,
+      famille: r.product.category.name,
+      unite: r.product.baseUnit.symbol,
+      fixe: fixeDe.get(r.productId) ?? null,
+    }))
     if (lignes.length === 0) continue
 
     let corps = ''
     lignes.forEach((l, k) => {
       if (k === 0 || lignes[k - 1].famille !== l.famille) {
         const nb = lignes.filter((x) => x.famille === l.famille).length
-        corps += `<tr class="fam"><td colspan="3">${esc(l.famille)} <span>(${nb})</span></td></tr>`
+        corps += `<tr class="fam"><td colspan="4">${esc(l.famille)} <span>(${nb})</span></td></tr>`
       }
-      corps += `<tr><td class="num">${k + 1}</td><td class="art">${esc(l.nom)}</td><td class="vide"></td></tr>`
+      const fixe = l.fixe === null ? '—' : `${Number.isInteger(l.fixe) ? l.fixe : String(l.fixe).replace('.', ',')} <small>${esc(l.unite)}</small>`
+      corps += `<tr><td class="num">${k + 1}</td><td class="art">${esc(l.nom)}</td><td class="fixe">${fixe}</td><td class="vide"></td></tr>`
     })
     pages.push(`<section class="feuille">
       <header>
-        <div><h1><span class="pastille" style="background:${esc(d.color)}"></span>${esc(d.name)}</h1><div class="sous">Feuille de commande · ${lignes.length} articles</div></div>
+        <div><h1><span class="pastille" style="background:${esc(d.color)}"></span>${esc(d.name)}</h1><div class="sous">Feuille de commande · ${lignes.length} articles · stock fixe ${d.activeStockFixe} en service</div></div>
         <div class="sous" style="text-align:right">Ticket de commande</div>
       </header>
       <div class="champs"><span>Date :</span><span>Heure :</span><span>Demandeur :</span></div>
       <table>
-        <thead><tr><th class="num">#</th><th>Article</th><th class="vide">Commande</th></tr></thead>
+        <thead><tr><th class="num">#</th><th>Article</th><th class="fixe">Stock fixe</th><th class="vide">Commande</th></tr></thead>
         <tbody>${corps}</tbody>
       </table>
     </section>`)
@@ -58,7 +70,10 @@ export async function feuillesCommandeHtml(departmentIds: number[] | 'tous'): Pr
     thead { display: table-header-group }
     thead th { background: #0f1e33; color: #fff; font-size: 9pt; text-transform: uppercase; letter-spacing: .05em; padding: 5px 6px; text-align: left }
     th.num, td.num { width: 30px; text-align: right }
-    th.vide, td.vide { width: 160px }
+    th.fixe, td.fixe { width: 95px; text-align: right }
+    td.fixe { font-weight: 700 }
+    td.fixe small { font-weight: 400; color: #4a5f7d }
+    th.vide, td.vide { width: 140px }
     td { padding: 5px 6px; border-bottom: 1px solid #d5dfee; vertical-align: middle }
     td.num { color: #4a5f7d; font-size: 9pt }
     td.art { font-weight: 600 }

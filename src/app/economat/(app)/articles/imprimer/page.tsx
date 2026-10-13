@@ -155,7 +155,7 @@ function FeuilleRayon({ nom, board, articles, tickets, etat, rang, q, sautDePage
             <th className="px-1 py-0.5 text-left font-semibold">Article</th>
             <th className="w-10 px-1 py-0.5 text-right font-semibold">Tick.</th>
             <th className="w-12 px-1 py-0.5 text-right font-semibold">Fixe</th>
-            <th className="w-12 px-1 py-0.5 text-right font-semibold">Stock</th>
+            <th className="w-12 px-1 py-0.5 text-right font-semibold">Restant</th>
             <th className="w-20 px-1 py-0.5 text-right font-semibold">Commande</th>
             <th className="w-16 px-1 py-0.5 text-right font-semibold">Servi</th>
             <th className="w-16 px-1 py-0.5 text-right font-semibold">Reste</th>

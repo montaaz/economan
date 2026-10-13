@@ -149,7 +149,7 @@ export function Ticket({
             <th className="w-16 px-2 py-1.5 text-right font-semibold">Fixe</th>
             {/* L'inventaire restant du département au moment de commander : la
                 commande se lit comme l'écart entre le fixe et ce stock. */}
-            <th className="w-16 px-2 py-1.5 text-right font-semibold">Stock</th>
+            <th className="w-16 px-2 py-1.5 text-right font-semibold">Restant</th>
             {/* Même intitulé que l'écran de l'économat : la feuille papier et
                 la feuille à l'écran doivent nommer la même colonne pareil. */}
             <th className="w-24 px-2 py-1.5 text-right font-semibold">Commande</th>

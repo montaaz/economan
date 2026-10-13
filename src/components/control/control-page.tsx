@@ -5,13 +5,13 @@ import { requireRole } from '@/server/auth/guards'
 import { PageHeader } from '@/components/ui/stat'
 import { GlassCard, Badge, EmptyState } from '@/components/ui/glass'
 import { DepartmentFilter } from '@/components/orders/department-filter'
-import { DayInput } from '@/components/orders/day-input'
+import { DayPicker } from '@/components/orders/day-picker'
 import { ControlTable, type ControlGroup } from './control-table'
-import { formatLongDate, businessDay, toDateKey } from '@/lib/utils'
+import { formatLongDate, formatPeriod, businessDay, toDateKey } from '@/lib/utils'
 
 const QUERY = /* GraphQL */ `
-  query Control($day: Date, $departmentId: ID) {
-    stockControl(day: $day, departmentId: $departmentId) {
+  query Control($day: Date, $departmentId: ID, $dayFrom: Date) {
+    stockControl(day: $day, departmentId: $departmentId, dayFrom: $dayFrom) {
       department { id name code color icon }
       lineCount
       uncountedCount
@@ -42,13 +42,14 @@ const QUERY = /* GraphQL */ `
         realStock
         note
         logCount
+        fine
       }
     }
   }
 `
 
 /**
- * Contrôle des stocks : ce que chaque service détient face à sa cible.
+ * Contrôle & Inventaire : ce que chaque service détient face à sa cible.
  *
  * Le comptage vient de la commande du jour — c'est là que l'employé déclare
  * son rayon. Le contrôle lit la même feuille que l'économat, avec les mêmes
@@ -57,11 +58,11 @@ const QUERY = /* GraphQL */ `
 export async function ControlPage({
   searchParams, base,
 }: {
-  searchParams: Promise<{ jour?: string; dep?: string }>
+  searchParams: Promise<{ jour?: string; jusquau?: string; dep?: string }>
   /** L'espace appelant : le contrôle ou l'administration, même écran. */
   base: '/controle' | '/admin/controle'
 }) {
-  const { jour, dep } = await searchParams
+  const { jour, jusquau, dep } = await searchParams
   const [moi, allDepartments] = await Promise.all([
     requireRole(['CONTROLEUR', 'ADMIN'], base === '/controle' ? '/controle/login' : '/admin/login'),
     prisma.department.findMany({
@@ -71,11 +72,16 @@ export async function ControlPage({
     }),
   ])
 
-  const day = jour ?? toDateKey(businessDay())
+  // Une journée, ou une période du jour « jour » au jour « jusquau ».
+  const debut = jour ?? toDateKey(businessDay())
+  const day = jusquau && jusquau > debut ? jusquau : debut
+  const enPeriode = day !== debut
+  const periode = enPeriode ? formatPeriod(debut, day) : formatLongDate(day)
   const selected = dep && allDepartments.some((d) => String(d.id) === dep) ? dep : null
 
   const { stockControl } = await executeGraphQL<{ stockControl: ControlGroup[] }>(QUERY, {
     day,
+    dayFrom: enPeriode ? debut : null,
     departmentId: selected,
   })
 
@@ -85,12 +91,12 @@ export async function ControlPage({
   return (
     <>
       <PageHeader
-        title="Contrôle des stocks"
+        title="Contrôle & Inventaire"
         description="Stock fixe, stock compté, stock théorique (compté la veille + livré − vendu d’après le Z et les fiches techniques) et l’écart qui dit si le comptage tient."
       >
         <div className="mt-2 flex flex-wrap items-center gap-2">
           <span className="text-[0.9rem] font-semibold capitalize text-fg">
-            {formatLongDate(day)}
+            {periode}
           </span>
           <Badge tone="neutral">{lignes} ligne{lignes > 1 ? 's' : ''}</Badge>
           {/* Un rayon non compté n'est pas un rayon plein : sans commande ce
@@ -101,7 +107,9 @@ export async function ControlPage({
         </div>
       </PageHeader>
 
-      <DayInput value={day} basePath={base} label="Journée" />
+      <div className="mb-3">
+        <DayPicker days={[]} current={debut} currentTo={enPeriode ? day : null} basePath={base} keep={selected} />
+      </div>
 
       <DepartmentFilter
         departments={allDepartments.map((d) => ({
@@ -112,8 +120,8 @@ export async function ControlPage({
         counts={new Map(stockControl.map((g) => [String(g.department.id), g.lineCount]))}
         current={selected}
         basePath={base}
-        day={day}
-        dayTo={null}
+        day={debut}
+        dayTo={enPeriode ? day : null}
       />
 
       {stockControl.length === 0 ? (
@@ -127,7 +135,7 @@ export async function ControlPage({
       ) : (
         <div className="space-y-5">
           {stockControl.map((g) => (
-            <ControlTable key={g.department.id} group={g} day={day} admin={moi.role === 'ADMIN'} zPath={base === '/controle' ? '/controle/z' : null} fichesPath={base === '/controle' ? '/controle/fiches' : '/admin/fiches'} />
+            <ControlTable key={g.department.id} group={g} day={day} periode={periode} admin={moi.role === 'ADMIN'} zPath={base === '/controle' ? '/controle/z' : null} fichesPath={base === '/controle' ? '/controle/fiches' : '/admin/fiches'} />
           ))}
         </div>
       )}

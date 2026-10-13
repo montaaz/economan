@@ -2,11 +2,11 @@
 
 import * as React from 'react'
 import Link from 'next/link'
-import { Search, AlertTriangle, UtensilsCrossed, X, ChevronDown, CheckCircle2, XCircle, HelpCircle, PenLine } from 'lucide-react'
+import { Search, AlertTriangle, UtensilsCrossed, X, ChevronDown, CheckCircle2, XCircle, HelpCircle, PenLine, Printer } from 'lucide-react'
 import { TableWrap, Th, Td } from '@/components/ui/glass'
 import { Icon } from '@/components/ui/icon'
 import { FamilyBand } from '@/components/ui/family-band'
-import { FilterBadge, FilterReset } from '@/components/ui/filter-badge'
+import { FilterReset } from '@/components/ui/filter-badge'
 import { useRouter } from 'next/navigation'
 import { InlineEdit } from '@/components/ui/inline-edit'
 import { useToast } from '@/components/ui/toast'
@@ -44,6 +44,8 @@ export type ControlLine = {
   note?: string | null
   /** Modifications au journal. */
   logCount?: number
+  /** L'amende de la ligne, en dinars. */
+  fine?: number | null
 }
 
 export type ControlGroup = {
@@ -68,6 +70,11 @@ const SET_REAL = /* GraphQL */ `
     setStockReal(departmentId: $departmentId, productId: $productId, day: $day, quantity: $quantity)
   }
 `
+const SET_FINE = /* GraphQL */ `
+  mutation SetStockFine($departmentId: ID!, $productId: ID!, $day: Date!, $amount: Float) {
+    setStockFine(departmentId: $departmentId, productId: $productId, day: $day, amount: $amount)
+  }
+`
 const SET_NOTE = /* GraphQL */ `
   mutation SetStockNote($departmentId: ID!, $productId: ID!, $day: Date!, $note: String!) {
     setStockNote(departmentId: $departmentId, productId: $productId, day: $day, note: $note)
@@ -86,8 +93,10 @@ const SET_SALE = /* GraphQL */ `
  * Mêmes colonnes et mêmes familles que l'écran de l'économat : le contrôle
  * doit pouvoir lire la même ligne que le magasin sans la retrouver ailleurs.
  */
-export function ControlTable({ group, day, zPath, fichesPath, admin = false }: {
+export function ControlTable({ group, day, zPath, fichesPath, admin = false, periode = '' }: {
   group: ControlGroup
+  /** La journée ou la période affichée, en clair (titre de l'impression). */
+  periode?: string
   /** L'administration lit le journal des modifications (bouton LOG). */
   admin?: boolean
   /** La journée contrôlée, pour recharger après une saisie. */
@@ -133,6 +142,16 @@ export function ControlTable({ group, day, zPath, fichesPath, admin = false }: {
       router.refresh()
     } catch (e) { return errorMessage(e) }
   }
+  const ecrireAmende = async (l: ControlLine, brut: string) => {
+    const v = brut.trim().replace(',', '.')
+    const m = v === '' ? null : Number(v)
+    if (m !== null && (!Number.isFinite(m) || m < 0)) return 'Un montant positif, ou vide pour retirer l’amende.'
+    try {
+      await gql(SET_FINE, { departmentId: group.department.id, productId: l.productId, day, amount: m })
+      push('success', m ? `${l.productName} : amende de ${formatQty(m)} DT.` : `${l.productName} : amende retirée.`)
+      router.refresh()
+    } catch (e) { return errorMessage(e) }
+  }
   const ecrireNote = async (l: ControlLine, note: string) => {
     try {
       await gql(SET_NOTE, { departmentId: group.department.id, productId: l.productId, day, note })
@@ -140,12 +159,14 @@ export function ControlTable({ group, day, zPath, fichesPath, admin = false }: {
       router.refresh()
     } catch (e) { return errorMessage(e) }
   }
-  const [etat, setEtat] = React.useState<'ECART' | 'NON_COMPTE' | null>(null)
+  const [etat, setEtat] = React.useState<'ECART' | 'MOINS' | 'PLUS' | 'NON_COMPTE' | null>(null)
 
   // L'écart qui compte est celui de la formule : compté ≠ théorique.
   const enEcart = (l: ControlLine) => l.variance !== null && Math.abs(l.variance) > 1e-9
   const counts = React.useMemo(() => ({
     ecarts: group.lines.filter(enEcart).length,
+    moins: group.lines.filter((l) => enEcart(l) && l.variance! < 0).length,
+    plus: group.lines.filter((l) => enEcart(l) && l.variance! > 0).length,
     nonComptes: group.lines.filter((l) => l.countedStock === null).length,
   }), [group.lines])
 
@@ -156,11 +177,43 @@ export function ControlTable({ group, day, zPath, fichesPath, admin = false }: {
     [group.lines],
   )
 
+  /** Imprime les lignes affichées (filtre et recherche compris), sur une feuille A4. */
+  const imprimer = () => {
+    const esc = (x: string) => x.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]!)
+    const q = (v: number | null | undefined, u: string) => (v === null || v === undefined ? '—' : `${formatQty(v)} ${esc(u)}`)
+    const filtre = { ECART: 'Écart', MOINS: 'Écart en moins', PLUS: 'Écart en plus', NON_COMPTE: 'Non comptés' }[etat ?? 'ECART']
+    let corps = ''
+    affichees.forEach((l, i) => {
+      if (i === 0 || affichees[i - 1].categoryName !== l.categoryName) corps += `<tr class="fam"><td colspan="9">${esc(l.categoryName)}</td></tr>`
+      const amende = l.fine ? `${formatQty(l.fine)} DT` : ''
+      const v = l.variance
+      corps += `<tr><td class="n">${l.rang}</td><td>${esc(l.productName)}</td><td>${q(l.stockFixe, l.unitSymbol)}</td><td>${q(l.countedPrev, l.unitSymbol)}</td><td>${l.deliveredSince > 0 ? '+' + q(l.deliveredSince, l.unitSymbol) : '—'}</td><td>${l.soldSince > 0 ? '−' + q(l.soldSince, l.unitSymbol) : '—'}</td><td><b>${q(l.countedStock, l.unitSymbol)}</b></td><td class="${v === null ? '' : v < 0 ? 'm' : v > 0 ? 'p' : ''}"><b>${v === null ? '—' : Math.abs(v) < 1e-9 ? '✓' : (v > 0 ? '+' : '−') + q(Math.abs(v), l.unitSymbol)}</b></td><td class="a">${amende}</td></tr>`
+    })
+    const totalAmendes = affichees.reduce((n, l) => n + (l.fine ?? 0), 0)
+    const w = window.open('', '_blank')
+    if (!w) return
+    w.document.write(`<!doctype html><html lang="fr"><head><meta charset="utf-8"><title>Contrôle & Inventaire — ${esc(group.department.name)}</title><style>
+      @page{size:A4 portrait;margin:0} html,body{margin:0} body{padding:10mm 9mm;font-family:Inter,Arial,sans-serif;color:#0f1e33;font-size:8.5pt}
+      td.a{border-left:1.5px solid #0f1e33;min-width:16mm;color:#d63f5a;font-weight:700}
+      h1{font-size:15pt;margin:0} .s{color:#4a5f7d;font-size:9pt;margin:2px 0 8px}
+      table{width:100%;border-collapse:collapse} th{background:#0f1e33;color:#fff;font-size:8pt;text-transform:uppercase;padding:4px 5px;text-align:right} th:nth-child(2){text-align:left}
+      td{padding:3px 5px;border-bottom:1px solid #d5dfee;text-align:right} td:nth-child(2){text-align:left} td.n{color:#4a5f7d}
+      tr.fam td{background:#e8eefa;font-weight:800;font-size:8pt;text-transform:uppercase;text-align:left} td.m{color:#d63f5a} td.p{color:#b4630f} tr{page-break-inside:avoid} thead{display:table-header-group}
+    </style></head><body><h1>Contrôle &amp; Inventaire — ${esc(group.department.name)}</h1>
+      <div class="s">${esc(periode)} · ${affichees.length} article(s)${etat ? ` · filtre : ${filtre}` : ''}</div>
+      <table><thead><tr><th>#</th><th>Article</th><th>Fixe</th><th>Restant</th><th>Servi</th><th>Vente</th><th>Stock réel</th><th>Écart</th><th>Amende</th></tr></thead><tbody>${corps}</tbody></table>
+      ${totalAmendes > 0 ? `<p style="text-align:right;font-size:10pt;margin-top:6px">Total des amendes : <b style="color:#d63f5a">${formatQty(totalAmendes)} DT</b></p>` : ''}
+      <script>window.onload=()=>{window.print()}</script></body></html>`)
+    w.document.close()
+  }
+
   const affichees = React.useMemo(() => {
     const q = search.trim().toLowerCase()
     return numerotees.filter((l) => {
       if (plat && platChoisi?.recipeId && !l.dishes.some((d) => d.recipeId === plat)) return false
       if (etat === 'ECART' && !enEcart(l)) return false
+      if (etat === 'MOINS' && !(enEcart(l) && l.variance! < 0)) return false
+      if (etat === 'PLUS' && !(enEcart(l) && l.variance! > 0)) return false
       if (etat === 'NON_COMPTE' && l.countedStock !== null) return false
       if (!q) return true
       return l.productName.toLowerCase().includes(q) || l.productRef.toLowerCase().includes(q)
@@ -176,7 +229,7 @@ export function ControlTable({ group, day, zPath, fichesPath, admin = false }: {
   const c = group.department.color
   // La journée du comptage précédent, pour l'en-tête : la même pour toute
   // la feuille, puisqu'elle vient de la dernière commande du service.
-  const veille = group.lines.find((l) => l.countedPrevOn)?.countedPrevOn ?? null
+  const veille = group.soldOn
   const veilleLabel = veille ? formatShortDay(veille) : null
 
   return (
@@ -207,34 +260,28 @@ export function ControlTable({ group, day, zPath, fichesPath, admin = false }: {
           </span>
         </h2>
 
-        <div className="flex flex-wrap items-center gap-2">
-          {counts.ecarts > 0 ? (
-            <FilterBadge
-              tone="warn"
-              actif={etat === 'ECART'}
-              onClick={() => setEtat(etat === 'ECART' ? null : 'ECART')}
-              label={etat === 'ECART'
-                ? 'Afficher de nouveau tous les articles'
-                : `N’afficher que les ${counts.ecarts} article(s) sous leur cible`}
-            >
-              {counts.ecarts} sous la cible
-            </FilterBadge>
-          ) : null}
-          {counts.nonComptes > 0 ? (
-            <FilterBadge
-              tone="warn"
-              actif={etat === 'NON_COMPTE'}
-              onClick={() => setEtat(etat === 'NON_COMPTE' ? null : 'NON_COMPTE')}
-              label={etat === 'NON_COMPTE'
-                ? 'Afficher de nouveau tous les articles'
-                : `N’afficher que les ${counts.nonComptes} article(s) non comptés`}
-            >
-              {counts.nonComptes} non compté{counts.nonComptes > 1 ? 's' : ''}
-            </FilterBadge>
-          ) : null}
+        <div className="no-print flex flex-wrap items-center gap-2">
+          {/* Les filtres de l'écart : compté ≠ théorique, en moins ou en plus. */}
+          {([
+            ['ECART', `Écart (${counts.ecarts})`, counts.ecarts, 'border-warn/40 text-warn', 'bg-warn text-white border-warn'],
+            ['MOINS', `En moins (${counts.moins})`, counts.moins, 'border-danger/40 text-danger', 'bg-danger text-white border-danger'],
+            ['PLUS', `En plus (${counts.plus})`, counts.plus, 'border-ok/40 text-ok', 'bg-ok text-white border-ok'],
+            ['NON_COMPTE', `Non comptés (${counts.nonComptes})`, counts.nonComptes, 'border-[rgb(var(--glass-edge)/0.45)] text-fg-muted', 'bg-fg-muted text-white border-fg-muted'],
+          ] as const).map(([cle, libelle, n, off, on]) => (
+            <button key={cle} type="button" disabled={n === 0 && etat !== cle}
+              onClick={() => setEtat(etat === cle ? null : cle)}
+              aria-pressed={etat === cle}
+              className={cn('h-8 rounded-full border px-3 text-[0.78rem] font-semibold transition-colors disabled:opacity-40', etat === cle ? on : `bg-white/70 ${off}`)}>
+              {libelle}
+            </button>
+          ))}
           {etat !== null ? (
             <FilterReset total={group.lineCount} onClick={() => setEtat(null)} />
           ) : null}
+          <button type="button" onClick={imprimer}
+            className="inline-flex h-8 items-center gap-1.5 rounded-full bg-gradient-to-b from-[#4f6ef7] to-[#3b4fd8] px-3.5 text-[0.78rem] font-bold text-white shadow-sm hover:brightness-110">
+            <Printer className="size-3.5" /> Imprimer ({affichees.length})
+          </button>
         </div>
       </header>
 
@@ -319,7 +366,7 @@ export function ControlTable({ group, day, zPath, fichesPath, admin = false }: {
       ) : null}
       {/* Le tableau défile dans son cadre, à la hauteur de l'écran : les titres
           des colonnes (stock fixe, livré, vente…) restent sous les yeux. */}
-      <TableWrap minWidth={admin ? '80rem' : '74rem'} hauteur="calc(100dvh - 8.5rem)">
+      <TableWrap minWidth={admin ? '86rem' : '80rem'} hauteur="calc(100dvh - 8.5rem)">
         <thead>
           <tr>
             <Th className="w-10 text-right">#</Th>
@@ -338,6 +385,7 @@ export function ControlTable({ group, day, zPath, fichesPath, admin = false }: {
             <Th className="text-center">Son stock réel</Th>
             <Th className="text-center">Écart</Th>
             <Th className="min-w-[11rem]">Remarque</Th>
+            <Th className="text-center">Amende <span className="normal-case tracking-normal text-fg-subtle">(DT)</span></Th>
             {admin ? <Th className="text-center">Log</Th> : null}
           </tr>
         </thead>
@@ -351,7 +399,7 @@ export function ControlTable({ group, day, zPath, fichesPath, admin = false }: {
                   <FamilyBand
                     name={l.categoryName}
                     count={parFamille.get(l.categoryName) ?? 0}
-                    colSpan={admin ? 11 : 10}
+                    colSpan={admin ? 12 : 11}
                   />
                 ) : null}
                 <tr className={cn(enEcart(l) && (l.variance! < 0 ? 'bg-danger/[0.07]' : 'bg-warn/[0.08]'))}>
@@ -378,7 +426,15 @@ export function ControlTable({ group, day, zPath, fichesPath, admin = false }: {
                     {formatQty(l.stockFixe)} {l.unitSymbol}
                   </Td>
                   <Td className="whitespace-nowrap text-center tabular-nums text-fg-muted">
-                    {l.countedPrev === null ? <span className="text-fg-subtle" title="Le rayon n’a pas été compté à la commande précédente.">—</span> : `${formatQty(l.countedPrev)} ${l.unitSymbol}`}
+                    {l.countedPrev === null ? <span className="text-fg-subtle" title="Aucun comptage connu pour cet article.">—</span> : (
+                      <span className="inline-flex flex-col items-center leading-tight">
+                        <span>{formatQty(l.countedPrev)} {l.unitSymbol}</span>
+                        {/* Un stock plus ancien (article absent de la dernière commande) porte sa date. */}
+                        {l.countedPrevOn && l.countedPrevOn !== group.soldOn ? (
+                          <span className="text-[0.66rem] text-fg-subtle" title="Dernier comptage connu de cet article">au {formatShortDay(l.countedPrevOn)}</span>
+                        ) : null}
+                      </span>
+                    )}
                   </Td>
                   <Td className={cn('whitespace-nowrap text-center tabular-nums', l.deliveredSince > 0 ? 'font-medium text-info' : 'text-fg-subtle')}>
                     {l.deliveredSince > 0 ? `+${formatQty(l.deliveredSince)} ${l.unitSymbol}` : '—'}
@@ -454,6 +510,25 @@ export function ControlTable({ group, day, zPath, fichesPath, admin = false }: {
                         l.note ? 'font-medium italic text-fg' : 'border border-dashed border-[rgb(var(--glass-edge)/0.35)] text-fg-subtle')}
                       inputClassName="w-full"
                     />
+                  </Td>
+                  <Td className="whitespace-nowrap text-center tabular-nums">
+                    {/* L'amende se fixe par l'administration ; le contrôle la lit. */}
+                    {admin ? (
+                      <InlineEdit
+                        value={l.fine ? String(l.fine) : ''}
+                        display={l.fine ? `${formatQty(l.fine)} DT` : '—'}
+                        onSave={(v) => ecrireAmende(l, v)}
+                        ariaLabel={`Amende — ${l.productName}`}
+                        title="Double-cliquez pour fixer l’amende en dinars (vide : la retirer)"
+                        align="right"
+                        className={cn('min-w-[5rem] rounded-lg border border-dashed px-2 py-0.5',
+                          l.fine ? 'border-danger/45 bg-danger/[0.06] font-bold text-danger' : 'border-[rgb(var(--glass-edge)/0.4)] text-fg-subtle')}
+                        inputClassName="w-24 text-center"
+                        validate={(v) => (v === '' || /^\d+([.,]\d+)?$/.test(v.trim()) ? null : 'Montant attendu.')}
+                      />
+                    ) : (
+                      <span className={l.fine ? 'font-bold text-danger' : 'text-fg-subtle'}>{l.fine ? `${formatQty(l.fine)} DT` : '—'}</span>
+                    )}
                   </Td>
                   {admin ? (
                     <Td className="text-center">

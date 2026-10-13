@@ -14,7 +14,7 @@ const LOGS = /* GraphQL */ `
   }
 `
 
-type Log = { id: string; field: 'REEL' | 'REMARQUE'; oldValue: string | null; newValue: string | null; userName: string; createdAt: string }
+type Log = { id: string; field: 'REEL' | 'REMARQUE' | 'AMENDE'; oldValue: string | null; newValue: string | null; userName: string; createdAt: string }
 
 /** « 02/10/2026 à 08:22 » */
 function quand(iso: string) {
@@ -30,6 +30,12 @@ function phrase(l: Log, unite: string) {
     if (l.oldValue === null) return <>a saisi le stock réel : <strong>{q(l.newValue!)}</strong></>
     if (l.newValue === null) return <>a effacé le stock réel (était {q(l.oldValue)})</>
     return <>a modifié le stock réel : {q(l.oldValue)} → <strong>{q(l.newValue)}</strong></>
+  }
+  if (l.field === 'AMENDE') {
+    const dt = (v: string) => `${formatQty(Number(v))} DT`
+    if (l.oldValue === null) return <>a fixé une amende de <strong>{dt(l.newValue!)}</strong></>
+    if (l.newValue === null) return <>a retiré l’amende (était {dt(l.oldValue)})</>
+    return <>a modifié l’amende : {dt(l.oldValue)} → <strong>{dt(l.newValue)}</strong></>
   }
   if (l.oldValue === null) return <>a ajouté la remarque : <strong>« {l.newValue} »</strong></>
   if (l.newValue === null) return <>a effacé la remarque « {l.oldValue} »</>

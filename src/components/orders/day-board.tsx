@@ -100,6 +100,10 @@ export function DayBoard({
   /** Les services qui n'ont encore rien commandé : leur espace du jour reste ouvert, vide. */
   vides?: EmptyDepartment[]
 }) {
+  // Le retour d'une fiche ramène à la journée affichée, pas à aujourd'hui.
+  const tableau = basePath.replace(/\/commandes$/, '')
+  const retour = encodeURIComponent(`${tableau}?jour=${board.day}${board.isRange ? `&jusquau=${board.dayTo}` : ''}`)
+
   if (board.departments.length === 0 && vides.length === 0) {
     return (
       <GlassCard>
@@ -182,7 +186,7 @@ export function DayBoard({
                   <TicketCard
                     order={o}
                     color={c}
-                    href={`${basePath}/${o.id}`}
+                    href={`${basePath}/${o.id}?retour=${retour}`}
                     showDay={board.isRange}
                     admin={admin}
                   />
@@ -198,7 +202,7 @@ export function DayBoard({
                       color={c}
                       showDay={board.isRange}
                       admin={admin}
-                      href={`${basePath}/${o.id}/suite`}
+                      href={`${basePath}/${o.id}/suite?retour=${retour}`}
                     />
                     </Dissolvable>
                   ) : null}

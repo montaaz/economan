@@ -50,7 +50,7 @@ const CONTROLEUR: NavGroup[] = [
     title: 'Contrôle de gestion',
     items: [
       { href: '/controle/z', label: 'Note Z', shortLabel: 'Z', icon: 'Receipt', primary: true },
-      { href: '/controle', label: 'Contrôle des stocks', shortLabel: 'Stocks', icon: 'ClipboardCheck', primary: true },
+      { href: '/controle', label: 'Contrôle & Inventaire', shortLabel: 'Stocks', icon: 'ClipboardCheck', primary: true },
       { href: '/controle/fiches', label: 'Fiches techniques', shortLabel: 'Fiches', icon: 'Scissors' },
       { href: '/controle/historique', label: 'Historique des Z', shortLabel: 'Historique', icon: 'History', primary: true },
     ],
@@ -70,7 +70,7 @@ const ADMIN: NavGroup[] = [
       { href: '/admin/stock-general', label: 'Stock général', shortLabel: 'Stock', icon: 'Warehouse', primary: true },
       { href: '/admin/fiche-articles', label: 'Fiche articles', shortLabel: 'Fiche art.', icon: 'FlaskConical' },
       { href: '/admin/argent', label: 'Argent', icon: 'Coins' },
-      { href: '/admin/controle', label: 'Contrôle des stocks', shortLabel: 'Contrôle', icon: 'ClipboardCheck' },
+      { href: '/admin/controle', label: 'Contrôle & Inventaire', shortLabel: 'Contrôle', icon: 'ClipboardCheck' },
       { href: '/admin/fiches', label: 'Fiches techniques', shortLabel: 'Fiches', icon: 'Scissors' },
       { href: '/admin/historique', label: 'Historique', icon: 'History' },
       { href: '/admin/imprimer', label: 'Imprimer départements', shortLabel: 'Imprimer', icon: 'Printer' },
@@ -85,6 +85,8 @@ const ADMIN: NavGroup[] = [
       { href: '/admin/carte', label: 'Carte de vente', shortLabel: 'Carte', icon: 'Receipt' },
       { href: '/admin/utilisateurs', label: 'Utilisateurs', shortLabel: 'Agents', icon: 'Users', primary: true },
       { href: '/admin/horaires', label: 'Horaires des commandes', shortLabel: 'Horaires', icon: 'Clock' },
+      { href: '/admin/prix', label: 'Prix U', shortLabel: 'Prix', icon: 'Tag' },
+      { href: '/admin/valorisation', label: 'Commandes valorisées', shortLabel: 'Valorisation', icon: 'Coins' },
     ],
   },
 ]

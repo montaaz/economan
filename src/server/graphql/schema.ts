@@ -393,6 +393,8 @@ const typeDefs = /* GraphQL */ `
     realStock: Float
     "La remarque du contrôle sur cette ligne."
     note: String
+    "L'amende fixée par l'administration pour cette ligne, en dinars."
+    fine: Float
     "Nombre de modifications enregistrées sur cette ligne (journal)."
     logCount: Int!
   }
@@ -400,7 +402,7 @@ const typeDefs = /* GraphQL */ `
   "Une modification du contrôle : qui, quoi, avant, après, quand."
   type StockCheckLog {
     id: ID!
-    "REEL (stock réel) ou REMARQUE."
+    "REEL (stock réel), REMARQUE ou AMENDE."
     field: String!
     oldValue: String
     newValue: String
@@ -800,8 +802,8 @@ const typeDefs = /* GraphQL */ `
     salesReport(day: Date): SalesReport
     "Les Z enregistrés, du plus récent au plus ancien."
     salesReports(limit: Int = 60, from: Date, to: Date): [SalesReport!]!
-    "Contrôle des stocks : ce que chaque service détient et vise, sur une journée."
-    stockControl(day: Date, departmentId: ID): [ControlDepartment!]!
+    "Contrôle & Inventaire d'une journée, ou d'une période (dayFrom → day)."
+    stockControl(day: Date, departmentId: ID, dayFrom: Date): [ControlDepartment!]!
     "Le journal d'une ligne du contrôle (administration seulement)."
     stockCheckLogs(departmentId: ID!, productId: ID!, day: Date!): [StockCheckLog!]!
     "Les fiches techniques, par service : plats reliés à la carte et préparations."
@@ -901,6 +903,8 @@ const typeDefs = /* GraphQL */ `
     setStockReal(departmentId: ID!, productId: ID!, day: Date!, quantity: Float): Boolean!
     "La remarque d'une ligne du contrôle ; vide l'efface."
     setStockNote(departmentId: ID!, productId: ID!, day: Date!, note: String!): Boolean!
+    "L'amende d'une ligne du contrôle, en dinars ; null l'efface. Administration seulement."
+    setStockFine(departmentId: ID!, productId: ID!, day: Date!, amount: Float): Boolean!
     acceptOrder(id: ID!): Order!
     "Rend une commande acceptée au département : elle repasse en attente et redevient modifiable."
     cancelAcceptance(id: ID!): Order!
@@ -998,7 +1002,7 @@ function requireControl(ctx: Ctx) {
 async function ecrireControle(
   u: SessionUser,
   a: { departmentId: string; productId: string; day: string },
-  champ: 'REEL' | 'REMARQUE',
+  champ: 'REEL' | 'REMARQUE' | 'AMENDE',
   valeur: string | null,
 ) {
   const cle = { departmentId: Number(a.departmentId), productId: Number(a.productId), businessDay: toDate(a.day) }
@@ -1007,11 +1011,12 @@ async function ecrireControle(
     // deux l'ancienne valeur et notaient deux fois la même modification.
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(${cle.departmentId}::int, ${cle.productId}::int)`
     const avant = await tx.stockCheck.findUnique({ where: { departmentId_productId_businessDay: cle } })
-    const ancien = champ === 'REEL'
-      ? (avant?.realStock === null || avant?.realStock === undefined ? null : String(Number(avant.realStock)))
-      : (avant?.note ?? null)
+    const nombre = (d: unknown) => (d === null || d === undefined ? null : String(Number(d)))
+    const ancien = champ === 'REEL' ? nombre(avant?.realStock) : champ === 'AMENDE' ? nombre(avant?.fine) : (avant?.note ?? null)
     if (ancien === valeur) return
-    const data = champ === 'REEL' ? { realStock: valeur === null ? null : Number(valeur) } : { note: valeur }
+    const data = champ === 'REEL' ? { realStock: valeur === null ? null : Number(valeur) }
+      : champ === 'AMENDE' ? { fine: valeur === null ? null : Number(valeur) }
+        : { note: valeur }
     await tx.stockCheck.upsert({
       where: { departmentId_productId_businessDay: cle },
       create: { ...cle, ...data, updatedById: u.id },
@@ -1932,7 +1937,7 @@ const resolvers = {
     },
 
     /**
-     * Contrôle des stocks : pour chaque service, sa feuille entière avec la
+     * Contrôle & Inventaire : pour chaque service, sa feuille entière avec la
      * cible et le dernier comptage de la journée.
      *
      * Le comptage vient de la commande du jour : c'est là que l'employé
@@ -1948,9 +1953,13 @@ const resolvers = {
       return rows.map((r) => ({ ...r, id: String(r.id), createdAt: r.createdAt.toISOString() }))
     },
 
-    stockControl: async (_p: unknown, a: { day?: string; departmentId?: string }, ctx: Ctx) => {
+    stockControl: async (_p: unknown, a: { day?: string; departmentId?: string; dayFrom?: string | null }, ctx: Ctx) => {
       requireControl(ctx)
       const day = a.day ? toDate(a.day) : businessDay()
+      // Une période : du premier jour (dayFrom) au dernier (day). Le stock de
+      // départ est celui compté avant le premier jour ; le comptage de fin,
+      // celui de la dernière commande de la période.
+      const debut = a.dayFrom && toDate(a.dayFrom) < day ? toDate(a.dayFrom) : day
 
       const departments = await prisma.department.findMany({
         where: {
@@ -1997,7 +2006,7 @@ const resolvers = {
         // article prend le comptage de son dernier ticket — n'en lire qu'un
         // laissait sans stock de veille les articles de l'autre.
         const derniere = await prisma.order.findFirst({
-          where: { departmentId: department.id, businessDay: { lt: day } },
+          where: { departmentId: department.id, businessDay: { lt: debut } },
           orderBy: [{ businessDay: 'desc' }],
           select: { businessDay: true },
         })
@@ -2030,7 +2039,7 @@ const resolvers = {
         // Le stock réel saisi par le contrôle passe devant le comptage de la
         // commande, le jour même comme la veille (d'où part le théorique).
         const [controles, controlesVeille, journaux] = await Promise.all([
-          prisma.stockCheck.findMany({ where: { departmentId: department.id, businessDay: day }, select: { productId: true, realStock: true, note: true } }),
+          prisma.stockCheck.findMany({ where: { departmentId: department.id, businessDay: day }, select: { productId: true, realStock: true, note: true, fine: true } }),
           veille ? prisma.stockCheck.findMany({ where: { departmentId: department.id, businessDay: veille, realStock: { not: null } }, select: { productId: true, realStock: true } }) : Promise.resolve([]),
           prisma.stockCheckLog.groupBy({ by: ['productId'], where: { departmentId: department.id, businessDay: day }, _count: true }),
         ])
@@ -2085,13 +2094,14 @@ const resolvers = {
           // Les lignes de la journée, la commande la plus récente en dernier :
           // c'est son comptage qui fait foi si le service a commandé deux fois.
           prisma.orderLine.findMany({
-            where: { order: { departmentId: department.id, businessDay: day } },
-            orderBy: [{ order: { ticketNumber: 'asc' } }],
+            where: { order: { departmentId: department.id, businessDay: { gte: debut, lte: day } } },
+            orderBy: [{ order: { businessDay: 'asc' } }, { order: { ticketNumber: 'asc' } }],
             select: {
               productId: true,
               quantityOnHand: true,
               quantityAsked: true,
               quantityServed: true,
+              stockFixe: true,
               refills: { select: { quantity: true } },
               order: { select: { businessDay: true } },
             },
@@ -2121,9 +2131,43 @@ const resolvers = {
           delete r._conso
         }
 
+        // Un article absent de la dernière commande garde son dernier stock
+        // connu : le comptage le plus récent avant la période, quelle que soit
+        // sa date — et ce qui lui est arrivé et s'est vendu depuis ce jour-là.
+        const sansVeille = products.map((x) => x.id).filter((id) => !compteVeille.has(id))
+        const anciens = sansVeille.length === 0 ? [] : await prisma.$queryRaw<{ productId: number; q: number; jour: Date }[]>`
+          SELECT DISTINCT ON (l."productId") l."productId", l."quantityOnHand"::float AS q, o."businessDay" AS jour
+            FROM order_lines l JOIN orders o ON o.id = l."orderId"
+           WHERE o."departmentId" = ${department.id} AND o."businessDay" < ${debut} AND NOT o."isUrgent"
+             AND l."productId" IN (${Prisma.join(sansVeille)})
+           ORDER BY l."productId", o."businessDay" DESC, o."ticketNumber" DESC`
+        const fenetres = new Map<string, Promise<{ livre: Map<number, number>; ventes: Map<number, number>; declarees: Map<number, number> }>>()
+        const fenetre = (jour: Date) => {
+          const cle = jour.toISOString()
+          let f = fenetres.get(cle)
+          if (!f) {
+            f = Promise.all([
+              livraisonsDuService(department.id, jour, finFenetre),
+              ventesDepuis(jour).then((m) => m.get(department.id) ?? new Map<number, number>()),
+              prisma.declaredSale.findMany({ where: { departmentId: department.id, businessDay: { gte: jour, lte: finFenetre } }, select: { productId: true, quantity: true } })
+                .then((rows) => { const m = new Map<number, number>(); for (const r of rows) m.set(r.productId, (m.get(r.productId) ?? 0) + Number(r.quantity)); return m }),
+            ]).then(([livre, ventes, declarees]) => ({ livre, ventes, declarees }))
+            fenetres.set(cle, f)
+          }
+          return f
+        }
+        const repli = new Map<number, { q: number; jour: Date; livre: number; z: number; decl: number }>()
+        for (const r of anciens) {
+          const f = await fenetre(r.jour)
+          repli.set(r.productId, { q: Number(r.q), jour: r.jour, livre: f.livre.get(r.productId) ?? 0, z: f.ventes.get(r.productId) ?? 0, decl: f.declarees.get(r.productId) ?? 0 })
+        }
+
         const out = products.map((prod) => {
           const l = lineBy.get(prod.id)
-          const cible = parBy.get(prod.id) ?? 0
+          // Le stock fixe de la journée : celui figé sur la commande du jour.
+          // Changer de jeu de stock fixe ne réécrit pas une journée passée ;
+          // sans commande ce jour-là, on montre le stock fixe en service.
+          const cible = l ? Number(l.stockFixe) : (parBy.get(prod.id) ?? 0)
           const ctl = controleBy.get(prod.id)
           const compteCommande = l ? Number(l.quantityOnHand) : null
           const reel = ctl?.realStock === null || ctl?.realStock === undefined ? null : Number(ctl.realStock)
@@ -2131,10 +2175,12 @@ const resolvers = {
           const servi = l
             ? Number(l.quantityServed ?? 0) + l.refills.reduce((n, r) => n + Number(r.quantity), 0)
             : null
-          const countedPrev = veille ? (compteVeille.get(prod.id) ?? null) : null
-          const deliveredSince = livre.get(prod.id) ?? 0
-          const soldFromZ = ventes.get(prod.id) ?? 0
-          const soldDeclared = declarees.get(prod.id) ?? 0
+          const ancien = veille && compteVeille.has(prod.id) ? null : repli.get(prod.id) ?? null
+          const countedPrev = ancien ? ancien.q : veille ? (compteVeille.get(prod.id) ?? null) : null
+          const countedPrevOn = ancien ? ancien.jour : veille
+          const deliveredSince = ancien ? ancien.livre : livre.get(prod.id) ?? 0
+          const soldFromZ = ancien ? ancien.z : ventes.get(prod.id) ?? 0
+          const soldDeclared = ancien ? ancien.decl : declarees.get(prod.id) ?? 0
           const soldSince = soldFromZ + soldDeclared
           const expected = countedPrev === null ? null : countedPrev + deliveredSince - soldSince
           return {
@@ -2152,7 +2198,7 @@ const resolvers = {
             // comptage. Sans comptage, il n'y a rien à mesurer.
             gap: compte === null ? 0 : Math.max(cible - compte, 0),
             countedPrev,
-            countedPrevOn: veille,
+            countedPrevOn,
             deliveredSince,
             soldSince,
             soldFromZ,
@@ -2163,6 +2209,7 @@ const resolvers = {
             orderCount: compteCommande,
             realStock: reel,
             note: ctl?.note ?? null,
+            fine: ctl?.fine === null || ctl?.fine === undefined ? null : Number(ctl.fine),
             logCount: journalBy.get(prod.id) ?? 0,
           }
         })
@@ -2877,6 +2924,16 @@ const resolvers = {
         throw new GraphQLError('Le stock réel doit être un nombre positif.', { extensions: { code: 'BAD_USER_INPUT' } })
       }
       await ecrireControle(u, a, 'REEL', q === null ? null : String(Math.round(q * 1000) / 1000))
+      return true
+    },
+
+    setStockFine: async (_p: unknown, a: { departmentId: string; productId: string; day: string; amount?: number | null }, ctx: Ctx) => {
+      const u = requireAdmin(ctx)
+      const m = a.amount ?? null
+      if (m !== null && (!Number.isFinite(m) || m < 0)) {
+        throw new GraphQLError('L’amende doit être un montant positif.', { extensions: { code: 'BAD_USER_INPUT' } })
+      }
+      await ecrireControle(u, a, 'AMENDE', m === null || m === 0 ? null : String(Math.round(m * 1000) / 1000))
       return true
     },
 

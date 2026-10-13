@@ -413,6 +413,8 @@ model DepartmentProduct {
   /// Le nom de l'article sur la feuille de CE département (« MAIS » au
   /// Petit Déjeuner pour « MAIS 0.285GR » au catalogue). Nul : nom du catalogue.
   displayName  String?
+  /// Le prix unitaire de l'article pour ce département, en dinars (administration).
+  unitPrice    Decimal? @db.Decimal(12, 3)
   createdAt    DateTime @default(now())
 
   department Department @relation(fields: [departmentId], references: [id], onDelete: Cascade, onUpdate: Cascade)
@@ -872,6 +874,8 @@ model StockCheck {
   /// Nul : on garde le comptage de la commande du service.
   realStock    Decimal? @db.Decimal(14, 3)
   note         String?
+  /// L'amende infligée pour cet écart, en dinars (administration).
+  fine         Decimal? @db.Decimal(12, 3)
   updatedById  Int?
   updatedAt    DateTime @updatedAt
 

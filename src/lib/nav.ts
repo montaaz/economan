@@ -72,6 +72,7 @@ const ADMIN: NavGroup[] = [
       { href: '/admin/controle', label: 'Contrôle des stocks', shortLabel: 'Contrôle', icon: 'ClipboardCheck' },
       { href: '/admin/fiches', label: 'Fiches techniques', shortLabel: 'Fiches', icon: 'Scissors' },
       { href: '/admin/historique', label: 'Historique', icon: 'History' },
+      { href: '/admin/imprimer', label: 'Imprimer départements', shortLabel: 'Imprimer', icon: 'Printer' },
     ],
   },
   {

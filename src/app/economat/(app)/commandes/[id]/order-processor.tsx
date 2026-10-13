@@ -681,6 +681,9 @@ export function OrderProcessor({ order, admin = false }: {
               {/* La cible du département, pour juger une demande inhabituelle
                   sans avoir à ouvrir l'écran Stock fixe. */}
               <Th className="text-right">Stock fixe</Th>
+              {/* Ce que le département a compté en commandant : la commande est
+                  l'écart entre le stock fixe et cet inventaire. */}
+              <Th className="text-right">Inventaire restant <span className="normal-case tracking-normal text-fg-subtle">(son stock)</span></Th>
               {/* « Commande » plutôt que « Demandé » : sur cet écran l'économat
                   prépare une commande, il ne juge pas une demande. Les autres
                   tableaux gardent leur intitulé. */}
@@ -692,7 +695,7 @@ export function OrderProcessor({ order, admin = false }: {
           <tbody className="divide-y divide-[rgb(var(--glass-edge)/0.12)]">
             {affichees.length === 0 ? (
               <tr>
-                <td colSpan={6} className="px-4 py-6 text-center text-[0.85rem] text-fg-muted">
+                <td colSpan={7} className="px-4 py-6 text-center text-[0.85rem] text-fg-muted">
                   Aucun article ne correspond{recherche ? ` à « ${recherche} »` : ' à ce filtre'}.
                 </td>
               </tr>
@@ -720,7 +723,7 @@ export function OrderProcessor({ order, admin = false }: {
                     <FamilyBand
                     name={l.categoryName}
                     count={parFamille.get(l.categoryName) ?? 0}
-                    colSpan={6}
+                    colSpan={7}
                   />
                   ) : null}
                   <tr
@@ -747,6 +750,9 @@ export function OrderProcessor({ order, admin = false }: {
                     </Td>
                     <Td className="whitespace-nowrap text-right tabular-nums text-fg-muted">
                       {formatQty(l.stockFixe)} {l.unitSymbol}
+                    </Td>
+                    <Td className="whitespace-nowrap text-right font-medium tabular-nums text-info">
+                      {formatQty(l.quantityOnHand)} {l.unitSymbol}
                     </Td>
                     <Td className="whitespace-nowrap text-right font-medium tabular-nums text-fg">
                       {formatQty(l.quantityAsked)} {l.unitSymbol}
@@ -880,7 +886,7 @@ export function OrderProcessor({ order, admin = false }: {
                   {status === 'REJECTED' && open ? (
                     <tr className="bg-danger/[0.04]">
                       <Td />
-                      <Td colSpan={5} className="pb-3 pt-0">
+                      <Td colSpan={6} className="pb-3 pt-0">
                         <input
                           value={d.reason}
                           onChange={(e) => setLine(l.id, { reason: e.target.value })}
@@ -898,7 +904,7 @@ export function OrderProcessor({ order, admin = false }: {
                   {status === 'REJECTED' && !open && l.rejectReason ? (
                     <tr className="bg-danger/[0.04]">
                       <Td />
-                      <Td colSpan={5} className="pb-2.5 pt-0">
+                      <Td colSpan={6} className="pb-2.5 pt-0">
                         <p className="flex items-start gap-1 text-[0.78rem] font-medium leading-snug text-danger">
                           <MessageSquareWarning className="mt-px size-3.5 shrink-0" />
                           {l.rejectReason}

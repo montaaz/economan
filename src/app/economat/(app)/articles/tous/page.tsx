@@ -24,7 +24,7 @@ const ARTICLES = /* GraphQL */ `
   query ArticlesDuRayon($departmentId: ID!, $day: Date, $dayTo: Date) {
     dayArticles(departmentId: $departmentId, day: $day, dayTo: $dayTo) {
       productId productName productRef categoryName unitSymbol
-      stockFixe quantityAsked quantityServed ticketCount status servedRank urgentAsked
+      stockFixe quantityAsked quantityServed ticketCount status servedRank urgentAsked quantityOnHand
     }
   }
 `

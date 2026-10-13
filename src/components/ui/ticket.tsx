@@ -147,9 +147,9 @@ export function Ticket({
               <span className="ml-1.5 font-normal">({lines.length})</span>
             </th>
             <th className="w-16 px-2 py-1.5 text-right font-semibold">Fixe</th>
-            {/* L'unité rejoint la quantité qu'elle qualifie : « 5 u » se lit
-                d'un bloc, et la colonne « En rayon » disparaît — le stock
-                compté par l'employé ne sert pas à celui qui distribue. */}
+            {/* L'inventaire restant du département au moment de commander : la
+                commande se lit comme l'écart entre le fixe et ce stock. */}
+            <th className="w-16 px-2 py-1.5 text-right font-semibold">Stock</th>
             {/* Même intitulé que l'écran de l'économat : la feuille papier et
                 la feuille à l'écran doivent nommer la même colonne pareil. */}
             <th className="w-24 px-2 py-1.5 text-right font-semibold">Commande</th>
@@ -173,7 +173,7 @@ export function Ticket({
                   <FamilyBand
                     name={l.categoryName}
                     count={parFamille.get(l.categoryName) ?? 0}
-                    colSpan={livre ? 5 : 4}
+                    colSpan={livre ? 6 : 5}
                     className="border-y border-[#b9c8e0] bg-[#e8eefa] py-1 text-[0.76rem] text-inherit sm:text-[0.76rem]"
                   />
                 ) : null}
@@ -207,6 +207,9 @@ export function Ticket({
                   </td>
                   <td className="px-2 py-1 text-right tabular-nums text-[#4a5f7d]">
                     {formatQty(l.stockFixe)}
+                  </td>
+                  <td className="px-2 py-1 text-right tabular-nums text-[#1d4ed8]">
+                    {formatQty(l.quantityOnHand)}
                   </td>
                   <td className="whitespace-nowrap px-2 py-1 text-right font-semibold tabular-nums">
                     {/* Une commande urgente s'ajoute au stock du rayon : chaque

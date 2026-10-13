@@ -13,7 +13,7 @@ const QUERY = /* GraphQL */ `
   query ArticlesCumulesPapier($departmentId: ID!, $day: Date, $dayTo: Date) {
     dayArticles(departmentId: $departmentId, day: $day, dayTo: $dayTo) {
       productId productName productRef categoryName unitSymbol
-      stockFixe quantityAsked quantityServed ticketCount status servedRank urgentAsked
+      stockFixe quantityAsked quantityServed ticketCount status servedRank urgentAsked quantityOnHand
     }
     dayBoard(day: $day, dayTo: $dayTo) {
       day dayTo isRange
@@ -155,6 +155,7 @@ function FeuilleRayon({ nom, board, articles, tickets, etat, rang, q, sautDePage
             <th className="px-1 py-0.5 text-left font-semibold">Article</th>
             <th className="w-10 px-1 py-0.5 text-right font-semibold">Tick.</th>
             <th className="w-12 px-1 py-0.5 text-right font-semibold">Fixe</th>
+            <th className="w-12 px-1 py-0.5 text-right font-semibold">Stock</th>
             <th className="w-20 px-1 py-0.5 text-right font-semibold">Commande</th>
             <th className="w-16 px-1 py-0.5 text-right font-semibold">Servi</th>
             <th className="w-16 px-1 py-0.5 text-right font-semibold">Reste</th>
@@ -163,7 +164,7 @@ function FeuilleRayon({ nom, board, articles, tickets, etat, rang, q, sautDePage
         </thead>
         <tbody>
           {lignes.length === 0 ? (
-            <tr><td colSpan={8} className="px-2 py-6 text-center text-[#4a5f7d]">Aucun article sur cette période.</td></tr>
+            <tr><td colSpan={9} className="px-2 py-6 text-center text-[#4a5f7d]">Aucun article sur cette période.</td></tr>
           ) : null}
           {lignes.map((l, i) => {
             const e = ETATS[l.status]
@@ -178,6 +179,7 @@ function FeuilleRayon({ nom, board, articles, tickets, etat, rang, q, sautDePage
                   </td>
                   <td className="px-1 py-px text-right tabular-nums">{l.ticketCount}</td>
                   <td className="whitespace-nowrap px-1 py-px text-right tabular-nums text-[#4a5f7d]">{formatQty(l.stockFixe)}</td>
+                  <td className="whitespace-nowrap px-1 py-px text-right tabular-nums text-[#1d4ed8]">{l.quantityOnHand === null || l.quantityOnHand === undefined ? '—' : formatQty(l.quantityOnHand)}</td>
                   <td className="whitespace-nowrap px-1 py-px text-right font-semibold tabular-nums">
                     {/* La part urgente : en plus du stock fixe, flèche verte. */}
                     {l.urgentAsked > 0 ? <span className="mr-1 font-bold text-[#0f9b6c]">▲</span> : null}
@@ -259,7 +261,7 @@ function FamilleEtLigne({ ouvre, famille, nombre, children }: { ouvre: boolean; 
     <>
       {ouvre ? (
         <tr className="border-y border-[#b9c8e0] bg-[#e8eefa]">
-          <td colSpan={8} className="px-1 py-px text-[0.68rem] font-bold uppercase tracking-[0.05em]">
+          <td colSpan={9} className="px-1 py-px text-[0.68rem] font-bold uppercase tracking-[0.05em]">
             {famille} <span className="font-normal text-[#4a5f7d]">({nombre})</span>
           </td>
         </tr>

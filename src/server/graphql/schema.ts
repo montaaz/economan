@@ -568,6 +568,8 @@ const typeDefs = /* GraphQL */ `
     servedRank: Int!
     "Part de la commande venue d'une commande urgente de l'administration."
     urgentAsked: Float!
+    "Inventaire restant : le stock compté par le département sur son dernier ticket (hors urgence) de la période."
+    quantityOnHand: Float
   }
 
   "Ce qu'un passage a servi sur une ligne."
@@ -1233,12 +1235,13 @@ async function cumulerArticles(
         quantityAsked: true,
         quantityServed: true,
         stockFixe: true,
+        quantityOnHand: true,
         status: true,
         orderId: true,
         sortOrder: true,
         unit: { select: { symbol: true } },
         refills: { select: { quantity: true, refill: { select: { rank: true } } } },
-        order: { select: { isUrgent: true } },
+        order: { select: { isUrgent: true, createdAt: true } },
       },
     })
 
@@ -1260,6 +1263,9 @@ async function cumulerArticles(
         sortOrder: number
         orders: Set<number>
         urgentAsked: number
+        /** Le stock compté au dernier ticket non urgent, et l'heure de ce ticket. */
+        quantityOnHand: number | null
+        onHandAt: number
       }
     >()
 
@@ -1286,6 +1292,12 @@ async function cumulerArticles(
         row.servedRank = Math.max(row.servedRank, dernierRang(l))
         row.orders.add(l.orderId)
         if (l.order.isUrgent) row.urgentAsked += Number(l.quantityAsked)
+        // Une urgence ne recompte pas le rayon : seul un ticket normal plus
+        // récent donne l'inventaire restant.
+        if (!l.order.isUrgent && l.order.createdAt.getTime() >= row.onHandAt) {
+          row.quantityOnHand = Number(l.quantityOnHand)
+          row.onHandAt = l.order.createdAt.getTime()
+        }
         continue
       }
       byProduct.set(l.productId, {
@@ -1302,6 +1314,8 @@ async function cumulerArticles(
         sortOrder: l.sortOrder,
         orders: new Set([l.orderId]),
         urgentAsked: l.order.isUrgent ? Number(l.quantityAsked) : 0,
+        quantityOnHand: l.order.isUrgent ? null : Number(l.quantityOnHand),
+        onHandAt: l.order.isUrgent ? 0 : l.order.createdAt.getTime(),
       })
     }
 

@@ -34,6 +34,8 @@ export type CumulLine = {
   servedRank: number
   /** Part de la commande venue d'une commande urgente. */
   urgentAsked: number
+  /** Inventaire restant : le stock compté au dernier ticket du département. */
+  quantityOnHand?: number | null
 }
 
 type Etat = CumulLine['status']
@@ -288,6 +290,7 @@ export function CumulArticles({
                 <Th className="w-full">Article</Th>
                 <Th className="text-right">Tickets</Th>
                 <Th className="text-right">Stock fixe</Th>
+                <Th className="text-right">Inventaire restant</Th>
                 <Th className="text-right">Commande</Th>
                 <Th className="w-32 text-right">Servi</Th>
                 <Th className="w-32">État</Th>
@@ -303,7 +306,7 @@ export function CumulArticles({
                       <FamilyBand
                         name={l.categoryName}
                         count={parFamille.get(l.categoryName) ?? 0}
-                        colSpan={7}
+                        colSpan={8}
                       />
                     ) : null}
                     <tr
@@ -324,6 +327,9 @@ export function CumulArticles({
                       </Td>
                       <Td className="whitespace-nowrap text-right tabular-nums text-fg-muted">
                         {formatQty(l.stockFixe)} {l.unitSymbol}
+                      </Td>
+                      <Td className="whitespace-nowrap text-right font-medium tabular-nums text-info">
+                        {l.quantityOnHand === null || l.quantityOnHand === undefined ? '—' : `${formatQty(l.quantityOnHand)} ${l.unitSymbol}`}
                       </Td>
                       <Td className="whitespace-nowrap text-right font-medium tabular-nums text-fg">
                         {/* La part urgente se marque comme sur les bons : ▲ vert. */}

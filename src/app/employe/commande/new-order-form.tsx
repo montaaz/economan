@@ -37,8 +37,8 @@ const UPDATE = /* GraphQL */ `
 `
 
 const SUBMIT = /* GraphQL */ `
-  mutation Submit($lines: [OrderLineInput!]!, $note: String) {
-    submitOrder(lines: $lines, note: $note) {
+  mutation Submit($lines: [OrderLineInput!]!, $note: String, $departmentId: ID) {
+    submitOrder(lines: $lines, note: $note, departmentId: $departmentId) {
       id
       reference
       ticketNumber
@@ -59,7 +59,7 @@ const SUBMIT_URGENT = /* GraphQL */ `
 `
 
 export function NewOrderForm({
-  products, departmentName, userName, businessDay, editing, urgent,
+  products, departmentName, userName, businessDay, editing, urgent, pour,
 }: {
   products: CatalogProduct[]
   departmentName: string
@@ -71,6 +71,11 @@ export function NewOrderForm({
    * plafond au stock fixe : on sort ce qu'il faut, tout de suite. Le ticket
    * s'ouvre ensuite dans l'espace de l'administration.
    */
+  /**
+   * Commande normale passée par l'administration pour un département : même
+   * feuille que l'employé (stock compté), sous le nom de l'administrateur.
+   */
+  pour?: { departmentId: string; retour: string }
   urgent?: {
     departmentId: string
     /** Où ouvrir le ticket une fois passé (défaut : l'espace de l'administration). */
@@ -282,7 +287,7 @@ export function NewOrderForm({
               departmentId: urgent.departmentId, lines, note: note.trim() || null,
             })).submitUrgentOrder
           : (await gql<{ submitOrder: Resultat }>(SUBMIT, {
-              lines, note: note.trim() || null,
+              lines, note: note.trim() || null, departmentId: pour?.departmentId ?? null,
             })).submitOrder
 
       // La commande est partie : garder le brouillon la ferait revenir sur la
@@ -297,7 +302,7 @@ export function NewOrderForm({
           : `${o.reference} — ticket n°${o.ticketNumber}, ${o.lineCount} article(s).`,
         single: true, tone: 'info', autoClose: 2500, icon: <CheckCircle2 className="size-6" />,
       })
-      router.push(urgent ? `${urgent.retour ?? '/admin/commandes'}/${o.id}` : `/employe/commandes/${o.id}`)
+      router.push(urgent ? `${urgent.retour ?? '/admin/commandes'}/${o.id}` : pour ? `${pour.retour}/${o.id}` : `/employe/commandes/${o.id}`)
       router.refresh()
     } catch (error) {
       refuser('Commande refusée', errorMessage(error))

@@ -807,7 +807,8 @@ const typeDefs = /* GraphQL */ `
   }
 
   type Mutation {
-    submitOrder(lines: [OrderLineInput!]!, note: String): Order!
+    "Envoie une commande. L'administration précise le département : la commande porte son nom."
+    submitOrder(lines: [OrderLineInput!]!, note: String, departmentId: ID): Order!
     "Commande urgente passée par l'administration pour un département, sur sa feuille, comme l'employé la passerait. Le ticket porte son nom."
     submitUrgentOrder(departmentId: ID!, lines: [OrderLineInput!]!, note: String): Order!
     "Un arrivage : entre une quantité d'un article au stock général, avec son prix unitaire en dinars."
@@ -2326,14 +2327,21 @@ const resolvers = {
   Mutation: {
     submitOrder: async (
       _p: unknown,
-      a: { lines: { productId: string; quantityOnHand: number }[]; note?: string },
+      a: { lines: { productId: string; quantityOnHand: number }[]; note?: string; departmentId?: string | null },
       ctx: Ctx,
     ) => {
-      const u = requireEmployee(ctx)
+      // L'employé (ou le contrôle entré dans un département) commande pour le
+      // sien ; l'administration choisit le département, sous son propre nom.
+      const admin = ctx.user?.role === 'ADMIN'
+      const u = admin ? requireAdmin(ctx) : requireEmployee(ctx)
+      const departmentId = admin ? Number(a.departmentId) : (u.departmentId as number)
+      if (!Number.isInteger(departmentId) || departmentId <= 0) {
+        throw new GraphQLError('Choisissez le département de la commande.', { extensions: { code: 'BAD_USER_INPUT' } })
+      }
       const created = await run(() =>
         createOrder({
           actor: u,
-          departmentId: u.departmentId,
+          departmentId,
           lines: a.lines.map((l) => ({
             productId: Number(l.productId),
             quantityOnHand: l.quantityOnHand,

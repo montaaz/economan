@@ -36,15 +36,17 @@ export function UrgentOrderButton({ departments, className }: { departments: Dep
   )
 }
 
-export function ChoixDepartement({ departments, onClose, choisir }: {
+export function ChoixDepartement({ departments, onClose, choisir, titre = 'Commande urgente — pour quel département ?' }: {
   departments: Dept[]
+  /** Le titre de la fenêtre (commande urgente par défaut). */
+  titre?: string
   onClose: () => void
   /** Ce que fait le choix ; par défaut, la feuille urgente de l'administration. */
   choisir?: (id: string) => void
 }) {
   const router = useRouter()
   return (
-    <Modal title="Commande urgente — pour quel département ?" onClose={onClose} wide>
+    <Modal title={titre} onClose={onClose} wide>
       <p className="mb-3 text-[0.85rem] text-fg-muted">
         La feuille du rayon s’ouvrira telle que ses employés la remplissent. Le ticket portera votre nom.
       </p>

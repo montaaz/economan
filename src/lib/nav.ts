@@ -66,6 +66,7 @@ const ADMIN: NavGroup[] = [
     title: 'Pilotage',
     items: [
       { href: '/admin', label: 'Tableau de bord', shortLabel: 'Accueil', icon: 'LayoutDashboard', primary: true },
+      { href: '/admin/nouvelle-commande', label: 'Nouvelle commande', shortLabel: 'Commander', icon: 'PlusCircle' },
       { href: '/admin/stock-general', label: 'Stock général', shortLabel: 'Stock', icon: 'Warehouse', primary: true },
       { href: '/admin/fiche-articles', label: 'Fiche articles', shortLabel: 'Fiche art.', icon: 'FlaskConical' },
       { href: '/admin/argent', label: 'Argent', icon: 'Coins' },

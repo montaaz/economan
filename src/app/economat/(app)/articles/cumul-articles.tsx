@@ -290,7 +290,7 @@ export function CumulArticles({
                 <Th className="w-full">Article</Th>
                 <Th className="text-right">Tickets</Th>
                 <Th className="text-right">Stock fixe</Th>
-                <Th className="text-right">Inventaire restant</Th>
+                <Th className="text-right">Restant</Th>
                 <Th className="text-right">Commande</Th>
                 <Th className="w-32 text-right">Servi</Th>
                 <Th className="w-32">État</Th>

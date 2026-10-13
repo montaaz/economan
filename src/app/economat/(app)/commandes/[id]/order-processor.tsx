@@ -683,7 +683,7 @@ export function OrderProcessor({ order, admin = false }: {
               <Th className="text-right">Stock fixe</Th>
               {/* Ce que le département a compté en commandant : la commande est
                   l'écart entre le stock fixe et cet inventaire. */}
-              <Th className="text-right">Inventaire restant</Th>
+              <Th className="text-right">Restant</Th>
               {/* « Commande » plutôt que « Demandé » : sur cet écran l'économat
                   prépare une commande, il ne juge pas une demande. Les autres
                   tableaux gardent leur intitulé. */}

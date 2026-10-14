@@ -46,9 +46,13 @@ export type ControlLine = {
   logCount?: number
   /** L'amende de la ligne, en dinars. */
   fine?: number | null
+  /** Les valeurs actuelles des jeux de stock fixe 1, 2, 3. */
+  stockFixeSets?: number[]
 }
 
 export type ControlGroup = {
+  /** Le jeu de stock fixe en service (1, 2, 3). */
+  activeStockFixe?: number
   department: { id: string; name: string; code: string; color: string; icon: string | null }
   lineCount: number
   uncountedCount: number
@@ -159,6 +163,9 @@ export function ControlTable({ group, day, zPath, fichesPath, admin = false, per
       router.refresh()
     } catch (e) { return errorMessage(e) }
   }
+  // La colonne Fixe : celle de la journée (0), ou l'un des trois jeux.
+  const [jeu, setJeu] = React.useState<0 | 1 | 2 | 3>(0)
+  const fixeDe = (l: ControlLine) => (jeu === 0 ? l.stockFixe : (l.stockFixeSets?.[jeu - 1] ?? 0))
   const [etat, setEtat] = React.useState<'ECART' | 'MOINS' | 'PLUS' | 'NON_COMPTE' | null>(null)
 
   // L'écart qui compte est celui de la formule : compté ≠ théorique.
@@ -187,7 +194,7 @@ export function ControlTable({ group, day, zPath, fichesPath, admin = false, per
       if (i === 0 || affichees[i - 1].categoryName !== l.categoryName) corps += `<tr class="fam"><td colspan="9">${esc(l.categoryName)}</td></tr>`
       const amende = l.fine ? `${formatQty(l.fine)} DT` : ''
       const v = l.variance
-      corps += `<tr><td class="n">${l.rang}</td><td>${esc(l.productName)}</td><td>${q(l.stockFixe, l.unitSymbol)}</td><td>${q(l.countedPrev, l.unitSymbol)}</td><td>${l.deliveredSince > 0 ? '+' + q(l.deliveredSince, l.unitSymbol) : '—'}</td><td>${l.soldSince > 0 ? '−' + q(l.soldSince, l.unitSymbol) : '—'}</td><td><b>${q(l.countedStock, l.unitSymbol)}</b></td><td class="${v === null ? '' : v < 0 ? 'm' : v > 0 ? 'p' : ''}"><b>${v === null ? '—' : Math.abs(v) < 1e-9 ? '✓' : (v > 0 ? '+' : '−') + q(Math.abs(v), l.unitSymbol)}</b></td><td class="a">${amende}</td></tr>`
+      corps += `<tr><td class="n">${l.rang}</td><td>${esc(l.productName)}</td><td>${q(fixeDe(l), l.unitSymbol)}</td><td>${q(l.countedPrev, l.unitSymbol)}</td><td>${l.deliveredSince > 0 ? '+' + q(l.deliveredSince, l.unitSymbol) : '—'}</td><td>${l.soldSince > 0 ? '−' + q(l.soldSince, l.unitSymbol) : '—'}</td><td><b>${q(l.countedStock, l.unitSymbol)}</b></td><td class="${v === null ? '' : v < 0 ? 'm' : v > 0 ? 'p' : ''}"><b>${v === null ? '—' : Math.abs(v) < 1e-9 ? '✓' : (v > 0 ? '+' : '−') + q(Math.abs(v), l.unitSymbol)}</b></td><td class="a">${amende}</td></tr>`
     })
     const totalAmendes = affichees.reduce((n, l) => n + (l.fine ?? 0), 0)
     const w = window.open('', '_blank')
@@ -201,7 +208,7 @@ export function ControlTable({ group, day, zPath, fichesPath, admin = false, per
       tr.fam td{background:#e8eefa;font-weight:800;font-size:8pt;text-transform:uppercase;text-align:left} td.m{color:#d63f5a} td.p{color:#b4630f} tr{page-break-inside:avoid} thead{display:table-header-group}
     </style></head><body><h1>Contrôle &amp; Inventaire — ${esc(group.department.name)}</h1>
       <div class="s">${esc(periode)} · ${affichees.length} article(s)${etat ? ` · filtre : ${filtre}` : ''}</div>
-      <table><thead><tr><th>#</th><th>Article</th><th>Fixe</th><th>Restant</th><th>Servi</th><th>Vente</th><th>Stock réel</th><th>Écart</th><th>Amende</th></tr></thead><tbody>${corps}</tbody></table>
+      <table><thead><tr><th>#</th><th>Article</th><th>${jeu === 0 ? 'Fixe' : `Fixe ${jeu}`}</th><th>Restant</th><th>Servi</th><th>Vente</th><th>Stock réel</th><th>Écart</th><th>Amende</th></tr></thead><tbody>${corps}</tbody></table>
       ${totalAmendes > 0 ? `<p style="text-align:right;font-size:10pt;margin-top:6px">Total des amendes : <b style="color:#d63f5a">${formatQty(totalAmendes)} DT</b></p>` : ''}
       <script>window.onload=()=>{window.print()}</script></body></html>`)
     w.document.close()
@@ -377,7 +384,20 @@ export function ControlTable({ group, day, zPath, fichesPath, admin = false, per
                 d'hier soir, ce qui est arrivé, ce qui s'est vendu, ce qu'il
                 devrait rester (théorique) ; puis ce que le rayon a réellement
                 compté, et l'écart entre les deux. */}
-            <Th className="text-center">Fixe</Th>
+            <Th className="text-center">
+              {/* Le stock fixe de la journée, ou l'un des trois jeux, pour comparer. */}
+              <select
+                value={jeu}
+                onChange={(e) => setJeu(Number(e.target.value) as 0 | 1 | 2 | 3)}
+                aria-label="Quel stock fixe afficher"
+                className="cursor-pointer rounded-lg border border-[rgb(var(--glass-edge)/0.45)] bg-white px-1.5 py-1 text-[0.72rem] font-bold uppercase tracking-wider text-fg-muted hover:border-accent/50"
+              >
+                <option value={0}>Fixe</option>
+                {[1, 2, 3].map((j) => (
+                  <option key={j} value={j}>Fixe {j}{j === group.activeStockFixe ? ' ●' : ''}</option>
+                ))}
+              </select>
+            </Th>
             <Th className="text-center" title={veilleLabel ? `Stock compté le ${veilleLabel}` : 'Stock compté la veille'}>Restant</Th>
             <Th className="text-center">Servi</Th>
             <Th className="text-center">Vente</Th>
@@ -423,7 +443,7 @@ export function ControlTable({ group, day, zPath, fichesPath, admin = false, per
                     ) : null}
                   </Td>
                   <Td className="whitespace-nowrap text-center tabular-nums text-fg-subtle">
-                    {formatQty(l.stockFixe)} {l.unitSymbol}
+                    {formatQty(fixeDe(l))} {l.unitSymbol}
                   </Td>
                   <Td className="whitespace-nowrap text-center tabular-nums text-fg-muted">
                     {l.countedPrev === null ? <span className="text-fg-subtle" title="Aucun comptage connu pour cet article.">—</span> : (

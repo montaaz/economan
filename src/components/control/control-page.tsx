@@ -13,6 +13,7 @@ const QUERY = /* GraphQL */ `
   query Control($day: Date, $departmentId: ID, $dayFrom: Date) {
     stockControl(day: $day, departmentId: $departmentId, dayFrom: $dayFrom) {
       department { id name code color icon }
+      activeStockFixe
       lineCount
       uncountedCount
       soldOn
@@ -43,6 +44,7 @@ const QUERY = /* GraphQL */ `
         note
         logCount
         fine
+        stockFixeSets
       }
     }
   }

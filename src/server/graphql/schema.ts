@@ -395,6 +395,8 @@ const typeDefs = /* GraphQL */ `
     note: String
     "L'amende fixée par l'administration pour cette ligne, en dinars."
     fine: Float
+    "Les valeurs actuelles des trois jeux de stock fixe (1, 2, 3)."
+    stockFixeSets: [Float!]!
     "Nombre de modifications enregistrées sur cette ligne (journal)."
     logCount: Int!
   }
@@ -445,6 +447,8 @@ const typeDefs = /* GraphQL */ `
   "Le contrôle des stocks d'un département sur une journée."
   type ControlDepartment {
     department: Department!
+    "Le jeu de stock fixe en service (1, 2 ou 3)."
+    activeStockFixe: Int!
     lineCount: Int!
     "Articles dont le comptage manque encore."
     uncountedCount: Int!
@@ -2109,6 +2113,14 @@ const resolvers = {
         ])
 
         const parBy = new Map(pars.map((x) => [x.productId, Number(x.quantity)]))
+        // Les trois jeux : celui en service vit dans stock_fixe, les autres en réserve.
+        const reserves = await prisma.stockFixeSet.findMany({
+          where: { departmentId: department.id, slot: { not: department.activeStockFixe } },
+          select: { slot: true, productId: true, quantity: true },
+        })
+        const jeuDe = (slot: number, productId: number) => slot === department.activeStockFixe
+          ? (parBy.get(productId) ?? 0)
+          : Number(reserves.find((r) => r.slot === slot && r.productId === productId)?.quantity ?? 0)
         const lineBy = new Map(lines.map((l) => [l.productId, l]))
         // Le compte d'ingrédients d'un plat ne retient que les articles de la
         // feuille : un plat dont rien n'est sur cette feuille n'a rien à filtrer.
@@ -2190,6 +2202,7 @@ const resolvers = {
             categoryName: prod.category?.name ?? '',
             unitSymbol: prod.baseUnit?.symbol ?? '',
             stockFixe: cible,
+            stockFixeSets: [1, 2, 3].map((j) => jeuDe(j, prod.id)),
             countedStock: compte,
             countedOn: l ? l.order.businessDay : null,
             quantityAsked: l ? Number(l.quantityAsked) : null,
@@ -2216,6 +2229,7 @@ const resolvers = {
 
         return {
           department,
+          activeStockFixe: department.activeStockFixe,
           lineCount: out.length,
           uncountedCount: out.filter((x) => x.countedStock === null).length,
           soldOn: veille,

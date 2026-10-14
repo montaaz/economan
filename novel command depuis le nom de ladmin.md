@@ -22,7 +22,7 @@ Livré = Servi
 
 
 4- fix the Contrôle des stocks modifier Contrôle & ineventaire 
-5- fix the if the user not passing this command nned to make also see the old stock with details 
+5- fix the if the user not passing this command need to make also see the old stock with details 
 5- pirint in all fiches 
 6- add new boutton to be filter les ecart when click on it to see all the articls with ecart and a boutton named amonde 
 to be see the articls with the ecart and with the new column is prix ammonde

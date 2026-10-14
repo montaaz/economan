@@ -14,6 +14,7 @@ import { gql, errorMessage } from '@/lib/graphql-client'
 import { cn, formatQty, formatShortDay } from '@/lib/utils'
 import { correspond } from '@/lib/search'
 import { StockCheckLogButton } from './stock-check-log'
+import { ChoixFixe } from './choix-fixe'
 
 export type ControlLine = {
   productId: string
@@ -386,17 +387,7 @@ export function ControlTable({ group, day, zPath, fichesPath, admin = false, per
                 compté, et l'écart entre les deux. */}
             <Th className="text-center">
               {/* Le stock fixe de la journée, ou l'un des trois jeux, pour comparer. */}
-              <select
-                value={jeu}
-                onChange={(e) => setJeu(Number(e.target.value) as 0 | 1 | 2 | 3)}
-                aria-label="Quel stock fixe afficher"
-                className="cursor-pointer rounded-lg border border-[rgb(var(--glass-edge)/0.45)] bg-white px-1.5 py-1 text-[0.72rem] font-bold uppercase tracking-wider text-fg-muted hover:border-accent/50"
-              >
-                <option value={0}>Fixe</option>
-                {[1, 2, 3].map((j) => (
-                  <option key={j} value={j}>Fixe {j}{j === group.activeStockFixe ? ' ●' : ''}</option>
-                ))}
-              </select>
+              <ChoixFixe valeur={jeu} actif={group.activeStockFixe} onChange={setJeu} />
             </Th>
             <Th className="text-center" title={veilleLabel ? `Stock compté le ${veilleLabel}` : 'Stock compté la veille'}>Restant</Th>
             <Th className="text-center">Servi</Th>

@@ -48,15 +48,18 @@ export function ChoixFixe({ valeur, actif, onChange }: {
 
   const c = valeur ? COULEURS[valeur] : null
   const choisir = (v: 0 | 1 | 2 | 3) => { onChange(v); setOuvert(false) }
-  const ligne = (v: 0 | 1 | 2 | 3, titre: string, sous: string, pastille: React.ReactNode) => (
+  const ligne = (v: 0 | 1 | 2 | 3, titre: string, sous: React.ReactNode, pastille: React.ReactNode, enService = false) => (
     <button key={v} type="button" role="option" aria-selected={valeur === v} onClick={() => choisir(v)}
-      className={cn('flex w-full items-center gap-3 rounded-xl px-2.5 py-2 text-left transition-colors hover:bg-[rgb(var(--glass-edge)/0.12)]', valeur === v && 'bg-[rgb(var(--glass-edge)/0.12)]')}>
+      className={cn('flex w-full items-center gap-3 rounded-xl px-2.5 py-2 text-left transition-colors',
+        // Le jeu en service : une carte verte, qu'on repère d'un coup d'œil.
+        enService ? 'my-0.5 border border-ok/40 bg-ok/[0.10] hover:bg-ok/[0.16]' : 'hover:bg-[rgb(var(--glass-edge)/0.12)]',
+        valeur === v && !enService && 'bg-[rgb(var(--glass-edge)/0.12)]')}>
       {pastille}
       <span className="min-w-0 flex-1">
         <span className="block text-[0.86rem] font-bold normal-case tracking-normal text-fg">{titre}</span>
         <span className="block text-[0.72rem] font-medium normal-case tracking-normal text-fg-subtle">{sous}</span>
       </span>
-      {valeur === v ? <Check className="size-4 shrink-0 text-accent" /> : null}
+      {valeur === v ? <Check className={cn('size-4 shrink-0', enService ? 'text-ok' : 'text-accent')} /> : null}
     </button>
   )
 
@@ -78,8 +81,12 @@ export function ChoixFixe({ valeur, actif, onChange }: {
           {ligne(0, 'Fixe de la journée', 'Celui de la commande du jour',
             <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-[rgb(var(--glass-edge)/0.18)] text-fg-muted"><CalendarDays className="size-4" /></span>)}
           <div className="my-1 h-px bg-[rgb(var(--glass-edge)/0.2)]" />
-          {([1, 2, 3] as const).map((j) => ligne(j, `Stock fixe ${j}`, j === actif ? 'En service' : 'En réserve',
-            <span className="grid size-8 shrink-0 place-items-center rounded-lg text-[0.95rem] font-extrabold text-white" style={{ background: COULEURS[j].fond }}>{j}</span>))}
+          {([1, 2, 3] as const).map((j) => ligne(j, `Stock fixe ${j}`,
+            j === actif
+              ? <span className="mt-0.5 inline-flex items-center gap-1 rounded-full bg-ok px-2 py-px text-[0.64rem] font-bold uppercase tracking-wide text-white"><span className="size-1.5 rounded-full bg-white" /> En service</span>
+              : 'En réserve',
+            <span className="grid size-8 shrink-0 place-items-center rounded-lg text-[0.95rem] font-extrabold text-white" style={{ background: COULEURS[j].fond }}>{j}</span>,
+            j === actif))}
         </div>,
         document.body,
       ) : null}

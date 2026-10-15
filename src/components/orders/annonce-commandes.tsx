@@ -91,6 +91,23 @@ export function AnnonceCommandes() {
 
   React.useEffect(() => { relance.current = () => { void annoncer() } }, [annoncer])
 
+  // Le son se débloque au premier geste, n'importe où dans l'application
+  // (un clic, une touche, un toucher) : plus besoin de viser le bandeau. Le
+  // déblocage vaut ensuite pour toute la session de l'onglet.
+  React.useEffect(() => {
+    const debloquer = () => {
+      const ctx = (window as unknown as { __economanAudio?: AudioContext }).__economanAudio
+        ?? new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)()
+      ;(window as unknown as { __economanAudio?: AudioContext }).__economanAudio = ctx
+      void ctx.resume()
+      setBloque(false)
+      if (attenteRef.current.length > 0) relance.current()
+    }
+    const evenements = ['pointerdown', 'keydown', 'touchstart'] as const
+    for (const e of evenements) window.addEventListener(e, debloquer, { capture: true, once: true })
+    return () => { for (const e of evenements) window.removeEventListener(e, debloquer, { capture: true }) }
+  }, [])
+
 
   if (attente.length === 0) return null
   const urgentes = attente.filter((a) => a.urgent).length
@@ -107,10 +124,16 @@ export function AnnonceCommandes() {
             {attente.length} commande{attente.length > 1 ? 's' : ''} en attente{urgentes ? ` · ${urgentes} urgente${urgentes > 1 ? 's' : ''}` : ''}
           </span>
           <span className="block text-[0.74rem] opacity-85">
-            {bloque ? 'Touchez ici pour activer l’annonce sonore' : `${attente[0].departement} — l’annonce s’arrête à l’acceptation`}
+            {bloque ? 'Le navigateur attend un premier clic pour le son' : `${attente[0].departement} — l’annonce s’arrête à l’acceptation`}
           </span>
         </span>
       </button>
+      {bloque ? (
+        <p className="mt-2 max-w-[19rem] rounded-xl bg-white/95 px-3 py-2 text-[0.72rem] leading-snug text-fg-muted shadow-md">
+          Pour un son <strong className="text-fg">toujours automatique</strong> : cliquez le cadenas à gauche de l’adresse →
+          Paramètres du site → <strong className="text-fg">Son / Lecture automatique : Autoriser</strong>.
+        </p>
+      ) : null}
     </div>
   )
 }

@@ -9,4 +9,7 @@ export async function register() {
   // Les commandes passées la nuit avant le réglage rejoignent leur journée.
   await redaterCommandes().then((n) => { if (n) console.log(`[journée] ${n} commande(s) rangée(s) dans leur journée de travail`) }).catch((e) => console.error('[journée] rangement impossible :', e))
   setInterval(() => { void chargerDebutJournee().catch(() => {}) }, 60_000).unref?.()
+  // Les rappels de l'économat : tant qu'une commande attend, une notification revient.
+  const { rappelerCommandesEnAttente } = await import('./server/push')
+  setInterval(() => { void rappelerCommandesEnAttente().catch(() => {}) }, 30_000).unref?.()
 }

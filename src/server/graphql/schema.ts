@@ -2424,6 +2424,8 @@ const resolvers = {
           note: a.note,
         }),
       )
+      // L'économat est prévenu, même écran éteint (notification push).
+      void import('@/server/push').then((m) => m.notifierCommande(created.id)).catch(() => {})
       return prisma.order.findUniqueOrThrow({ where: { id: created.id }, include: ORDER_INCLUDE })
     },
 
@@ -2450,6 +2452,8 @@ const resolvers = {
           note: a.note,
         }),
       )
+      // L'économat est prévenu, même écran éteint (notification push).
+      void import('@/server/push').then((m) => m.notifierCommande(created.id)).catch(() => {})
       return prisma.order.findUniqueOrThrow({ where: { id: created.id }, include: ORDER_INCLUDE })
     },
 

@@ -6,6 +6,7 @@ import { usePathname } from 'next/navigation'
 import { Menu, X, LogOut, ChevronDown, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
 import { Icon } from '@/components/ui/icon'
 import { cn, initials } from '@/lib/utils'
+import { LiveRefresh } from './live-refresh'
 import { navForRole, primaryNav, ROLE_LABEL, type NavGroup } from '@/lib/nav'
 import type { Role } from '@/generated/prisma/enums'
 import { Logo } from '@/components/layout/logo'
@@ -70,6 +71,8 @@ export function AppShell({ user, children }: { user: ShellUser; children: React.
 
   return (
     <div className="flex min-h-dvh w-full">
+      {/* Les données se rafraîchissent seules quand quelque chose change. */}
+      <LiveRefresh />
       {/* Barre latérale — ordinateur */}
       <aside className={cn('no-print sticky top-0 hidden h-dvh shrink-0 flex-col gap-1 border-r border-[rgb(var(--glass-edge)/0.18)] bg-white/45 py-4 backdrop-blur-2xl transition-[width] duration-200 lg:flex',
         replie ? 'w-[4.75rem] px-2' : 'w-[16.5rem] px-3')}>

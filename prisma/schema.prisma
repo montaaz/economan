@@ -181,20 +181,21 @@ model User {
   faceProfile  FaceProfile?
   faceAttempts FaceLoginAttempt[]
 
-  ordersCreated        Order[]         @relation("OrderCreatedBy")
-  ordersProcessed      Order[]         @relation("OrderProcessedBy")
-  ordersReceived       Order[]         @relation("OrderReceivedBy")
-  refillsCreated       OrderRefill[]   @relation("RefillCreatedBy")
-  refillsReceived      OrderRefill[]   @relation("RefillReceivedBy")
-  salesReports         SalesReport[]   @relation("SalesReportCreatedBy")
-  stockEntries         StockEntry[]    @relation("StockEntryCreatedBy")
-  stockEntriesModified StockEntry[]    @relation("StockEntryModifiedBy")
-  stockEntriesLocked   StockEntry[]    @relation("StockEntryLockedBy")
+  ordersCreated        Order[]            @relation("OrderCreatedBy")
+  ordersProcessed      Order[]            @relation("OrderProcessedBy")
+  ordersReceived       Order[]            @relation("OrderReceivedBy")
+  refillsCreated       OrderRefill[]      @relation("RefillCreatedBy")
+  refillsReceived      OrderRefill[]      @relation("RefillReceivedBy")
+  salesReports         SalesReport[]      @relation("SalesReportCreatedBy")
+  stockEntries         StockEntry[]       @relation("StockEntryCreatedBy")
+  stockEntriesModified StockEntry[]       @relation("StockEntryModifiedBy")
+  stockEntriesLocked   StockEntry[]       @relation("StockEntryLockedBy")
   invoicePhotos        InvoicePhoto[]
-  declaredSales        DeclaredSale[]  @relation("DeclaredSaleCreatedBy")
-  preparations         Preparation[]   @relation("PreparationCreatedBy")
-  stockChecks          StockCheck[]    @relation("StockCheckUpdatedBy")
-  stockCheckLogs       StockCheckLog[] @relation("StockCheckLogBy")
+  declaredSales        DeclaredSale[]     @relation("DeclaredSaleCreatedBy")
+  preparations         Preparation[]      @relation("PreparationCreatedBy")
+  stockChecks          StockCheck[]       @relation("StockCheckUpdatedBy")
+  stockCheckLogs       StockCheckLog[]    @relation("StockCheckLogBy")
+  pushSubscriptions    PushSubscription[]
 
   @@index([departmentId, isActive])
   @@index([role, isActive])
@@ -930,4 +931,20 @@ model StockFixeSet {
   @@id([departmentId, slot, productId])
   @@index([productId])
   @@map("stock_fixe_sets")
+}
+
+/// Un appareil (téléphone, PC) abonné aux notifications de l'économat :
+/// les nouvelles commandes y arrivent même écran éteint, page fermée.
+model PushSubscription {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  endpoint  String   @unique
+  p256dh    String
+  auth      String
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@index([userId])
+  @@map("push_subscriptions")
 }

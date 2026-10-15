@@ -948,3 +948,14 @@ model PushSubscription {
   @@index([userId])
   @@map("push_subscriptions")
 }
+
+/// Les clés VAPID des notifications push, créées par le serveur au premier besoin
+/// quand le .env n'en fournit pas.
+model PushKeys {
+  id         Int      @id @default(1)
+  publicKey  String
+  privateKey String
+  createdAt  DateTime @default(now())
+
+  @@map("push_keys")
+}

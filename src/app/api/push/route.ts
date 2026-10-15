@@ -1,12 +1,14 @@
 import { NextResponse } from 'next/server'
 import { readSession } from '@/server/auth/session'
 import { prisma } from '@/server/db'
+import { clesPush } from '@/server/push'
 
 export const dynamic = 'force-dynamic'
 
 /** La clé publique, pour que l'appareil s'abonne. */
 export async function GET() {
-  return NextResponse.json({ key: process.env.VAPID_PUBLIC_KEY ?? null })
+  const k = await clesPush().catch(() => null)
+  return NextResponse.json({ key: k?.pub ?? null })
 }
 
 /** Abonne l'appareil de l'économat aux notifications des nouvelles commandes. */

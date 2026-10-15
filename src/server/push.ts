@@ -6,13 +6,30 @@ import { prisma } from '@/server/db'
  * Les notifications push de l'économat : elles arrivent sur le téléphone ou
  * le PC même écran éteint, page fermée — c'est le système qui sonne.
  */
-let pret = false
-function configurer() {
-  if (pret) return true
-  const pub = process.env.VAPID_PUBLIC_KEY, priv = process.env.VAPID_PRIVATE_KEY
-  if (!pub || !priv) return false
-  webpush.setVapidDetails(process.env.VAPID_SUBJECT || 'mailto:admin@example.com', pub, priv)
-  pret = true
+let cles: Promise<{ pub: string; priv: string }> | null = null
+
+/**
+ * Les clés VAPID : celles du .env si elles y sont, sinon celles que le
+ * serveur a créées lui-même et gardées en base — rien à configurer à la main.
+ */
+export function clesPush() {
+  cles ??= (async () => {
+    const pub = process.env.VAPID_PUBLIC_KEY, priv = process.env.VAPID_PRIVATE_KEY
+    if (pub && priv) return { pub, priv }
+    let row = await prisma.pushKeys.findUnique({ where: { id: 1 } })
+    if (!row) {
+      const k = webpush.generateVAPIDKeys()
+      await prisma.pushKeys.createMany({ data: [{ id: 1, publicKey: k.publicKey, privateKey: k.privateKey }], skipDuplicates: true })
+      row = await prisma.pushKeys.findUniqueOrThrow({ where: { id: 1 } })
+    }
+    return { pub: row.publicKey, priv: row.privateKey }
+  })().catch((e) => { cles = null; throw e })
+  return cles
+}
+
+async function configurer() {
+  const { pub, priv } = await clesPush()
+  webpush.setVapidDetails(process.env.VAPID_SUBJECT || 'mailto:admin@economan.app', pub, priv)
   return true
 }
 
@@ -20,7 +37,7 @@ type Message = { title: string; body: string; tag: string; url: string; urgent: 
 
 /** Envoie à tous les appareils de l'économat ; un abonnement expiré se supprime. */
 async function envoyer(m: Message) {
-  if (!configurer()) return 0
+  if (!(await configurer().catch(() => false))) return 0
   const abonnes = await prisma.pushSubscription.findMany({ where: { user: { role: 'ECONOMAN', isActive: true } } })
   let n = 0
   await Promise.all(abonnes.map(async (a) => {

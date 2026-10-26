@@ -2017,14 +2017,14 @@ const resolvers = {
         // article prend le comptage de son dernier ticket — n'en lire qu'un
         // laissait sans stock de veille les articles de l'autre.
         const derniere = await prisma.order.findFirst({
-          where: { departmentId: department.id, businessDay: { lt: debut } },
+          where: { departmentId: department.id, businessDay: { lt: debut }, isUrgent: false },
           orderBy: [{ businessDay: 'desc' }],
           select: { businessDay: true },
         })
         const veille = derniere?.businessDay ?? null
         const precedentes = veille
           ? await prisma.order.findMany({
-            where: { departmentId: department.id, businessDay: veille },
+            where: { departmentId: department.id, businessDay: veille, isUrgent: false },
             orderBy: { ticketNumber: 'asc' },
             select: { lines: { select: { productId: true, quantityOnHand: true } } },
           })
@@ -2114,7 +2114,7 @@ const resolvers = {
               quantityServed: true,
               stockFixe: true,
               refills: { select: { quantity: true } },
-              order: { select: { businessDay: true } },
+              order: { select: { businessDay: true, isUrgent: true } },
             },
           }),
         ])
@@ -2128,7 +2128,23 @@ const resolvers = {
         const jeuDe = (slot: number, productId: number) => slot === department.activeStockFixe
           ? (parBy.get(productId) ?? 0)
           : Number(reserves.find((r) => r.slot === slot && r.productId === productId)?.quantity ?? 0)
-        const lineBy = new Map(lines.map((l) => [l.productId, l]))
+        // Un article peut revenir sur plusieurs tickets de la journée (une
+        // commande normale et une urgente, par exemple). Le servi les additionne
+        // tous ; le comptage et le stock fixe viennent du dernier ticket normal,
+        // car une urgence ne recompte pas le rayon — son « restant » est calculé.
+        const lineBy = new Map<number, { stockFixe: number; quantityOnHand: number | null; servi: number; asked: number; jour: Date }>()
+        for (const l of lines) {
+          const sorti = Number(l.quantityServed ?? 0) + l.refills.reduce((n, r) => n + Number(r.quantity), 0)
+          const prev = lineBy.get(l.productId)
+          const normal = !l.order.isUrgent
+          lineBy.set(l.productId, {
+            servi: (prev?.servi ?? 0) + sorti,
+            asked: (prev?.asked ?? 0) + Number(l.quantityAsked),
+            jour: normal || !prev ? l.order.businessDay : prev.jour,
+            stockFixe: normal || !prev ? Number(l.stockFixe) : prev.stockFixe,
+            quantityOnHand: normal ? Number(l.quantityOnHand) : (prev?.quantityOnHand ?? null),
+          })
+        }
         // Le compte d'ingrédients d'un plat ne retient que les articles de la
         // feuille : un plat dont rien n'est sur cette feuille n'a rien à filtrer.
         const surLaFeuille = new Set(products.map((x) => x.id))
@@ -2186,14 +2202,12 @@ const resolvers = {
           // Le stock fixe de la journée : celui figé sur la commande du jour.
           // Changer de jeu de stock fixe ne réécrit pas une journée passée ;
           // sans commande ce jour-là, on montre le stock fixe en service.
-          const cible = l ? Number(l.stockFixe) : (parBy.get(prod.id) ?? 0)
+          const cible = l ? l.stockFixe : (parBy.get(prod.id) ?? 0)
           const ctl = controleBy.get(prod.id)
-          const compteCommande = l ? Number(l.quantityOnHand) : null
+          const compteCommande = l ? l.quantityOnHand : null
           const reel = ctl?.realStock === null || ctl?.realStock === undefined ? null : Number(ctl.realStock)
           const compte = reel ?? compteCommande
-          const servi = l
-            ? Number(l.quantityServed ?? 0) + l.refills.reduce((n, r) => n + Number(r.quantity), 0)
-            : null
+          const servi = l ? l.servi : null
           const ancien = veille && compteVeille.has(prod.id) ? null : repli.get(prod.id) ?? null
           const countedPrev = ancien ? ancien.q : veille ? (compteVeille.get(prod.id) ?? null) : null
           const countedPrevOn = ancien ? ancien.jour : veille
@@ -2211,8 +2225,8 @@ const resolvers = {
             stockFixe: cible,
             stockFixeSets: [1, 2, 3].map((j) => jeuDe(j, prod.id)),
             countedStock: compte,
-            countedOn: l ? l.order.businessDay : null,
-            quantityAsked: l ? Number(l.quantityAsked) : null,
+            countedOn: l ? l.jour : null,
+            quantityAsked: l ? l.asked : null,
             quantityServed: servi,
             // Ce qui manque au rayon pour atteindre sa cible, au moment du
             // comptage. Sans comptage, il n'y a rien à mesurer.

@@ -5,7 +5,7 @@ import { Prisma } from '@/generated/prisma/client'
 import { prisma } from '@/server/db'
 import { businessDay, salesDay, addDays } from '@/lib/utils'
 import { resteAServir } from '@/lib/reste'
-import { generalStock, departmentSpend, addStockEntry, addStockEntries, suppliers, setProductPortion, setProductKind, stockMovements, setStockLevel, livraisonsDuService, addPreparation, deletePreparation, preparations, renamePrepared, setPreparedDepartments, createPrepared, preparedStockFixe, setPreparedStockFixe, updateStockEntry, complementsDesEntrees, saveStockInvoice, verrouillerFacture, FACTURE_VERROUILLEE, createPure, createCategory, renameCategory, deleteCategory, setProductCategory, deleteArticle, setPreparedCompositions, setFamilyPure } from '@/server/services/stock'
+import { generalStock, departmentSpend, addStockEntry, addStockEntries, suppliers, setProductPortion, setProductKind, stockMovements, setStockLevel, livraisons, addPreparation, deletePreparation, preparations, renamePrepared, setPreparedDepartments, createPrepared, preparedStockFixe, setPreparedStockFixe, updateStockEntry, complementsDesEntrees, saveStockInvoice, verrouillerFacture, FACTURE_VERROUILLEE, createPure, createCategory, renameCategory, deleteCategory, setProductCategory, deleteArticle, setPreparedCompositions, setFamilyPure } from '@/server/services/stock'
 import { rentabilite } from '@/server/services/rentabilite'
 import { consommationVentes, consommationParPortion, updateRecipeLine, linkRecipeItem, createRecipe, deleteRecipe, addRecipeLine, deleteRecipeLine, type Fiche } from '@/server/services/recipes'
 import type { SessionUser } from '@/server/auth/session'
@@ -2026,12 +2026,11 @@ const resolvers = {
           ? await prisma.order.findMany({
             where: { departmentId: department.id, businessDay: veille, isUrgent: false },
             orderBy: { ticketNumber: 'asc' },
-            select: { lines: { select: { productId: true, quantityOnHand: true } } },
+            select: { createdAt: true, lines: { select: { productId: true, quantityOnHand: true } } },
           })
           : []
-        const [livre, ventes, declarees, nbZ] = veille
+        const [ventes, declarees, nbZ] = veille
           ? await Promise.all([
-            livraisonsDuService(department.id, veille, finFenetre),
             ventesDepuis(veille).then((m) => m.get(department.id) ?? new Map<number, number>()),
             // Les ventes saisies à la main par le contrôle, sur la même fenêtre.
             prisma.declaredSale.findMany({
@@ -2044,9 +2043,11 @@ const resolvers = {
             }),
             prisma.salesReport.count({ where: { businessDay: { gte: veille, lte: finFenetre } } }),
           ])
-          : [new Map<number, number>(), new Map<number, number>(), new Map<number, number>(), 0]
+          : [new Map<number, number>(), new Map<number, number>(), 0]
         const compteVeille = new Map<number, number>()
-        for (const o of precedentes) for (const l of o.lines) compteVeille.set(l.productId, Number(l.quantityOnHand))
+        // L'heure de ce comptage : ce qui a été livré avant est déjà dedans.
+        const compteVeilleA = new Map<number, Date>()
+        for (const o of precedentes) for (const l of o.lines) { compteVeille.set(l.productId, Number(l.quantityOnHand)); compteVeilleA.set(l.productId, o.createdAt) }
         // Le stock réel saisi par le contrôle passe devant le comptage de la
         // commande, le jour même comme la veille (d'où part le théorique).
         const [controles, controlesVeille, journaux] = await Promise.all([
@@ -2114,7 +2115,7 @@ const resolvers = {
               quantityServed: true,
               stockFixe: true,
               refills: { select: { quantity: true } },
-              order: { select: { businessDay: true, isUrgent: true } },
+              order: { select: { businessDay: true, isUrgent: true, createdAt: true } },
             },
           }),
         ])
@@ -2132,7 +2133,7 @@ const resolvers = {
         // commande normale et une urgente, par exemple). Le servi les additionne
         // tous ; le comptage et le stock fixe viennent du dernier ticket normal,
         // car une urgence ne recompte pas le rayon — son « restant » est calculé.
-        const lineBy = new Map<number, { stockFixe: number; quantityOnHand: number | null; servi: number; asked: number; jour: Date }>()
+        const lineBy = new Map<number, { stockFixe: number; quantityOnHand: number | null; servi: number; asked: number; jour: Date; compteA: Date | null }>()
         for (const l of lines) {
           const sorti = Number(l.quantityServed ?? 0) + l.refills.reduce((n, r) => n + Number(r.quantity), 0)
           const prev = lineBy.get(l.productId)
@@ -2143,6 +2144,7 @@ const resolvers = {
             jour: normal || !prev ? l.order.businessDay : prev.jour,
             stockFixe: normal || !prev ? Number(l.stockFixe) : prev.stockFixe,
             quantityOnHand: normal ? Number(l.quantityOnHand) : (prev?.quantityOnHand ?? null),
+            compteA: normal ? l.order.createdAt : (prev?.compteA ?? null),
           })
         }
         // Le compte d'ingrédients d'un plat ne retient que les articles de la
@@ -2170,31 +2172,50 @@ const resolvers = {
         // connu : le comptage le plus récent avant la période, quelle que soit
         // sa date — et ce qui lui est arrivé et s'est vendu depuis ce jour-là.
         const sansVeille = products.map((x) => x.id).filter((id) => !compteVeille.has(id))
-        const anciens = sansVeille.length === 0 ? [] : await prisma.$queryRaw<{ productId: number; q: number; jour: Date }[]>`
-          SELECT DISTINCT ON (l."productId") l."productId", l."quantityOnHand"::float AS q, o."businessDay" AS jour
+        const anciens = sansVeille.length === 0 ? [] : await prisma.$queryRaw<{ productId: number; q: number; jour: Date; at: Date }[]>`
+          SELECT DISTINCT ON (l."productId") l."productId", l."quantityOnHand"::float AS q, o."businessDay" AS jour, o."createdAt" AS at
             FROM order_lines l JOIN orders o ON o.id = l."orderId"
            WHERE o."departmentId" = ${department.id} AND o."businessDay" < ${debut} AND NOT o."isUrgent"
              AND l."productId" IN (${Prisma.join(sansVeille)})
            ORDER BY l."productId", o."businessDay" DESC, o."ticketNumber" DESC`
-        const fenetres = new Map<string, Promise<{ livre: Map<number, number>; ventes: Map<number, number>; declarees: Map<number, number> }>>()
+        const fenetres = new Map<string, Promise<{ ventes: Map<number, number>; declarees: Map<number, number> }>>()
         const fenetre = (jour: Date) => {
           const cle = jour.toISOString()
           let f = fenetres.get(cle)
           if (!f) {
             f = Promise.all([
-              livraisonsDuService(department.id, jour, finFenetre),
               ventesDepuis(jour).then((m) => m.get(department.id) ?? new Map<number, number>()),
               prisma.declaredSale.findMany({ where: { departmentId: department.id, businessDay: { gte: jour, lte: finFenetre } }, select: { productId: true, quantity: true } })
                 .then((rows) => { const m = new Map<number, number>(); for (const r of rows) m.set(r.productId, (m.get(r.productId) ?? 0) + Number(r.quantity)); return m }),
-            ]).then(([livre, ventes, declarees]) => ({ livre, ventes, declarees }))
+            ]).then(([ventes, declarees]) => ({ ventes, declarees }))
             fenetres.set(cle, f)
           }
           return f
         }
-        const repli = new Map<number, { q: number; jour: Date; livre: number; z: number; decl: number }>()
+        const repli = new Map<number, { q: number; jour: Date; at: Date; z: number; decl: number }>()
         for (const r of anciens) {
           const f = await fenetre(r.jour)
-          repli.set(r.productId, { q: Number(r.q), jour: r.jour, livre: f.livre.get(r.productId) ?? 0, z: f.ventes.get(r.productId) ?? 0, decl: f.declarees.get(r.productId) ?? 0 })
+          repli.set(r.productId, { q: Number(r.q), jour: r.jour, at: r.at, z: f.ventes.get(r.productId) ?? 0, decl: f.declarees.get(r.productId) ?? 0 })
+        }
+
+        // Le livré se compte à l'heure, pas au jour : entre le comptage
+        // précédent et celui-ci. Une urgence livrée le matin, avant le
+        // comptage de la commande normale de midi, est déjà dans ce comptage
+        // — la compter le lendemain la faisait apparaître deux fois, et le
+        // jour même elle manquait au théorique. Sans heure connue (un stock
+        // saisi à la main), on retombe sur les journées entières, jusqu'à la veille.
+        const premierJour = [veille, ...anciens.map((r) => r.jour)].filter((d): d is Date => d !== null)
+          .reduce<Date | null>((m, d) => (m === null || d < m ? d : m), null)
+        const livs = premierJour ? await livraisons(premierJour, day, department.id) : []
+        const livreEntre = (pid: number, depuisJour: Date, depuisA: Date | null, jusquA: Date | null) => {
+          let n = 0
+          for (const x of livs) {
+            if (x.productId !== pid) continue
+            if (depuisA ? x.at <= depuisA : x.businessDay < depuisJour) continue
+            if (jusquA ? x.at > jusquA : x.businessDay > finFenetre) continue
+            n += x.quantity
+          }
+          return n
         }
 
         const out = products.map((prod) => {
@@ -2211,7 +2232,9 @@ const resolvers = {
           const ancien = veille && compteVeille.has(prod.id) ? null : repli.get(prod.id) ?? null
           const countedPrev = ancien ? ancien.q : veille ? (compteVeille.get(prod.id) ?? null) : null
           const countedPrevOn = ancien ? ancien.jour : veille
-          const deliveredSince = ancien ? ancien.livre : livre.get(prod.id) ?? 0
+          const deliveredSince = ancien
+            ? livreEntre(prod.id, ancien.jour, ancien.at, l?.compteA ?? null)
+            : veille ? livreEntre(prod.id, veille, compteVeilleA.get(prod.id) ?? null, l?.compteA ?? null) : 0
           const soldFromZ = ancien ? ancien.z : ventes.get(prod.id) ?? 0
           const soldDeclared = ancien ? ancien.decl : declarees.get(prod.id) ?? 0
           const soldSince = soldFromZ + soldDeclared

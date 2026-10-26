@@ -55,6 +55,8 @@ export function OrderProcessor({ order, admin = false }: {
   const { push } = useToast()
   const confirmer = useConfirm()
   const [busy, setBusy] = React.useState<string | null>(null)
+  // Les articles cochés « Peut dépasser » au stock fixe : pas de plafond.
+  const libres = new Set(order.exceedableProductIds ?? [])
 
   // L'état tel qu'il est en base. Sert au démarrage et au retour en arrière :
   // « réinitialiser » rend ce qui est enregistré, pas une feuille vierge —
@@ -711,7 +713,9 @@ export function OrderProcessor({ order, admin = false }: {
               // reste celle commandée, la ligne est conforme : l'orange doit
               // signaler un écart réel, sinon il crie sans rien dire.
               const ecart = status === 'ADJUSTED' && (d?.served ?? '') !== ''
-                && toNumber(d.served) !== l.quantityAsked
+                // Servir plus que commandé (article « Peut dépasser ») n'est
+                // pas un manque : la ligne reste verte.
+                && toNumber(d.served) < l.quantityAsked
 
               // Une saisie en cours, encore vide ou identique à la commande,
               // se lit comme une ligne conforme.
@@ -746,6 +750,9 @@ export function OrderProcessor({ order, admin = false }: {
                           chaque ligne allongeait sans rien apprendre. */}
                       <p className="truncate font-mono text-[0.7rem] text-fg-subtle">
                         {l.productRef}
+                        {libres.has(l.productId ?? '') ? (
+                          <span className="ml-1.5 rounded bg-ok/15 px-1 font-sans text-[0.62rem] font-bold uppercase text-ok" title="Peut être servi au-delà de la commande">peut dépasser</span>
+                        ) : null}
                       </p>
                     </Td>
                     <Td className="whitespace-nowrap text-right tabular-nums text-fg-muted">
@@ -768,7 +775,7 @@ export function OrderProcessor({ order, admin = false }: {
                             // On ne sert pas plus que commandé : le serveur le
                             // refuse, autant ne pas laisser taper un chiffre
                             // qui sera rejeté à l'enregistrement.
-                            if (v !== '' && toNumber(v) > l.quantityAsked) {
+                            if (v !== '' && toNumber(v) > l.quantityAsked && !libres.has(l.productId ?? '')) {
                               push('error',
                                 `${l.productName} : ${formatQty(l.quantityAsked)} `
                                 + `${l.unitSymbol} commandé, on ne peut pas en servir plus.`)
@@ -776,7 +783,7 @@ export function OrderProcessor({ order, admin = false }: {
                             }
                             setLine(l.id, { served: v })
                           }}
-                          max={l.quantityAsked}
+                          max={libres.has(l.productId ?? '') ? undefined : l.quantityAsked}
                           aria-label={`Quantité servie pour ${l.productName}`}
                           className="field h-9 w-24 px-2 py-0 text-right text-[0.85rem] tabular-nums"
                           autoFocus

@@ -54,6 +54,7 @@ export default async function StockFixePage({
       orderBy: { sortOrder: 'asc' },
       select: {
         displayName: true,
+        canExceed: true,
         product: {
           select: {
             id: true, name: true, reference: true,
@@ -81,7 +82,7 @@ export default async function StockFixePage({
   ])
 
   const products = sheet.length > 0
-    ? sheet.map((row) => ({ ...row.product, catalogueName: row.displayName ? row.product.name : null, name: row.displayName ?? row.product.name }))
+    ? sheet.map((row) => ({ ...row.product, canExceed: row.canExceed, catalogueName: row.displayName ? row.product.name : null, name: row.displayName ?? row.product.name }))
     : await prisma.product.findMany({
         where: {
           isActive: true,
@@ -163,6 +164,7 @@ export default async function StockFixePage({
           unitId: String(p.baseUnit.id),
           category: { id: String(p.category.id), name: p.category.name, icon: p.category.icon },
           quantity: parBy.get(p.id) ?? 0,
+          canExceed: 'canExceed' in p ? Boolean(p.canExceed) : false,
           sets: {
             1: jeux.get(1)!.get(p.id) ?? 0,
             2: jeux.get(2)!.get(p.id) ?? 0,

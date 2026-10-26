@@ -60,6 +60,7 @@ export const ORDER_QUERY = /* GraphQL */ `
     order(id: $id) {
       id
       reference
+      exceedableProductIds
       ticketNumber
       businessDay
       status

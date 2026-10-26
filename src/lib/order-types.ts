@@ -8,6 +8,7 @@ export type LineStatus = 'PENDING' | 'VALIDATED' | 'ADJUSTED' | 'REJECTED'
 
 export type ProcessLine = {
   id: string
+  productId?: string
   productName: string
   productRef: string
   categoryName: string
@@ -34,6 +35,8 @@ export type ProcessLine = {
 export type ProcessOrder = {
   id: string
   reference: string
+  /** Articles cochés « Peut dépasser » : servables au-delà de la commande. */
+  exceedableProductIds?: string[]
   ticketNumber: number
   businessDay: string
   status: 'PENDING' | 'ACCEPTED' | 'DELIVERED' | 'RECEIVED' | 'CANCELLED'

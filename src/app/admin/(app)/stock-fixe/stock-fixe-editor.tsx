@@ -21,6 +21,7 @@ import { UnitPicker } from './unit-picker'
 import { EditProductModal } from './edit-product-modal'
 import { FamilleSelect, type FamilleRef } from './famille-select'
 import { cn, toNumber } from '@/lib/utils'
+import { basculerDepassement } from './actions'
 
 type Dept = { id: number; name: string; code: string; color: string; icon: string | null }
 
@@ -36,6 +37,8 @@ export type ParLine = {
   quantity: number
   /** Le stock fixe de l'article dans chacun des trois jeux. */
   sets?: Record<1 | 2 | 3, number>
+  /** Coché : l'économat peut servir plus que commandé (au-delà du stock fixe). */
+  canExceed?: boolean
 }
 
 const JEUX = [1, 2, 3] as const
@@ -423,6 +426,9 @@ export function StockFixeEditor({
                   )
                 })}
                 <Th className="px-1 text-left sm:px-3">Unité</Th>
+                <Th className="px-1 text-center sm:px-2" title="Coché : l’économat peut servir plus que la commande, au-delà du stock fixe">
+                  <span className="hidden sm:inline">Dépasser</span><span className="sm:hidden">+</span>
+                </Th>
                 <Th className="w-10 px-1 sm:px-3"><span className="sr-only">Modifier</span></Th>
               </tr>
             </thead>
@@ -446,7 +452,7 @@ export function StockFixeEditor({
                       return (
                         <tr>
                           <td
-                            colSpan={7}
+                            colSpan={8}
                             className="bg-ok/12 px-2 py-1 text-[0.72rem] font-bold uppercase tracking-[0.06em] text-ok sm:px-3 sm:text-[0.76rem]"
                           >
                             <span className="flex items-center gap-1.5">
@@ -583,6 +589,9 @@ export function StockFixeEditor({
                         {p.unitSymbol}
                       </button>
                     </Td>
+                    <Td className="px-1 text-center sm:px-2">
+                      <CaseDepasser departmentId={selectedId} productId={p.id} nom={p.name} initial={p.canExceed ?? false} />
+                    </Td>
                     <Td className="px-1 sm:px-3">
                       <div className="flex items-center justify-end gap-0.5">
                         <button
@@ -612,7 +621,7 @@ export function StockFixeEditor({
                   {/* Sous la dernière ligne de la famille : l'ajout d'article. */}
                   {closesFamily ? (
                     <tr>
-                      <td colSpan={7} className="px-2 py-1.5 sm:px-3">
+                      <td colSpan={8} className="px-2 py-1.5 sm:px-3">
                         <button
                           type="button"
                           onClick={() => setAddingTo(p.category)}
@@ -917,3 +926,40 @@ function JeuxStockFixe({ departmentId, departmentName, actif, vu }: {
   )
 }
 
+
+/**
+ * « Peut dépasser » : coché, l'économat peut servir cet article au-delà de la
+ * quantité commandée — donc au-delà du stock fixe. Enregistré aussitôt.
+ */
+function CaseDepasser({ departmentId, productId, nom, initial }: { departmentId: number; productId: string; nom: string; initial: boolean }) {
+  const { push } = useToast()
+  const [coche, setCoche] = React.useState(initial)
+  const [enCours, setEnCours] = React.useState(false)
+  const basculer = async () => {
+    const v = !coche
+    setCoche(v); setEnCours(true)
+    try {
+      const r = await basculerDepassement(departmentId, Number(productId), v)
+      // La case verte suffit à dire que c'est enregistré : un message à
+      // chaque clic gênerait quand on en coche dix d'affilée.
+      if (!r.ok) { setCoche(!v); push('error', r.error ?? 'Enregistrement impossible.') }
+    } catch { setCoche(!v); push('error', 'Enregistrement impossible.') } finally { setEnCours(false) }
+  }
+  return (
+    <button
+      type="button"
+      role="checkbox"
+      aria-checked={coche}
+      disabled={enCours}
+      onClick={() => void basculer()}
+      title={coche ? 'Peut dépasser le stock fixe — cliquez pour plafonner' : 'Plafonné à la commande — cliquez pour permettre de dépasser'}
+      aria-label={`${nom} : peut dépasser le stock fixe`}
+      className={cn(
+        'inline-grid size-6 place-items-center rounded-md border-2 transition-colors disabled:opacity-60',
+        coche ? 'border-ok bg-ok text-white' : 'border-[rgb(var(--glass-edge)/0.5)] bg-white hover:border-ok/60',
+      )}
+    >
+      {coche ? <Check className="size-4" strokeWidth={3} /> : null}
+    </button>
+  )
+}

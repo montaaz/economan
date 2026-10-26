@@ -730,9 +730,10 @@ export async function setServedLines(orderId: number, actorId: number, served: S
       where: { id: orderId },
       select: {
         status: true,
+        departmentId: true,
         lines: {
           select: {
-            id: true, quantityAsked: true, productName: true,
+            id: true, quantityAsked: true, productName: true, productId: true,
             refills: { select: { quantity: true } },
           },
         },
@@ -744,6 +745,12 @@ export async function setServedLines(orderId: number, actorId: number, served: S
     }
     const known = new Map(order.lines.map((l) => [l.id, l]))
     const maj: { id: number; status: ServedLine['status']; qty: number; reason: string | null }[] = []
+    // Les articles cochés « Peut dépasser » au stock fixe : l'économat peut en
+    // servir plus que commandé.
+    const libres = new Set((await tx.departmentProduct.findMany({
+      where: { departmentId: order.departmentId, canExceed: true },
+      select: { productId: true },
+    })).map((d) => d.productId))
 
     for (const s of served) {
       const line = known.get(s.lineId)
@@ -771,7 +778,7 @@ export async function setServedLines(orderId: number, actorId: number, served: S
         // demandée vaut déjà « stock fixe moins ce qui reste en rayon », donc
         // en servir davantage ferait dépasser sa cible au département — qui
         // n'a rien demandé de plus.
-        if (qty > plafond) {
+        if (qty > plafond && !libres.has(line.productId)) {
           throw new WorkflowError(
             complements > 0
               ? `${line.productName} : ${complements} déjà servi(s) en complément, au plus ${plafond} au premier servi.`
@@ -787,7 +794,10 @@ export async function setServedLines(orderId: number, actorId: number, served: S
       // L'état enregistré est celui du premier servi seul ; les compléments
       // n'entrent que dans l'état effectif, calculé à la lecture.
       const status: ServedLine['status'] =
-        qty >= Number(line.quantityAsked) ? 'VALIDATED' : qty <= 0 ? 'REJECTED' : 'ADJUSTED'
+        // Servi au-delà (article « Peut dépasser ») : on garde « ajusté » pour
+        // que la quantité réelle reste enregistrée — « validé » la ramènerait
+        // à la commande. L'état effectif, lui, le compte comme servi complet.
+        qty > Number(line.quantityAsked) ? 'ADJUSTED' : qty >= Number(line.quantityAsked) ? 'VALIDATED' : qty <= 0 ? 'REJECTED' : 'ADJUSTED'
 
       maj.push({ id: s.lineId, status, qty, reason: status === 'REJECTED' ? (s.rejectReason?.trim() || 'Rupture') : null })
     }

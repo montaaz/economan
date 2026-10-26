@@ -519,6 +519,8 @@ const typeDefs = /* GraphQL */ `
 
   type Order {
     id: ID!
+    "Les articles que l'économat peut servir au-delà de la commande (cochés « Peut dépasser » au stock fixe)."
+    exceedableProductIds: [ID!]!
     reference: String!
     "Lignes en rupture sur ce ticket."
     rejectedCount: Int!
@@ -1595,6 +1597,11 @@ const resolvers = {
   },
 
   Order: {
+    exceedableProductIds: async (o: { departmentId: number }) =>
+      (await prisma.departmentProduct.findMany({
+        where: { departmentId: o.departmentId, canExceed: true },
+        select: { productId: true },
+      })).map((d) => String(d.productId)),
     // Absent tant qu'un serveur tourne avec l'ancien client : jamais nul.
     isUrgent: (o: { isUrgent?: boolean | null }) => o.isUrgent ?? false,
     // Les lignes dans l'ordre de la feuille, numérotées une fois pour toutes :

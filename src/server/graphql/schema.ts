@@ -2632,11 +2632,12 @@ const resolvers = {
       a: { id: string; rank: number; lines: { lineId: string; quantity: number }[] },
       ctx: Ctx,
     ) => {
-      requireStaff(ctx)
+      const u = requireStaff(ctx)
       const refill = await run(() =>
         completeRefill({
           orderId: Number(a.id),
           rank: a.rank,
+          actorId: u.id,
           lines: a.lines.map((l) => ({ lineId: Number(l.lineId), quantity: l.quantity })),
         }),
       )

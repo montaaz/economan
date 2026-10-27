@@ -579,6 +579,8 @@ export async function addRefill(params: {
 export async function completeRefill(params: {
   orderId: number
   rank: number
+  /** Qui sert : signe le passage s'il faut le créer. */
+  actorId?: number
   lines: { lineId: number; quantity: number }[]
 }) {
   const { orderId, rank } = params
@@ -586,11 +588,27 @@ export async function completeRefill(params: {
 
   return prisma.$transaction(async (tx) => {
     await verrouiller(tx, orderId)
-    const refill = await tx.orderRefill.findUnique({
+    let refill = await tx.orderRefill.findUnique({
       where: { orderId_rank: { orderId, rank } },
       select: { id: true, deliveredAt: true, receivedAt: true },
     })
-    if (!refill) throw new WorkflowError('Ce servi n’existe pas sur cette commande.')
+    if (!refill) {
+      // L'écran des écarts montre une colonne « 2ᵉ servi » pour tout le
+      // département, alors qu'un servi appartient à un ticket : un autre
+      // ticket du jour peut ne pas encore avoir le sien. On le crée à ce
+      // rang, plutôt que de refuser — à condition que le premier servi de
+      // ce ticket soit parti (bon émis).
+      const order = await tx.order.findUnique({ where: { id: orderId }, select: { status: true } })
+      if (!order) throw new WorkflowError('Commande introuvable.')
+      if (order.status !== 'DELIVERED' && order.status !== 'RECEIVED') {
+        throw new WorkflowError('Le bon de livraison de ce ticket n’est pas encore émis : terminez son premier servi sur sa fiche.')
+      }
+      if (rank < 2) throw new WorkflowError('Ce servi n’existe pas sur cette commande.')
+      refill = await tx.orderRefill.create({
+        data: { orderId, rank, createdById: params.actorId ?? null },
+        select: { id: true, deliveredAt: true, receivedAt: true },
+      })
+    }
     // Le département a signé pour ce passage : on n'y ajoute plus rien, la
     // marchandise supplémentaire part sur le servi suivant.
     if (refill.receivedAt) {

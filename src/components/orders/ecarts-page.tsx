@@ -102,6 +102,11 @@ export async function EcartsPage({
   const services: RefillService[] = []
   {
     for (const o of orders) {
+      // Un ticket dont le premier servi n'est pas encore émis (en attente,
+      // en préparation) ne se complète pas ici : l'économat finit son servi
+      // sur la fiche du ticket. Le proposer dans la colonne « 2ᵉ servi »
+      // menait à « Ce servi n'existe pas sur cette commande ».
+      if (o.status !== 'DELIVERED' && o.status !== 'RECEIVED') continue
       // Ce qui s'écarte encore, plus ce qu'un passage complémentaire a déjà
       // servi : une ligne soldée par un servi redevient « conforme », et la
       // laisser de côté la faisait disparaître du tableau — treize articles

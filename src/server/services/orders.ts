@@ -732,7 +732,7 @@ export async function cancelService(params: {
 
 export type ServedLine = {
   lineId: number
-  status: 'VALIDATED' | 'ADJUSTED' | 'REJECTED'
+  status: 'VALIDATED' | 'ADJUSTED' | 'REJECTED' | 'PREPARING'
   quantityServed?: number | null
   rejectReason?: string | null
 }
@@ -782,7 +782,7 @@ export async function setServedLines(orderId: number, actorId: number, served: S
       const plafond = Math.max(Number(line.quantityAsked) - complements, 0)
 
       const qty =
-        s.status === 'REJECTED'
+        s.status === 'REJECTED' || s.status === 'PREPARING'
           ? 0
           : s.status === 'VALIDATED'
             ? plafond
@@ -815,7 +815,10 @@ export async function setServedLines(orderId: number, actorId: number, served: S
         // Servi au-delà (article « Peut dépasser ») : on garde « ajusté » pour
         // que la quantité réelle reste enregistrée — « validé » la ramènerait
         // à la commande. L'état effectif, lui, le compte comme servi complet.
-        qty > Number(line.quantityAsked) ? 'ADJUSTED' : qty >= Number(line.quantityAsked) ? 'VALIDATED' : qty <= 0 ? 'REJECTED' : 'ADJUSTED'
+        // En préparation : choisi explicitement, rien ne sort maintenant — un
+        // servi suivant livrera l'article une fois prêt.
+        s.status === 'PREPARING' ? 'PREPARING'
+          : qty > Number(line.quantityAsked) ? 'ADJUSTED' : qty >= Number(line.quantityAsked) ? 'VALIDATED' : qty <= 0 ? 'REJECTED' : 'ADJUSTED'
 
       maj.push({ id: s.lineId, status, qty, reason: status === 'REJECTED' ? (s.rejectReason?.trim() || 'Rupture') : null })
     }

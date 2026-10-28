@@ -43,6 +43,7 @@ export const DAY_BOARD_QUERY = /* GraphQL */ `
           lineCount
           rejectedCount
           adjustedCount
+          preparingCount
           validatedCount
           receptionNote
           totalAsked

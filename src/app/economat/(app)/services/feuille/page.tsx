@@ -48,7 +48,7 @@ export default async function FeuilleServicePage({
 
   const lines = orders
     .flatMap((o) => o.lines.map((l, i) => ({ l, ref: o.reference, rang: i + 1 })))
-    .filter(({ l }) => l.status === 'REJECTED' || l.status === 'ADJUSTED')
+    .filter(({ l }) => l.status === 'REJECTED' || l.status === 'ADJUSTED' || l.status === 'PREPARING')
     .map(({ l, ref, rang }) => {
       const complete = l.refills.reduce((n, r) => n + Number(r.quantity), 0)
       const sorti = Number(l.quantityServed ?? 0) + complete

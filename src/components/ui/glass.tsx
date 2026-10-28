@@ -81,7 +81,7 @@ export { Button, Spinner, usePending, type ButtonProps } from './button'
 
 /* ---------------------------------------------------------------- badge */
 
-export type Tone = 'neutral' | 'accent' | 'ok' | 'warn' | 'danger' | 'info'
+export type Tone = 'neutral' | 'accent' | 'ok' | 'warn' | 'danger' | 'info' | 'prep'
 
 const TONES: Record<Tone, string> = {
   // Texte en noir : ces badges portent des informations à lire — un nombre
@@ -93,6 +93,8 @@ const TONES: Record<Tone, string> = {
   warn: 'bg-warn/14 text-warn border-warn/32',
   danger: 'bg-danger/12 text-danger border-danger/30',
   info: 'bg-info/12 text-info border-info/30',
+  // En préparation : un violet à part, ni manque (rouge) ni écart (orange).
+  prep: 'bg-[#7c3aed]/12 text-[#6d28d9] border-[#7c3aed]/30',
 }
 
 export function Badge({

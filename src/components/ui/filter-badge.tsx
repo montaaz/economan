@@ -15,7 +15,7 @@ import { cn } from '@/lib/utils'
 export function FilterBadge({
   tone, actif, onClick, label, children,
 }: {
-  tone: 'danger' | 'warn' | 'ok'
+  tone: 'danger' | 'warn' | 'ok' | 'prep'
   actif: boolean
   onClick: () => void
   /** Ce que le bouton fait, pour les lecteurs d'écran et l'infobulle. */
@@ -36,11 +36,13 @@ export function FilterBadge({
         tone === 'danger' && 'border-danger/30 bg-danger/12 text-danger hover:bg-danger/20',
         tone === 'warn' && 'border-warn/30 bg-warn/14 text-warn hover:bg-warn/24',
         tone === 'ok' && 'border-ok/30 bg-ok/12 text-ok hover:bg-ok/20',
+        tone === 'prep' && 'border-[#7c3aed]/30 bg-[#7c3aed]/12 text-[#6d28d9] hover:bg-[#7c3aed]/20',
         // Le filtre actif se voit : sinon rien ne dirait pourquoi la liste
         // s'est raccourcie.
         actif && tone === 'danger' && 'bg-danger/25 ring-2 ring-danger/40',
         actif && tone === 'warn' && 'bg-warn/28 ring-2 ring-warn/40',
         actif && tone === 'ok' && 'bg-ok/25 ring-2 ring-ok/40',
+        actif && tone === 'prep' && 'bg-[#7c3aed]/25 ring-2 ring-[#7c3aed]/40',
       )}
     >
       {children}

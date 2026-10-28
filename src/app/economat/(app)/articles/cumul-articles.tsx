@@ -29,7 +29,7 @@ export type CumulLine = {
   quantityAsked: number
   quantityServed: number
   ticketCount: number
-  status: 'PENDING' | 'VALIDATED' | 'ADJUSTED' | 'REJECTED'
+  status: 'PENDING' | 'VALIDATED' | 'ADJUSTED' | 'REJECTED' | 'PREPARING'
   /** Rang du servi qui a soldé la ligne : 1, 2, 3… */
   servedRank: number
   /** Part de la commande venue d'une commande urgente. */
@@ -40,11 +40,12 @@ export type CumulLine = {
 
 type Etat = CumulLine['status']
 
-const BADGES: Record<Etat, { tone: 'neutral' | 'ok' | 'warn' | 'danger'; label: string }> = {
+const BADGES: Record<Etat, { tone: 'neutral' | 'ok' | 'warn' | 'danger' | 'prep'; label: string }> = {
   PENDING: { tone: 'neutral', label: 'En attente' },
   VALIDATED: { tone: 'ok', label: 'Servi' },
   ADJUSTED: { tone: 'warn', label: 'Ajusté' },
   REJECTED: { tone: 'danger', label: 'Rupture' },
+  PREPARING: { tone: 'prep', label: 'En préparation' },
 }
 
 /**

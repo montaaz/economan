@@ -7,7 +7,7 @@ import { cn } from '@/lib/utils'
 // d'une écriture), et `glass.tsx`, lui, doit rester lisible depuis les
 // composants serveur qui posent des cartes et des badges.
 
-type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'danger' | 'success' | 'warning'
+type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'danger' | 'success' | 'warning' | 'prep'
 type ButtonSize = 'sm' | 'md' | 'lg' | 'icon'
 
 const VARIANTS: Record<ButtonVariant, string> = {
@@ -28,6 +28,10 @@ const VARIANTS: Record<ButtonVariant, string> = {
   warning:
     'text-white bg-gradient-to-b from-[#f3a850] to-[var(--warn)] border border-[#b4630f]/45 ' +
     'shadow-[0_1px_0_0_rgb(255_255_255/0.4)_inset,0_8px_20px_-8px_rgb(224_127_22/0.6)] hover:brightness-[1.07]',
+  // En préparation : le violet de la marmite, partout le même.
+  prep:
+    'text-white bg-gradient-to-b from-[#9b6cf6] to-[#7c3aed] border border-[#5b21b6]/45 ' +
+    'shadow-[0_1px_0_0_rgb(255_255_255/0.4)_inset,0_8px_20px_-8px_rgb(124_58_237/0.6)] hover:brightness-[1.07]',
 }
 
 const SIZES: Record<ButtonSize, string> = {

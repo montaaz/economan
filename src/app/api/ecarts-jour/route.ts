@@ -8,7 +8,7 @@ export const dynamic = 'force-dynamic'
 export const maxDuration = 60
 
 /**
- * Rend en PDF les écarts de la journée : `type` (rupture, ajuste, tous),
+ * Rend en PDF les écarts de la journée : `type` (rupture, ajuste, preparation, tous),
  * `jour`, `jusquau`, et `dep` pour un seul département. Sans `dep`, tous les
  * départements, chacun sur sa page. Économat et administration.
  */
@@ -24,7 +24,7 @@ export async function GET(request: Request) {
     if (v) p.set(cle, v.slice(0, 40))
   }
   const type = p.get('type') ?? 'rupture'
-  const titre = type === 'ajuste' ? 'Ajustées' : type === 'tous' ? 'Écarts' : 'Ruptures'
+  const titre = type === 'ajuste' ? 'Ajustées' : type === 'preparation' ? 'En préparation' : type === 'tous' ? 'Écarts' : 'Ruptures'
 
   const base = origineInterne()
   const jar = await cookies()

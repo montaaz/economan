@@ -4,7 +4,7 @@
  * elle vit ici plutôt que dans une page, pour qu'un déplacement de route ne
  * casse pas les imports.
  */
-export type LineStatus = 'PENDING' | 'VALIDATED' | 'ADJUSTED' | 'REJECTED'
+export type LineStatus = 'PENDING' | 'VALIDATED' | 'ADJUSTED' | 'REJECTED' | 'PREPARING'
 
 export type ProcessLine = {
   id: string

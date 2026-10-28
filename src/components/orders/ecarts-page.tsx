@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import { Ban, PackageCheck, Pencil, Printer, X } from 'lucide-react'
+import { Ban, CookingPot, PackageCheck, Pencil, Printer, X } from 'lucide-react'
 import { prisma } from '@/server/db'
 import { executeGraphQL } from '@/server/graphql/execute'
 import { PageHeader } from '@/components/ui/stat'
@@ -32,8 +32,8 @@ export async function EcartsPage({
   base: '/economat' | '/admin'
 }) {
   const { jour, jusquau, dep, type } = await searchParams
-  // Trois vues : les ruptures seules, les ajustées seules, ou les deux.
-  const vue = type === 'ajuste' ? 'ajuste' : type === 'tous' ? 'tous' : 'rupture'
+  // Quatre vues : les ruptures, les ajustées, les lignes en préparation, ou tout.
+  const vue = type === 'ajuste' ? 'ajuste' : type === 'preparation' ? 'preparation' : type === 'tous' ? 'tous' : 'rupture'
 
   const [data, allDepartments] = await Promise.all([
     executeGraphQL<{ dayBoard: Board }>(DAY_BOARD_QUERY, {
@@ -59,11 +59,12 @@ export async function EcartsPage({
   // retirer ici faisait disparaître tout le tableau à l'instant même où
   // l'économat s'apprêtait à imprimer le bon de ce passage. Ce qui a été
   // complété reste donc sur l'écran, écart ou pas.
-  const concerne = (o: { rejectedCount: number; adjustedCount: number; refills: unknown[] }) =>
+  const concerne = (o: { rejectedCount: number; adjustedCount: number; preparingCount?: number; refills: unknown[] }) =>
     o.refills.length > 0
     || (vue === 'rupture' ? o.rejectedCount > 0
       : vue === 'ajuste' ? o.adjustedCount > 0
-      : o.rejectedCount > 0 || o.adjustedCount > 0)
+      : vue === 'preparation' ? (o.preparingCount ?? 0) > 0
+      : o.rejectedCount > 0 || o.adjustedCount > 0 || (o.preparingCount ?? 0) > 0)
   const ids = groupes.flatMap((g) => g.orders.filter(concerne).map((o) => o.id))
 
   // Les pastilles comptent les lignes en écart, pas les tickets : c'est ce
@@ -76,7 +77,8 @@ export async function EcartsPage({
         (n, o) => n + (
           vue === 'rupture' ? o.rejectedCount
             : vue === 'ajuste' ? o.adjustedCount
-            : o.rejectedCount + o.adjustedCount
+            : vue === 'preparation' ? (o.preparingCount ?? 0)
+            : o.rejectedCount + o.adjustedCount + (o.preparingCount ?? 0)
         ), 0,
       ),
     ]),
@@ -95,6 +97,9 @@ export async function EcartsPage({
   const ajustees = orders.reduce(
     (n, o) => n + o.lines.filter((l) => l.status === 'ADJUSTED').length, 0,
   )
+  const preparations = orders.reduce(
+    (n, o) => n + o.lines.filter((l) => l.status === 'PREPARING').length, 0,
+  )
 
   // Les lignes passent au formulaire de service : un bloc par département,
   // toutes commandes confondues. Les vues « ajustées » et « ruptures » ne
@@ -112,7 +117,7 @@ export async function EcartsPage({
       // laisser de côté la faisait disparaître du tableau — treize articles
       // servis n'en montraient plus que quatre au moment de relire le bon.
       const concernees = o.lines.filter(
-        (l) => l.status === 'REJECTED' || l.status === 'ADJUSTED'
+        (l) => l.status === 'REJECTED' || l.status === 'ADJUSTED' || l.status === 'PREPARING'
           || l.refills.some((r) => r.quantity > 0),
       )
       if (concernees.length === 0) continue
@@ -155,7 +160,7 @@ export async function EcartsPage({
   }
 
   /** Bascule de vue, en gardant la journée et le service affichés. */
-  const lienVue = (t: 'rupture' | 'ajuste' | 'tous') => {
+  const lienVue = (t: 'rupture' | 'ajuste' | 'preparation' | 'tous') => {
     const p = new URLSearchParams({ type: t })
     if (jour) p.set('jour', jour)
     if (jusquau) p.set('jusquau', jusquau)
@@ -179,7 +184,9 @@ export async function EcartsPage({
             ? 'Seules les ruptures sont affichées : la saisie en cours est conservée.'
             : vue === 'ajuste'
               ? 'Seules les quantités ajustées sont affichées : la saisie en cours est conservée.'
-              : 'Tout ce qui s’écarte de la commande : d’abord les quantités ajustées, puis les ruptures.'
+              : vue === 'preparation'
+                ? 'Seuls les articles en préparation sont affichés : servez-les ici quand ils sont prêts.'
+                : 'Tout ce qui s’écarte de la commande : d’abord les quantités ajustées, puis les ruptures.'
         }
       >
         <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -199,7 +206,7 @@ export async function EcartsPage({
               className={cn(
                 'cursor-pointer transition-[box-shadow,opacity] hover:shadow-[0_4px_12px_-6px_rgb(var(--shadow-ambient)/0.5)]',
                 vue === 'ajuste' && 'ring-2 ring-warn/45',
-                vue === 'rupture' && 'opacity-60',
+                (vue === 'rupture' || vue === 'preparation') && 'opacity-60',
               )}
             >
               <Pencil className="size-3.5" />
@@ -212,11 +219,24 @@ export async function EcartsPage({
               className={cn(
                 'cursor-pointer transition-[box-shadow,opacity] hover:shadow-[0_4px_12px_-6px_rgb(var(--shadow-ambient)/0.5)]',
                 vue === 'rupture' && 'ring-2 ring-danger/45',
-                vue === 'ajuste' && 'opacity-60',
+                (vue === 'ajuste' || vue === 'preparation') && 'opacity-60',
               )}
             >
               <Ban className="size-3.5" />
               {ruptures} rupture{ruptures > 1 ? 's' : ''}
+            </Badge>
+          </Link>
+          <Link href={`${base}/ecarts?${lienVue('preparation')}`} className="no-print">
+            <Badge
+              tone="prep"
+              className={cn(
+                'cursor-pointer transition-[box-shadow,opacity] hover:shadow-[0_4px_12px_-6px_rgb(var(--shadow-ambient)/0.5)]',
+                vue === 'preparation' && 'ring-2 ring-[#7c3aed]/45',
+                (vue === 'ajuste' || vue === 'rupture') && 'opacity-60',
+              )}
+            >
+              <CookingPot className="size-3.5" />
+              {preparations} en préparation
             </Badge>
           </Link>
           {/* Revenir aux deux d'un geste, sans passer par le tableau du jour. */}
@@ -233,7 +253,7 @@ export async function EcartsPage({
           ) : null}
           {/* Le papier de ce qu'on voit : ruptures, ajustées ou les deux, tous
               les départements (chacun sur sa page) ou celui choisi. Un PDF. */}
-          {ruptures + ajustees > 0 ? (
+          {ruptures + ajustees + preparations > 0 ? (
             <a
               href={`/api/ecarts-jour?${lienVue(vue)}`}
               target="_blank"
@@ -241,7 +261,7 @@ export async function EcartsPage({
               className="no-print inline-flex h-9 items-center gap-1.5 rounded-xl bg-gradient-to-b from-[#4f6ef7] to-[#3b4fd8] px-3.5 text-[0.84rem] font-bold text-white shadow-[0_8px_18px_-8px_rgb(59_79_216/0.8)] transition-[filter] hover:brightness-110"
             >
               <Printer className="size-4" />
-              {vue === 'rupture' ? `Imprimer les ${ruptures} ruptures` : vue === 'ajuste' ? `Imprimer les ${ajustees} ajustées` : `Imprimer les ${ruptures + ajustees} écarts`}
+              {vue === 'rupture' ? `Imprimer les ${ruptures} ruptures` : vue === 'ajuste' ? `Imprimer les ${ajustees} ajustées` : vue === 'preparation' ? `Imprimer les ${preparations} en préparation` : `Imprimer les ${ruptures + ajustees + preparations} écarts`}
               {dep ? '' : ' · tous les départements'}
             </a>
           ) : null}
@@ -268,6 +288,7 @@ export async function EcartsPage({
             title={
               vue === 'rupture' ? 'Aucune rupture'
                 : vue === 'ajuste' ? 'Aucun ajustement'
+                : vue === 'preparation' ? 'Rien en préparation'
                 : 'Aucun écart'
             }
             description={
@@ -275,6 +296,8 @@ export async function EcartsPage({
                 ? 'Tout ce qui a été commandé a pu être servi.'
                 : vue === 'ajuste'
                   ? 'Tout ce qui a été servi correspond à ce qui était commandé.'
+                  : vue === 'preparation'
+                    ? 'Aucun article n’attend d’être prêt.'
                   : 'Tout a été servi tel que commandé.'
             }
           />
@@ -288,7 +311,7 @@ export async function EcartsPage({
             <RefillForm
               key={s.id}
               service={s}
-              etat={vue === 'rupture' ? 'REJECTED' : vue === 'ajuste' ? 'ADJUSTED' : null}
+              etat={vue === 'rupture' ? 'REJECTED' : vue === 'ajuste' ? 'ADJUSTED' : vue === 'preparation' ? 'PREPARING' : null}
               admin={base === '/admin'}
             />
           ))}

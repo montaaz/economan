@@ -202,29 +202,29 @@ export async function deleteUser(id: number): Promise<ActionResult> {
   const actor = await requireRole(['ADMIN'], '/admin/login')
   if (actor.id === id) return { ok: false, error: 'Vous ne pouvez pas supprimer votre propre compte.' }
 
-  const orders = await prisma.order.count({ where: { createdById: id } })
-  if (orders > 0) {
-    return {
-      ok: false,
-      error: `Ce compte porte ${orders} commande(s). Désactivez-le plutôt que de le supprimer.`,
-    }
+  // Un compte sans historique s'efface pour de bon. Un compte qui a passé,
+  // servi ou signé quelque chose ne le peut pas sans faire mentir les tickets
+  // (« commandé par … ») : la base le refuse. On l'archive alors — il sort de
+  // la liste, ne se connecte plus, et son identifiant redevient libre — sans
+  // demander à l'administration de passer par « Désactiver ».
+  try {
+    await prisma.user.delete({ where: { id } })
+  } catch (e) {
+    const code = (e as { code?: string }).code
+    if (code !== 'P2003' && code !== 'P2014') throw e
+    const u = await prisma.user.findUnique({ where: { id }, select: { username: true } })
+    if (!u) return { ok: false, error: 'Compte introuvable.' }
+    await prisma.$transaction([
+      // Les clés et visages enregistrés ne servent plus à rien : on les retire.
+      prisma.credential.deleteMany({ where: { userId: id } }),
+      prisma.faceProfile.deleteMany({ where: { userId: id } }),
+      prisma.pushSubscription.deleteMany({ where: { userId: id } }),
+      prisma.user.update({
+        where: { id },
+        data: { isActive: false, deletedAt: new Date(), username: `${u.username}~supprime~${id}` },
+      }),
+    ])
   }
-  // Les écritures de stock, préparations et ventes déclarées portent aussi
-  // son nom, sans cascade : on le dit plutôt que de laisser la base refuser.
-  const [entrees, preparations, declarees] = await Promise.all([
-    prisma.stockEntry.count({ where: { createdById: id } }),
-    prisma.preparation.count({ where: { createdById: id } }),
-    prisma.declaredSale.count({ where: { createdById: id } }),
-  ])
-  const photos = await prisma.invoicePhoto.count({ where: { createdById: id } })
-  if (entrees + preparations + declarees + photos > 0) {
-    return {
-      ok: false,
-      error: `Ce compte a signé ${entrees + preparations + declarees + photos} écriture(s) de stock ou de contrôle. Désactivez-le plutôt que de le supprimer.`,
-    }
-  }
-
-  await prisma.user.delete({ where: { id } })
   revalidatePath('/admin/utilisateurs')
   return { ok: true }
 }

@@ -10,8 +10,8 @@ import { formatJourneeTravail, formatPeriod, formatQty } from '@/lib/utils'
 export const metadata: Metadata = { title: 'Écarts de la journée' }
 export const dynamic = 'force-dynamic'
 
-type Vue = 'rupture' | 'ajuste' | 'tous'
-const TITRES: Record<Vue, string> = { rupture: 'Ruptures', ajuste: 'Quantités ajustées', tous: 'Écarts' }
+type Vue = 'rupture' | 'ajuste' | 'preparation' | 'tous'
+const TITRES: Record<Vue, string> = { rupture: 'Ruptures', ajuste: 'Quantités ajustées', preparation: 'En préparation', tous: 'Écarts' }
 
 /**
  * Les écarts de la journée sur papier : ruptures, ajustées, ou les deux —
@@ -26,8 +26,8 @@ export default async function EcartsImprimerPage({
 }) {
   await requireRole(['ECONOMAN', 'ADMIN'], '/economat/login')
   const { jour, jusquau, dep, type } = await searchParams
-  const vue: Vue = type === 'ajuste' ? 'ajuste' : type === 'tous' ? 'tous' : 'rupture'
-  const garde = (s: string) => (vue === 'rupture' ? s === 'REJECTED' : vue === 'ajuste' ? s === 'ADJUSTED' : s === 'REJECTED' || s === 'ADJUSTED')
+  const vue: Vue = type === 'ajuste' ? 'ajuste' : type === 'preparation' ? 'preparation' : type === 'tous' ? 'tous' : 'rupture'
+  const garde = (s: string) => (vue === 'rupture' ? s === 'REJECTED' : vue === 'ajuste' ? s === 'ADJUSTED' : vue === 'preparation' ? s === 'PREPARING' : s === 'REJECTED' || s === 'ADJUSTED' || s === 'PREPARING')
 
   const { dayBoard: board } = await executeGraphQL<{ dayBoard: Board }>(DAY_BOARD_QUERY, { day: jour ?? null, dayTo: jusquau ?? null })
   const groupes = dep ? board.departments.filter((g) => g.department.id === dep) : board.departments
@@ -62,7 +62,8 @@ export default async function EcartsImprimerPage({
     <>
       {rayons.map((r, i) => {
         const ruptures = r.lignes.filter((l) => (l.initialStatus ?? l.status) === 'REJECTED').length
-        const ajustees = r.lignes.length - ruptures
+        const preparations = r.lignes.filter((l) => (l.initialStatus ?? l.status) === 'PREPARING').length
+        const ajustees = r.lignes.length - ruptures - preparations
         return (
           <div key={r.nom} className="bg-white px-1 py-1 text-[0.74rem] leading-tight text-[#0f1e33]" style={i > 0 ? { breakBefore: 'page' } : undefined}>
             <header className="flex items-end justify-between gap-4 border-b-2 border-[#0f1e33] pb-1">
@@ -76,6 +77,8 @@ export default async function EcartsImprimerPage({
                   {ruptures > 0 ? <span className="text-[#d63f5a]">{ruptures} rupture{ruptures > 1 ? 's' : ''}</span> : null}
                   {ruptures > 0 && ajustees > 0 ? ' · ' : null}
                   {ajustees > 0 ? <span className="text-[#b4630f]">{ajustees} ajustée{ajustees > 1 ? 's' : ''}</span> : null}
+                  {preparations > 0 && ruptures + ajustees > 0 ? ' · ' : null}
+                  {preparations > 0 ? <span className="text-[#6d28d9]">{preparations} en préparation</span> : null}
                 </p>
               </div>
             </header>
@@ -94,6 +97,7 @@ export default async function EcartsImprimerPage({
               <tbody>
                 {r.lignes.map((l, k) => {
                   const rupture = (l.initialStatus ?? l.status) === 'REJECTED'
+                  const prep = (l.initialStatus ?? l.status) === 'PREPARING'
                   const servi = Number(l.quantityServed ?? 0) + Number(l.quantityRefilled ?? 0)
                   const ouvre = k === 0 || r.lignes[k - 1].categoryName !== l.categoryName
                   return (
@@ -103,7 +107,7 @@ export default async function EcartsImprimerPage({
                           <td colSpan={7} className="px-1 py-px text-[0.68rem] font-bold uppercase tracking-[0.05em]">{l.categoryName}</td>
                         </tr>
                       ) : null}
-                      <tr className="border-b border-[#e3e9f3]" style={{ background: rupture ? '#fdeaee' : '#fdf1e3' }}>
+                      <tr className="border-b border-[#e3e9f3]" style={{ background: rupture ? '#fdeaee' : prep ? '#f3edff' : '#fdf1e3' }}>
                         <td className="px-1 py-px text-right tabular-nums text-[#4a5f7d]">{l.rang}</td>
                         <td className="max-w-0 truncate whitespace-nowrap px-1 py-px">
                           <span className="font-medium">{l.productName}</span>
@@ -115,7 +119,7 @@ export default async function EcartsImprimerPage({
                         <td className="whitespace-nowrap px-1 py-px text-right font-bold tabular-nums" style={{ color: Number(l.remaining) > 0 ? '#d63f5a' : '#0b7a55' }}>
                           {Number(l.remaining) > 0 ? `${formatQty(l.remaining)} ${l.unitSymbol}` : 'soldé'}
                         </td>
-                        <td className="whitespace-nowrap px-1 py-px font-semibold" style={{ color: rupture ? '#d63f5a' : '#b4630f' }}>{rupture ? 'Rupture' : 'Ajusté'}</td>
+                        <td className="whitespace-nowrap px-1 py-px font-semibold" style={{ color: rupture ? '#d63f5a' : prep ? '#6d28d9' : '#b4630f' }}>{rupture ? 'Rupture' : prep ? 'En préparation' : 'Ajusté'}</td>
                       </tr>
                     </Fragment>
                   )

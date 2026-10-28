@@ -16,7 +16,7 @@ export type TicketLine = {
   quantityReceived?: number | null
   /** Écart reçu − servi. 0 si conforme ou non vérifié. */
   receiptGap?: number
-  status: 'PENDING' | 'VALIDATED' | 'ADJUSTED' | 'REJECTED'
+  status: 'PENDING' | 'VALIDATED' | 'ADJUSTED' | 'REJECTED' | 'PREPARING'
   rejectReason: string | null
   /** Numéro de la ligne sur le ticket, tel que l'écran l'affiche. */
   rang?: number
@@ -164,7 +164,7 @@ export function Ticket({
 
             // Écart entre ce qui est sorti et ce qui était commandé. Nul sur un
             // bon de commande : rien n'est encore servi.
-            const ecart = livre && l.status !== 'REJECTED'
+            const ecart = livre && l.status !== 'REJECTED' && l.status !== 'PREPARING'
               ? (l.quantityServed ?? 0) - l.quantityAsked
               : 0
             return (
@@ -183,6 +183,9 @@ export function Ticket({
                     // Une rupture doit sauter aux yeux sur le papier comme à
                     // l'écran : c'est l'information qu'on cherche en relisant.
                     l.status === 'REJECTED' && 'bg-[#fdeaee]',
+                    // En préparation : rien ne part avec ce bon, l'article
+                    // suivra sur un servi suivant.
+                    l.status === 'PREPARING' && 'bg-[#f3edff]',
                     // Une quantité différente de la commande se signale aussi :
                     // sans marque, un bon servi à moitié se relit comme conforme.
                     ecart !== 0 && 'bg-[#fdf1e3]',
@@ -231,6 +234,8 @@ export function Ticket({
                     <td className="whitespace-nowrap px-2 py-1 text-right font-semibold tabular-nums">
                       {l.status === 'REJECTED' ? (
                         <span className="font-semibold text-[#d63f5a]">Rupture</span>
+                      ) : l.status === 'PREPARING' ? (
+                        <span className="font-semibold text-[#6d28d9]">En préparation</span>
                       ) : livre ? (
                         <>
                           {/* Le symbole seul : accoler l'écart à la quantité
@@ -260,7 +265,7 @@ export function Ticket({
 
       {/* Légende : le signe seul ne suffit pas à qui reçoit le bon sans
           explication. Affichée uniquement s'il y a un écart à lire. */}
-      {livre && lines.some((l) => l.status !== 'REJECTED'
+      {livre && lines.some((l) => l.status !== 'REJECTED' && l.status !== 'PREPARING'
         && (l.quantityServed ?? 0) !== l.quantityAsked) ? (
         <p className="mt-3 text-[0.76rem] text-[#4a5f7d]">
           <span className="font-bold text-[#b4630f]">▼</span> servi en moins que commandé ·{' '}

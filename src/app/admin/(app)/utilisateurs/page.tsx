@@ -9,6 +9,9 @@ export const dynamic = 'force-dynamic'
 export default async function UsersPage() {
   const [users, departments] = await Promise.all([
     prisma.user.findMany({
+      // Les comptes supprimés qui portaient de l'historique restent en base pour
+      // leurs tickets, mais ne se montrent plus.
+      where: { deletedAt: null },
       orderBy: [{ role: 'asc' }, { fullName: 'asc' }],
       select: {
         id: true, fullName: true, username: true, role: true, isActive: true,

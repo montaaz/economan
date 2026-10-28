@@ -25,7 +25,7 @@ const typeDefs = /* GraphQL */ `
 
   enum Role { EMPLOYEE ECONOMAN CONTROLEUR ADMIN }
   enum OrderStatus { PENDING ACCEPTED DELIVERED RECEIVED CANCELLED }
-  enum LineStatus { PENDING VALIDATED ADJUSTED REJECTED }
+  enum LineStatus { PENDING VALIDATED ADJUSTED REJECTED PREPARING }
 
   type Department {
     id: ID!
@@ -526,6 +526,8 @@ const typeDefs = /* GraphQL */ `
     rejectedCount: Int!
     "Lignes servies en quantité différente."
     adjustedCount: Int!
+    "Lignes en préparation : rien n'est encore sorti, un servi suivant les livrera."
+    preparingCount: Int!
     "Lignes servies exactement comme demandé."
     validatedCount: Int!
     ticketNumber: Int!
@@ -1123,7 +1125,7 @@ function sortiTotal(l: LigneServie): number {
  * l'administration, et remettre alors la ligne en rupture tromperait.
  */
 function effectiveStatus(l: LigneServie): string {
-  if (l.status !== 'REJECTED' && l.status !== 'ADJUSTED') return l.status
+  if (l.status !== 'REJECTED' && l.status !== 'ADJUSTED' && l.status !== 'PREPARING') return l.status
   // Tout ce qui est sorti du magasin, signé ou non : une ligne soldée par un
   // servi n'attend plus rien, et la laisser en rupture ferait compter deux
   // fois une marchandise déjà partie. La réception se suit ailleurs.
@@ -1133,7 +1135,10 @@ function effectiveStatus(l: LigneServie): string {
   const complements = (l.refills ?? []).reduce((n, r) => n + Number(r.quantity), 0)
   const total = Number(l.quantityServed ?? 0) + complements
   if (total >= Number(l.quantityAsked)) return 'VALIDATED'
-  return total <= 0 ? 'REJECTED' : 'ADJUSTED'
+  // En préparation : la ligne garde son état tant que rien n'est parti ; un
+  // servi suivant la solde ou la fait passer en ajustée, comme une rupture.
+  if (total <= 0) return l.status === 'PREPARING' ? 'PREPARING' : 'REJECTED'
+  return 'ADJUSTED'
 }
 
 const ORDER_INCLUDE = {
@@ -1270,6 +1275,7 @@ async function cumulerArticles(
         quantityServed: number
         stockFixe: number
         enAttente: boolean
+        enPreparation: boolean
         servedRank: number
         sortOrder: number
         orders: Set<number>
@@ -1300,6 +1306,7 @@ async function cumulerArticles(
         row.quantityServed += sorti(l)
         row.stockFixe = Math.max(row.stockFixe, Number(l.stockFixe))
         row.enAttente ||= l.status === 'PENDING'
+        row.enPreparation ||= l.status === 'PREPARING'
         row.servedRank = Math.max(row.servedRank, dernierRang(l))
         row.orders.add(l.orderId)
         if (l.order.isUrgent) row.urgentAsked += Number(l.quantityAsked)
@@ -1321,6 +1328,7 @@ async function cumulerArticles(
         quantityServed: sorti(l),
         stockFixe: Number(l.stockFixe),
         enAttente: l.status === 'PENDING',
+        enPreparation: l.status === 'PREPARING',
         servedRank: dernierRang(l),
         sortOrder: l.sortOrder,
         orders: new Set([l.orderId]),
@@ -1343,7 +1351,7 @@ async function cumulerArticles(
           : r.quantityServed >= r.quantityAsked
             ? 'VALIDATED'
             : r.quantityServed <= 0
-              ? 'REJECTED'
+              ? (r.enPreparation ? 'PREPARING' : 'REJECTED')
               : 'ADJUSTED',
       }))
       .sort((x, y) => x.sortOrder - y.sortOrder || x.productName.localeCompare(y.productName))
@@ -1626,6 +1634,8 @@ const resolvers = {
       (o.lines ?? []).filter((l) => effectiveStatus(l) === 'REJECTED').length,
     adjustedCount: (o: { lines?: LigneServie[] }) =>
       (o.lines ?? []).filter((l) => effectiveStatus(l) === 'ADJUSTED').length,
+    preparingCount: (o: { lines?: LigneServie[] }) =>
+      (o.lines ?? []).filter((l) => effectiveStatus(l) === 'PREPARING').length,
     validatedCount: (o: { lines?: LigneServie[] }) =>
       (o.lines ?? []).filter((l) => effectiveStatus(l) === 'VALIDATED').length,
     totalAsked: (o: { lines?: { quantityAsked: unknown }[] }) =>
@@ -2287,7 +2297,7 @@ const resolvers = {
 
     dayRuptures: async (
       _p: unknown,
-      a: { day?: string; dayTo?: string; departmentId?: string; status?: 'REJECTED' | 'ADJUSTED' },
+      a: { day?: string; dayTo?: string; departmentId?: string; status?: 'REJECTED' | 'ADJUSTED' | 'PREPARING' },
       ctx: Ctx,
     ) => {
       requireStaff(ctx)
@@ -2297,7 +2307,7 @@ const resolvers = {
           // Les deux écarts à la commande sont lus, puis triés par leur état
           // effectif : filtrer ici sur l'état enregistré faisait disparaître
           // des deux listes une rupture devenue ajustement par un servi.
-          status: { in: ['REJECTED', 'ADJUSTED'] },
+          status: { in: ['REJECTED', 'ADJUSTED', 'PREPARING'] },
           order: {
             businessDay: periodFilter(period),
             // La liste suit le filtre de l'écran : montrer les ruptures des
@@ -3021,7 +3031,7 @@ const resolvers = {
 
     setServedLines: async (
       _p: unknown,
-      a: { id: string; lines: { lineId: string; status: 'VALIDATED' | 'ADJUSTED' | 'REJECTED'; quantityServed?: number; rejectReason?: string }[] },
+      a: { id: string; lines: { lineId: string; status: 'VALIDATED' | 'ADJUSTED' | 'REJECTED' | 'PREPARING'; quantityServed?: number; rejectReason?: string }[] },
       ctx: Ctx,
     ) => {
       const u = requireStaff(ctx)

@@ -35,6 +35,8 @@ export type BoardOrder = {
   businessDay: string
   rejectedCount: number
   adjustedCount: number
+  /** Lignes en préparation : elles partiront sur un servi suivant. */
+  preparingCount?: number
   validatedCount: number
   /** Remarque du département à la réception, s'il en a laissé une. */
   receptionNote: string | null
@@ -428,6 +430,11 @@ function TicketCard({
           {o.adjustedCount > 0 ? (
             <span className="rounded-full bg-warn/14 px-1.5 font-medium text-warn">
               {o.adjustedCount} ajustée{o.adjustedCount > 1 ? 's' : ''}
+            </span>
+          ) : null}
+          {(o.preparingCount ?? 0) > 0 ? (
+            <span className="rounded-full bg-[#7c3aed]/12 px-1.5 font-medium text-[#6d28d9]">
+              {o.preparingCount} en préparation
             </span>
           ) : null}
           {/* Et ce qui va bien : sans lui, deux comptes rouges sur une carte

@@ -21,7 +21,7 @@ export type OrderLine = {
   quantityOnHand: number
   quantityAsked: number
   quantityServed: number | null
-  status: 'PENDING' | 'VALIDATED' | 'ADJUSTED' | 'REJECTED'
+  status: 'PENDING' | 'VALIDATED' | 'ADJUSTED' | 'REJECTED' | 'PREPARING'
   rejectReason: string | null
   /** Numéro de la ligne sur le ticket, donné par le serveur. */
   rang?: number
@@ -336,6 +336,7 @@ export function OrderLines({
               <tr
                 className={cn(
                   l.status === 'REJECTED' && 'bg-danger/[0.06]',
+                  l.status === 'PREPARING' && 'bg-[#7c3aed]/[0.07]',
                   ouvert && 'bg-accent/[0.08]',
                 )}
               >
@@ -395,7 +396,11 @@ export function OrderLines({
                       : `${formatQty(l.quantityAsked)} ${l.unitSymbol}`}
                 </Td>
                 <Td className="whitespace-nowrap text-right font-medium tabular-nums text-fg">
-                  {l.quantityServed === null ? '—' : `${formatQty(l.quantityServed)} ${l.unitSymbol}`}
+                  {/* En préparation : l'économat le prépare, il arrivera sur
+                      un servi suivant — un « 0 » laissait croire à une rupture. */}
+                  {l.status === 'PREPARING'
+                    ? <span className="font-semibold text-[#6d28d9]">En préparation</span>
+                    : l.quantityServed === null ? '—' : `${formatQty(l.quantityServed)} ${l.unitSymbol}`}
                 </Td>
                 {editable ? (
                   <Td className="text-right">

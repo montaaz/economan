@@ -6,7 +6,7 @@ import { DayBoard, DayTotals, type Board } from '@/components/orders/day-board'
 import { DayPicker } from '@/components/orders/day-picker'
 import { DepartmentFilter } from '@/components/orders/department-filter'
 import Link from 'next/link'
-import { Ban, Layers, Pencil } from 'lucide-react'
+import { Ban, CookingPot, Layers, Pencil } from 'lucide-react'
 import { Badge, Button } from '@/components/ui/glass'
 import { DAY_BOARD_QUERY } from '@/lib/queries'
 import { formatJourneeTravail } from '@/lib/utils'
@@ -75,7 +75,11 @@ export default async function EconomatPage({
     (n, g) => n + g.orders.reduce((m, o) => m + o.adjustedCount, 0), 0,
   )
   // La vue des écarts reprend la journée et le service affichés ici.
-  const lienEcart = (type: 'rupture' | 'ajuste' | 'tous') => {
+  // Les lignes en préparation : elles attendent un servi suivant, comme les autres écarts.
+  const preparations = parService.reduce((n, g) => n + g.orders.reduce((m, o) => m + (o.preparingCount ?? 0), 0), 0)
+  // « Tout » n'a de sens que si au moins deux sortes d'écart existent.
+  const sortes = [ruptures, ajustees, preparations].filter((x) => x > 0).length
+  const lienEcart = (type: 'rupture' | 'ajuste' | 'preparation' | 'tous') => {
     const p = new URLSearchParams({ jour: board.day, type })
     if (board.isRange) p.set('jusquau', board.dayTo)
     if (selected) p.set('dep', selected)
@@ -134,11 +138,19 @@ export default async function EconomatPage({
 
           {/* Les deux d'un bloc : c'est la même tournée de correction, et
               passer d'un écran à l'autre pour la faire n'a pas de sens. */}
-          {ruptures > 0 && ajustees > 0 ? (
+          {preparations > 0 ? (
+            <Link href={`/economat/ecarts?${lienEcart('preparation')}`}>
+              <Button variant="prep" size="sm">
+                <CookingPot className="size-3.5" />
+                {preparations} en préparation
+              </Button>
+            </Link>
+          ) : null}
+          {sortes >= 2 ? (
             <Link href={`/economat/ecarts?${lienEcart('tous')}`}>
               <Button variant="success" size="sm">
                 <Layers className="size-3.5" />
-                Tout ({ruptures + ajustees})
+                Tout ({ruptures + ajustees + preparations})
               </Button>
             </Link>
           ) : null}

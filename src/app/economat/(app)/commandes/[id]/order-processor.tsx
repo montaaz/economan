@@ -3,7 +3,7 @@
 import * as React from 'react'
 import { useRouter } from 'next/navigation'
 import {
-  Check, Ban, Pencil, Printer, Truck, PackageOpen, RotateCcw, Undo2, PackageCheck,
+  Check, Ban, CookingPot, Pencil, Printer, Truck, PackageOpen, RotateCcw, Undo2, PackageCheck,
   MessageSquareWarning, Siren,
 } from 'lucide-react'
 import { GlassCard, Button, Badge, TableWrap, Th, Td } from '@/components/ui/glass'
@@ -187,13 +187,15 @@ export function OrderProcessor({ order, admin = false }: {
     let validated = 0
     let adjusted = 0
     let rejected = 0
+    let preparing = 0
     for (const l of order.lines) {
       const s = draft[l.id]?.status ?? 'PENDING'
       if (s === 'VALIDATED') validated++
       else if (s === 'ADJUSTED') adjusted++
       else if (s === 'REJECTED') rejected++
+      else if (s === 'PREPARING') preparing++
     }
-    return { validated, adjusted, rejected, pending: order.lines.length - validated - adjusted - rejected }
+    return { validated, adjusted, rejected, preparing, pending: order.lines.length - validated - adjusted - rejected - preparing }
   }, [draft, order.lines])
 
 
@@ -516,6 +518,19 @@ export function OrderProcessor({ order, admin = false }: {
             </FilterBadge>
           ) : null}
 
+          {counts.preparing > 0 ? (
+            <FilterBadge
+              tone="prep"
+              actif={filtre === 'PREPARING'}
+              onClick={() => setFiltre(filtre === 'PREPARING' ? null : 'PREPARING')}
+              label={filtre === 'PREPARING'
+                ? 'Afficher de nouveau toutes les lignes'
+                : `N’afficher que les ${counts.preparing} ligne(s) en préparation`}
+            >
+              {counts.preparing} en préparation
+            </FilterBadge>
+          ) : null}
+
           {counts.validated > 0 ? (
             <FilterBadge
               tone="ok"
@@ -741,6 +756,7 @@ export function OrderProcessor({ order, admin = false }: {
                       conforme && 'bg-ok/[0.16] shadow-[inset_3px_0_0_0_var(--ok)]',
                       ecart && 'bg-warn/[0.2] shadow-[inset_3px_0_0_0_var(--warn)]',
                       status === 'REJECTED' && 'bg-danger/[0.16] shadow-[inset_3px_0_0_0_var(--danger)]',
+                      status === 'PREPARING' && 'bg-[#7c3aed]/[0.12] shadow-[inset_3px_0_0_0_#7c3aed]',
                     )}
                   >
                     <Td className="text-right text-[0.78rem] tabular-nums text-fg-subtle">{l.rang}</Td>
@@ -793,6 +809,7 @@ export function OrderProcessor({ order, admin = false }: {
                           className={cn(
                             'whitespace-nowrap text-[0.85rem] tabular-nums',
                             status === 'REJECTED' && 'font-semibold text-danger',
+                            status === 'PREPARING' && 'font-semibold text-[#6d28d9]',
                             conforme && 'font-semibold text-ok',
                             ecart && 'font-semibold text-warn',
                           )}
@@ -806,7 +823,9 @@ export function OrderProcessor({ order, admin = false }: {
                             ? ''
                             : status === 'REJECTED'
                               ? 'Rupture'
-                              : `${formatQty(
+                              : status === 'PREPARING'
+                                ? 'En préparation'
+                                : `${formatQty(
                                   status === 'ADJUSTED' ? toNumber(d?.served) : l.quantityAsked,
                                 )} ${l.unitSymbol}`}
                         </span>
@@ -820,20 +839,22 @@ export function OrderProcessor({ order, admin = false }: {
                             // quantité corresponde ou non : l'éteindre en
                             // revenant à la valeur commandée ferait croire que
                             // la ligne n'est plus traitée.
-                            active={conforme || ecart || status === 'REJECTED'}
+                            active={conforme || ecart || status === 'REJECTED' || status === 'PREPARING'}
                             // La coche prend la couleur de l'état confirmé :
                             // verte si conforme, orange si la quantité diffère,
                             // rouge en rupture. Une coche verte au-dessus d'une
                             // ligne orange ou rouge disait deux choses opposées.
-                            tone={status === 'REJECTED' ? 'danger' : ecart ? 'warn' : 'ok'}
+                            tone={status === 'REJECTED' ? 'danger' : status === 'PREPARING' ? 'prep' : ecart ? 'warn' : 'ok'}
                             // En rupture, rien n'est servi : valider n'a pas de
                             // sens. Le bouton reste visible pour ne pas faire
                             // sauter la colonne, mais ne fait rien.
-                            disabled={status === 'REJECTED'}
+                            disabled={status === 'REJECTED' || status === 'PREPARING'}
                             label={
                               status === 'REJECTED'
                                 ? 'Article en rupture — rien à valider'
-                                : ecart
+                                : status === 'PREPARING'
+                                  ? 'Article en préparation — il partira sur un servi suivant'
+                                  : ecart
                                   ? 'Confirmer la quantité ajustée'
                                   : 'Valider'
                             }
@@ -872,6 +893,16 @@ export function OrderProcessor({ order, admin = false }: {
                                 « on ne sert pas ». C'est déjà l'icône d'une
                                 commande annulée ailleurs dans l'application. */}
                             <Ban className="size-4" />
+                          </LineAction>
+                          <LineAction
+                            active={status === 'PREPARING'}
+                            tone="prep"
+                            label="En préparation — rien ne sort maintenant, l’article partira sur un servi suivant"
+                            onClick={() => setLine(l.id, { status: 'PREPARING' })}
+                          >
+                            {/* La marmite : l'article est sur le feu, il n'est
+                                ni servi ni en rupture. */}
+                            <CookingPot className="size-4" />
                           </LineAction>
                           {status !== 'PENDING' ? (
                             <LineAction
@@ -933,6 +964,7 @@ const ACTION_TONES = {
   ok: 'border-ok/45 bg-ok text-white',
   warn: 'border-warn/45 bg-warn text-white',
   danger: 'border-danger/45 bg-danger text-white',
+  prep: 'border-[#7c3aed]/45 bg-[#7c3aed] text-white',
   neutral: 'border-[rgb(var(--glass-edge)/0.3)] bg-white/60 text-fg-muted',
 } as const
 
@@ -975,6 +1007,7 @@ const BADGES = {
   VALIDATED: { tone: 'ok', label: 'Servi' },
   ADJUSTED: { tone: 'warn', label: 'Ajusté' },
   REJECTED: { tone: 'danger', label: 'Rupture' },
+  PREPARING: { tone: 'prep', label: 'En préparation' },
 } as const
 
 function LineBadge({ status }: { status: LineStatus }) {

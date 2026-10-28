@@ -168,6 +168,10 @@ model User {
   departmentId  Int?
   avatarColor   String    @default("#38bdf8")
   isActive      Boolean   @default(true)
+  /// Supprimé par l'administration alors qu'il porte de l'historique : le
+  /// compte disparaît de la liste et ne se connecte plus, mais ses commandes
+  /// gardent son nom.
+  deletedAt     DateTime?
   lastLoginAt   DateTime?
   /// L'horaire de commande propre à cet utilisateur, « HH:MM ». Nul : il suit
   /// l'horaire général.
@@ -259,6 +263,7 @@ enum LineStatus {
   VALIDATED // servi tel que demandé
   ADJUSTED // servi en quantité différente
   REJECTED // rupture
+  PREPARING // en préparation : rien n'est sorti, l'article se prépare et partira sur un servi suivant
 }
 
 model Order {

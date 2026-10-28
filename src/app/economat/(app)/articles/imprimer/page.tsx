@@ -27,6 +27,7 @@ const ETATS: Record<CumulLine['status'], { libelle: string; couleur: string; fon
   VALIDATED: { libelle: 'Servi', couleur: '#0b7a55', fond: '' },
   ADJUSTED: { libelle: 'Ajusté', couleur: '#b4630f', fond: '#fdf1e3' },
   REJECTED: { libelle: 'Rupture', couleur: '#d63f5a', fond: '#fdeaee' },
+  PREPARING: { libelle: 'En préparation', couleur: '#6d28d9', fond: '#f3edff' },
 }
 
 /**

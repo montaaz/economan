@@ -9,6 +9,7 @@ const ACCENT: Record<Tone, string> = {
   warn: 'text-warn',
   danger: 'text-danger',
   info: 'text-info',
+  prep: 'text-[#6d28d9]',
 }
 
 const HALO: Record<Tone, string> = {
@@ -18,6 +19,7 @@ const HALO: Record<Tone, string> = {
   warn: 'from-warn/28',
   danger: 'from-danger/28',
   info: 'from-info/28',
+  prep: 'from-[#7c3aed]/28',
 }
 
 /** Tuile KPI : la valeur domine, l'icône vit dans un halo doux. */

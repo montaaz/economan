@@ -71,7 +71,7 @@ export type RefillLigne = {
   quantityRefilled: number
   /** Le détail par passage, pour afficher et annuler chacun. */
   refills: { rank: number; quantity: number }[]
-  status: 'PENDING' | 'VALIDATED' | 'ADJUSTED' | 'REJECTED'
+  status: 'PENDING' | 'VALIDATED' | 'ADJUSTED' | 'REJECTED' | 'PREPARING'
   /**
    * Ce qu'il reste à servir, calculé par le serveur avec la même règle que
    * sa garde.
@@ -197,7 +197,7 @@ export function RefillForm({
    * l'interrompent pas : on garde ses colonnes, ses quantités, et l'on ne
    * voit plus que la nature d'écart qu'on est en train de servir.
    */
-  etat?: 'ADJUSTED' | 'REJECTED' | null
+  etat?: 'ADJUSTED' | 'REJECTED' | 'PREPARING' | null
   /**
    * L'administration : elle seule rouvre un servi déjà posé — le premier ou
    * un complément — en pressant l'en-tête de sa colonne, pour en corriger
